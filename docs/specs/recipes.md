@@ -1,9 +1,10 @@
 # Recipes
 
 ```text
-Status: Draft
+Status: Draft. check 0.1.0 implements renders and deploys; migrates
+        (RCP-14), RCP-15, RCP-16, RCP-21 and RCP-22 are not implemented.
 Code: <name>/, check/, .github/, renovate.json
-Verified against: not yet (no implementation)
+Verified against: #2, cert-manager at deploys
 ```
 
 ## Problem
@@ -72,6 +73,7 @@ Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/
   README.md
   tests/
     values.yaml     # the values the proof renders the chart with
+    target.yml      # the target the proof compiles the recipe with
     smoke           # deploys level: proves the application works
 check/              # the comparison script and its tests
 ```
@@ -83,10 +85,15 @@ class directory through its `init.yml` and resolves relative includes such
 as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
 
 - RCP-1: Every recipe MUST be a directory `<name>/` with an `init.yml`, one
-  file per component, a `README.md` and `tests/values.yaml`.
+  file per component, a `README.md`, `tests/values.yaml` and
+  `tests/target.yml`, and above level `renders` also `tests/smoke`.
 
-  - Test: `check lint`
-  - Since: not implemented
+  `init.yml` sets no `components`, so each component lives in its own
+  file. Vendored files, such as the CRDs, live below the recipe directory,
+  so the class directory carries them.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-2: A recipe MUST NOT set `generators.manifest.default_config`. Settings
   shared by its components go into `applications.<name>.component_defaults`,
@@ -99,18 +106,21 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   The `kubernetes` generator merges application defaults only into the
   components that name the application.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-3: Every object name a recipe renders MUST start with the recipe's
   name or a name the chart uses.
+
+  `check lint` compiles `tests/target.yml` and renders the chart with
+  `tests/values.yaml` to compare the names.
 
   Recipes share the `components` and `generators.kubernetes.rbac`
   namespaces of the inventory, so two recipes in one target must not
   collide.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 ## Writing a recipe
 
@@ -126,21 +136,24 @@ belong in the recipe.
   The cert-manager test runs wrote RBAC rules as long flow lines, which
   are hard to review in a diff.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-5: A value that is derivable from another inventory value MUST be
   written as an interpolation or with a built-in resolver, such as
   `${namespace}`, `${parentkey:}` or `${merge:...}`.
 
   - Test: manual: review
-  - Since: not implemented
+  - Since: #2
 
 - RCP-6: Images MUST be pinned as `tag@sha256:digest`, also where an image
   is passed in a container argument.
 
-  - Test: `check lint`
-  - Since: not implemented
+  `check lint` reads the compiled output: every container image and every
+  argument of the form `--<...>image<...>=<ref>`.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-7: A recipe MUST NOT copy a whole object through a pass-through
   section, such as the `kubernetes` generator's `manifests`.
@@ -148,8 +161,8 @@ belong in the recipe.
   An object that only fits there is a gap in the generators. It is
   reported to kadet-hub/registry as a generator request instead.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 ## Proof
 
@@ -157,6 +170,69 @@ belong in the recipe.
 `tests/values.yaml`, compiles the recipe with the same values, and compares
 the two. Helm hooks that only run inside `helm install` and test pods are
 listed in the recipe's README and left out of the comparison.
+
+`check` is one Python CLI in `check/`, run with
+`uv run --locked --project check check/check.py`. Its lock pins Kapitan
+0.36.3 with omegaconf 2.4.0.dev4, the install the consumers guide gives
+users, and PyYAML. The kind node image and the Kapitan `next` image are
+pinned by digest in `check/check.py`. helm, kubectl, kind, oras and gh come
+from `PATH`; CI installs them pinned (RCP-28).
+
+- RCP-23: A recipe's README MUST contain the line
+  ``Source: `oci://<chart>:<version>@sha256:<digest>` `` and the line
+  ``Level: `<level>` ``. `check` pulls the chart by that digest and fails
+  unless the chart's version is `<version>`. The release name is the
+  recipe's name, and the namespace is `parameters.namespace` of
+  `tests/target.yml`.
+
+  `tests/target.yml` is the recipe's side of `tests/values.yaml`: it
+  includes the recipe and the options those values switch on. Charts from
+  an HTTP repository are not supported yet.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
+
+- RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
+  lock, and that compile alone decides the level. It MUST also compile the
+  recipe with the pinned image `ghcr.io/kadet-hub/kapitan:next-<sha>`, built
+  by kadet-hub/kapitan from kapicorp/kapitan `master` plus open upstream
+  pull requests, and report a failed compile or every output file that
+  differs from 0.36.3, without changing its exit status.
+
+  Users install 0.36.3. `next` shows early what the next Kapitan release
+  changes for a recipe. The pin follows the image that the `next` workflow
+  reports in kadet-hub/kapitan#1.
+
+  - Test: CI `check` job, report line `kapitan next`
+  - Since: #2
+
+- RCP-25: `check` MUST leave out every chart object with the annotation
+  `helm.sh/hook`, and MUST fail unless the README names each of them as
+  `` `<Kind>/<name>` ``.
+
+  - Test: CI `check` job, report lines `hook left out`
+  - Since: #2
+
+- RCP-26: At level `renders`, `check` MUST apply for real only Namespaces,
+  CRDs, ServiceAccounts and RBAC objects, and every other object only with
+  a server-side dry run. At level `deploys` it MUST apply the recipe for
+  real on the recipe's cluster, wait for the rollout of every Deployment,
+  StatefulSet and DaemonSet, and run `tests/smoke` with `KUBECONFIG` set to
+  that cluster. The smoke test's exit status decides.
+
+  `renders` then starts no pod from a pull request, so it needs no
+  approval on forks (RCP-20).
+
+  - Test: CI `check` job
+  - Since: #2
+
+- RCP-27: `check` MUST pull each generator a recipe pins only after
+  verifying it as the consumers guide describes: the attestation of the
+  latest index, that index listing the digest under the pinned version and
+  not yanked, and the attestation of the generator itself.
+
+  - Test: CI `lint` and `check` jobs, report line `generator`
+  - Since: #2
 
 | Level | What is proven | Cluster |
 |---|---|---|
@@ -173,8 +249,8 @@ listed in the recipe's README and left out of the comparison.
   another namespace, such as cert-manager's leader election Roles in
   `kube-system`, so the namespace is set in the context instead.
 
-  - Test: `check` tests
-  - Since: not implemented
+  - Test: `check/tests/test_compare.py`; CI `check` job
+  - Since: #2
 
 - RCP-9: Normalization MUST drop exactly these fields and nothing else:
   `uid`, `resourceVersion`, `creationTimestamp`, `managedFields`,
@@ -192,8 +268,8 @@ listed in the recipe's README and left out of the comparison.
   other label and annotation stays, because ingress controllers, meshes
   and monitoring read them.
 
-  - Test: `check` tests
-  - Since: not implemented
+  - Test: `check/tests/test_compare.py`; CI `check` job
+  - Since: #2
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
@@ -201,8 +277,8 @@ listed in the recipe's README and left out of the comparison.
   PodDisruptionBudget or ServiceMonitor the same pods or Services as on the
   chart side.
 
-  - Test: `check` tests
-  - Since: not implemented
+  - Test: `check/tests/test_compare.py`; CI `check` job
+  - Since: #2
 
 - RCP-11: RBAC MUST be compared by what it grants. `check` collects every
   subject a binding on either side names and diffs
@@ -211,13 +287,18 @@ listed in the recipe's README and left out of the comparison.
   built-in roles are covered by a test user bound to `view`, `edit` and
   `admin`.
 
+  A group is listed as a test user in that group. `check` lists only once
+  the built-in roles carry the rules aggregated into them. Labels that
+  aggregate into roles kind does not have, such as OpenShift's
+  `cluster-reader`, are reported as not tested.
+
   RBAC object names do not take part in the comparison. The `kubernetes`
   generator rejects `:` in names, so a recipe renames objects like
   `cert-manager-controller-approve:cert-manager-io` and lists the renames
   in its README.
 
-  - Test: `check` tests
-  - Since: not implemented
+  - Test: `check/tests/test_compare.py`; CI `check` job
+  - Since: #2
 
 - RCP-12: After normalization the object diff MUST be empty, except for
   differences of the classes below. `check` reports each remaining
@@ -233,15 +314,24 @@ listed in the recipe's README and left out of the comparison.
   The two cert-manager runs ended with exactly these differences. A class
   is added here only with the run that needs it.
 
-  - Test: `check` tests
-  - Since: not implemented
+  `check` accepts a difference only where its class holds: a selector
+  difference where RCP-10 found the same selection, `true` where the other
+  side is unset and the pod's ServiceAccount does not disable the token, a
+  port name that resolves to the other side's number in the selected pods
+  or the same pod, a first container named after its workload, container
+  ports that are the same set sorted by name, and a webhook configuration
+  named `<namespace>-...` with the same webhooks.
+
+  - Test: `check/tests/test_compare.py`; CI `check` job
+  - Since: #2
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
-  every recipe once a week.
+  every recipe once a week. A change below `check/` or `.github/` changes
+  every recipe.
 
-  - Test: CI workflow
-  - Since: not implemented
+  - Test: CI `select` job
+  - Since: #2
 
 ## Migration
 
@@ -334,8 +424,8 @@ the `to-recipe` skill and most users compile locally.
   This makes a recipe data: with it, a recipe can neither run code nor
   read files at compile time.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-18: A recipe MUST write parameters only below keys of its own name:
   `components.<name>*`, `applications.<name>`,
@@ -346,8 +436,8 @@ the `to-recipe` skill and most users compile locally.
   so a recipe cannot reach into another application's components or bind
   its ServiceAccount through an RBAC entry named after something else.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-19: A recipe MUST NOT name a ref backend. A value the chart generates,
   such as a password, is a ref whose full tag the target sets, and
@@ -356,8 +446,8 @@ the `to-recipe` skill and most users compile locally.
   The examples' recipes use the `base64` backend so they run anywhere. In a
   user's repository that is a plaintext secret in git.
 
-  - Test: `check lint`
-  - Since: not implemented
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2
 
 - RCP-20: CI MUST run pull requests with `pull_request`, never
   `pull_request_target`, with `permissions: {}` and no secrets, and MUST NOT
@@ -369,8 +459,23 @@ the `to-recipe` skill and most users compile locally.
   The kind node is a privileged container, so a hostPath pod reaches the
   runner's file system.
 
-  - Test: manual: workflow review; actionlint
-  - Since: not implemented
+  On a pull request from a fork, the `check` job of a recipe above
+  `renders` runs in the environment `fork-pull-request`, whose required
+  reviewer is a maintainer. The jobs use only the run's `GITHUB_TOKEN`,
+  read-only, which `gh attestation verify` needs.
+
+  - Test: manual: workflow review; actionlint in the CI `test` job
+  - Since: #2
+
+- RCP-28: CI MUST run the unit tests of `check`, actionlint and
+  `check lint` on every pull request. Every action MUST be pinned by commit
+  SHA, and every tool CI downloads by version and SHA-256.
+
+  The tools are installed by `.github/actions/tools`, uv by
+  `astral-sh/setup-uv` with its cache off.
+
+  - Test: CI `test` and `lint` jobs
+  - Since: #2
 
 - RCP-21: A pull request that moves a recipe to a new chart version MUST
   show, apart from the object diff, every image that changed, the `can-i`
@@ -413,7 +518,7 @@ feature's design (OQ-6).
   matches, a lost RoleBinding to a group, and an accepted difference of
   each class, and fail or pass accordingly.
 - AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
-  --level migrates` in CI.
+  --level migrates` in CI. Met so far up to `deploys`.
 - AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
   `external` entry, a `jinja2` entry, `${from_file:...}`, an unpinned or
   foreign dependency, a key under another application's component, and a
@@ -462,13 +567,24 @@ feature's design (OQ-6).
   cluster access, which limits functions like `lookup`, but that is not
   verified.
 
+- OQ-8: Should RCP-17 also reject resolvers that read the compiling
+  environment, such as `oc.env`? It leaks environment variables into the
+  output, but no requirement covers it yet.
+- OQ-9: Who moves the `next` pin of RCP-24? Renovate cannot order its
+  `next-<sha>` tags, so for now it is moved by hand from kadet-hub/kapitan#1.
+
 ## Implementation inventory
 
 | Path | Purpose |
 |---|---|
 | `<name>/` | One recipe (RCP-1) |
-| `check/` | `check lint` and `check <name> --level <level>`, with tests |
-| `.github/workflows/` | RCP-13 |
+| `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23) |
+| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
+| `check/tests/` | AC-1, AC-2, AC-5 without a cluster |
+| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
+| `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh |
 | `renovate.json` | RCP-16 |
 
 | Value | Setting |
@@ -477,5 +593,6 @@ feature's design (OQ-6).
 | Artifact | `ghcr.io/kadet-hub/recipes/<name>` |
 | Tag | `<name>-vX.Y.Z` |
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
-| First recipe | cert-manager, chart v1.21.2, level `migrates` |
+| First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
+| Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
