@@ -50,7 +50,8 @@ jobs:
           set -euo pipefail
           # On pull_request, HEAD is the merge commit and HEAD^1 the base.
           changed=$(if [[ $EVENT == pull_request ]]; then git diff --name-only HEAD^1 HEAD; fi)
-          all=$([[ $EVENT != pull_request ]] || grep -qE '^(check|\.github)/' <<<"$changed" && echo 1 || true)
+          all=
+          if [[ $EVENT != pull_request ]] || grep -qE '^(check|\.github)/' <<<"$changed"; then all=1; fi
           for init in */init.yml; do
             name=${init%/init.yml}
             if [[ $all ]] || grep -q "^$name/" <<<"$changed"; then
