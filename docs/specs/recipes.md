@@ -2,9 +2,9 @@
 
 ```text
 Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-15, RCP-16, RCP-21 and RCP-22 are not implemented.
+        (RCP-14), RCP-15, RCP-21 and RCP-22 are not implemented.
 Code: <name>/, check/, .github/, renovate.json
-Verified against: #2, cert-manager at deploys
+Verified against: #3, cert-manager at deploys
 ```
 
 ## Problem
@@ -194,17 +194,32 @@ from `PATH`; CI installs them pinned (RCP-28).
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
-  recipe with the pinned image `ghcr.io/kadet-hub/kapitan:next-<sha>`, built
-  by kadet-hub/kapitan from kapicorp/kapitan `master` plus open upstream
-  pull requests, and report a failed compile or every output file that
-  differs from 0.36.3, without changing its exit status.
+  recipe with the image `ghcr.io/kadet-hub/kapitan:next@sha256:<digest>`,
+  built by kadet-hub/kapitan from kapicorp/kapitan `master` plus open
+  upstream pull requests, and report a failed compile or every output file
+  that differs from 0.36.3, without changing its exit status.
 
   Users install 0.36.3. `next` shows early what the next Kapitan release
-  changes for a recipe. The pin follows the image that the `next` workflow
-  reports in kadet-hub/kapitan#1.
+  changes for a recipe.
 
   - Test: CI `check` job, report line `kapitan next`
-  - Since: #2
+  - Since: #2, #3
+
+- RCP-29: Renovate MUST move the `next` pin of RCP-24 to the current
+  digest of the tag `next`, in one pull request at a time that it updates
+  only in a daily schedule window and that does not merge automatically.
+
+  kadet-hub/kapitan rebuilds `next` up to every 15 minutes and tags each
+  build `next-<sha>` and `next`. Renovate cannot order the `next-<sha>`
+  tags, so the pin names the moving tag `next` and Renovate updates its
+  digest, as it does for `latest`. The pin's report line names the
+  digest. The commit an image was built from is in its
+  `org.opencontainers.image.revision` label and in kadet-hub/kapitan#1.
+  The window, 00:00 to 06:00 Europe/Berlin, keeps a build every 15
+  minutes from turning into a stream of pull requests.
+
+  - Test: manual: Renovate dry run
+  - Since: #3
 
 - RCP-25: `check` MUST leave out every chart object with the annotation
   `helm.sh/hook`, and MUST fail unless the README names each of them as
@@ -395,8 +410,15 @@ kapitan compile
   derived from has a new release. The pull request runs `check` at
   `renders`, so the diff of the new chart against the recipe is visible.
 
+  Renovate moves the README's `Source` line to the new version and its
+  digest. The recipe's images, vendored files and values stay at the old
+  version, so `check` fails and its report is the diff a maintainer
+  works from. The images take their tag from
+  `applications.<name>.version`, which Renovate cannot read, so it does
+  not update them on its own.
+
   - Test: manual: Renovate dry run
-  - Since: not implemented
+  - Since: #3
 
 ## Security
 
@@ -415,17 +437,33 @@ another application's component, such as its image, without any output
 rule noticing. The consumer workflow's sandbox contains much of this, but
 the `to-recipe` skill and most users compile locally.
 
+Besides `from_file`, the built-in resolvers of Kapitan 0.36.3 and omegaconf
+2.4.0.dev4 were checked for what they read from the compiling host.
+`oc.env` returns an environment variable, such as a token that the CI job
+or the user's shell holds. `filename`, `parent_filename`, `path` and
+`parent_path` return a node flag meant to carry the class file's name and
+path on the host. Neither 0.36.3 nor kapicorp/kapitan `master` sets that
+flag, so they resolve to `null` today, which also leaves a recipe no use
+for them. No built-in resolver reads the clock. `oc.decode` only parses
+its argument, and `${oc.decode:${oc.env:X}}` is caught through `oc.env`.
+The remaining ones read only the inventory: `oc.create`, `oc.select`,
+`oc.deprecated`, `oc.dict.keys`, `oc.dict.values` and Kapitan's key,
+merge, conversion and boolean resolvers.
+
 - RCP-17: A recipe MUST contain only parameters, `kadet` compile entries
   whose input is a kadet-hub generator pinned by digest in the same
   recipe, `copy` entries of vendored files with a SHA-256 comment, and
   `oci` dependencies on `ghcr.io/kadet-hub/` pinned by digest. It MUST NOT
-  use the resolvers `from_file` or `write`.
+  use the resolvers `from_file`, `write`, `oc.env`, `filename`,
+  `parent_filename`, `path` or `parent_path`.
 
   This makes a recipe data: with it, a recipe can neither run code nor
-  read files at compile time.
+  read files, environment variables or its own location on the host at
+  compile time. `write` is listed because it writes to keys outside the
+  recipe (RCP-18).
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2
+  - Since: #2, #3
 
 - RCP-18: A recipe MUST write parameters only below keys of its own name:
   `components.<name>*`, `applications.<name>`,
@@ -477,6 +515,30 @@ the `to-recipe` skill and most users compile locally.
   - Test: CI `test` and `lint` jobs
   - Since: #2
 
+- RCP-30: Renovate MUST propose updates for every pin of RCP-28, the
+  packages in `check/uv.lock`, the kind node image and the generators a
+  recipe pins, and MUST NOT merge any update automatically.
+
+  `renovate.json` follows kadet-hub/examples. A tool pin carries a
+  `# renovate:` comment, a release asset its SHA-256 and an image its
+  digest. Renovate waits three days after a release whose registry
+  reports a release date. kind and its node image move in one pull
+  request. helm and kubectl are not GitHub release assets, so Renovate
+  moves only their version, and the tools step fails until their SHA-256
+  is set from the publisher's checksum file. Python stays on 3.13, which
+  `requires-python` pins. omegaconf stays on 2.4.0.dev4, because later
+  releases removed `ListMergeMode`, which Kapitan 0.36.3 needs
+  (kapicorp/kapitan#1621).
+
+  Renovate pushes only `renovate/` branches. The `branches` ruleset of
+  this repository admits only the admin role to every branch but `main`.
+  Until it excludes `renovate/**` and a `renovate branches` ruleset
+  admits Renovate and the admin role there, as REV-3 does in
+  kadet-hub/registry, Renovate cannot push.
+
+  - Test: manual: Renovate dry run
+  - Since: #3
+
 - RCP-21: A pull request that moves a recipe to a new chart version MUST
   show, apart from the object diff, every image that changed, the `can-i`
   diff of each subject between the old and the new recipe, and any added
@@ -520,14 +582,18 @@ feature's design (OQ-6).
 - AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
   --level migrates` in CI. Met so far up to `deploys`.
 - AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
-  `external` entry, a `jinja2` entry, `${from_file:...}`, an unpinned or
-  foreign dependency, a key under another application's component, and a
+  `external` entry, a `jinja2` entry, each resolver RCP-17 forbids, an
+  unpinned or foreign dependency, a key under another application's component, and a
   literal `?{base64:` ref.
 - AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
   new recipe with an added image, an added ClusterRole verb and an added
   hostPath volume makes `check` list all three.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by digest and compiles it with the two commands above.
+- AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
+  repository extracts the chart of every recipe, the `next` pin, the kind
+  node image, the generator pins, every tool and action pin and the
+  `check` lock, and finds no update set to merge automatically.
 
 ## Open questions
 
@@ -567,12 +633,6 @@ feature's design (OQ-6).
   cluster access, which limits functions like `lookup`, but that is not
   verified.
 
-- OQ-8: Should RCP-17 also reject resolvers that read the compiling
-  environment, such as `oc.env`? It leaks environment variables into the
-  output, but no requirement covers it yet.
-- OQ-9: Who moves the `next` pin of RCP-24? Renovate cannot order its
-  `next-<sha>` tags, so for now it is moved by hand from kadet-hub/kapitan#1.
-
 ## Implementation inventory
 
 | Path | Purpose |
@@ -585,7 +645,7 @@ feature's design (OQ-6).
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh |
-| `renovate.json` | RCP-16 |
+| `renovate.json` | RCP-16, RCP-29, RCP-30 |
 
 | Value | Setting |
 |---|---|
