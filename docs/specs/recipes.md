@@ -308,6 +308,100 @@ kapitan compile
   - Test: manual: Renovate dry run
   - Since: not implemented
 
+## Security
+
+A recipe reaches users' machines and clusters through a pinned artifact,
+so it is supply chain. The threats below were worked through against
+Kapitan 0.36.3, and each requirement names the paths it closes.
+
+An inventory class is not just data. It can add `kapitan.compile` entries:
+`external` runs any binary through `subprocess`, `jinja2` renders in a
+plain `jinja2.Environment` without sandbox, and `kadet` runs Python it
+brings along. The omegaconf resolver `from_file` reads any path the
+compiling user can read, and its value can land in compiled output or in a
+dependency's source URL, which the consumer workflow fetches outside its
+sandbox. Classes merge into shared parameters, so a recipe can change
+another application's component, such as its image, without any output
+rule noticing. The consumer workflow's sandbox contains much of this, but
+the `to-recipe` skill and most users compile locally.
+
+- RCP-17: A recipe MUST contain only parameters, `kadet` compile entries
+  whose input is a kadet-hub generator pinned by digest in the same
+  recipe, `copy` entries of vendored files with a SHA-256 comment, and
+  `oci` dependencies on `ghcr.io/kadet-hub/` pinned by digest. It MUST NOT
+  use the resolvers `from_file` or `write`.
+
+  This makes a recipe data: with it, a recipe can neither run code nor
+  read files at compile time.
+
+  - Test: `check lint`
+  - Since: not implemented
+
+- RCP-18: A recipe MUST write parameters only below keys of its own name:
+  `components.<name>*`, `applications.<name>`,
+  `generators.<generator>.<section>.<name>*`, plus its own entries in
+  `kapitan.dependencies` and `kapitan.compile`.
+
+  RCP-3 keeps rendered object names apart. This keeps the inventory apart,
+  so a recipe cannot reach into another application's components or bind
+  its ServiceAccount through an RBAC entry named after something else.
+
+  - Test: `check lint`
+  - Since: not implemented
+
+- RCP-19: A recipe MUST NOT name a ref backend. A value the chart generates,
+  such as a password, is a ref whose full tag the target sets, and
+  `check lint` MUST reject `?{` in a recipe file.
+
+  The examples' recipes use the `base64` backend so they run anywhere. In a
+  user's repository that is a plaintext secret in git.
+
+  - Test: `check lint`
+  - Since: not implemented
+
+- RCP-20: CI MUST run pull requests with `pull_request`, never
+  `pull_request_target`, with `permissions: {}` and no secrets, and MUST NOT
+  write caches from pull request runs. The `deploys` and `migrates` levels
+  MUST wait for a maintainer's approval on pull requests from forks.
+  Releases run in a separate workflow on `main`.
+
+  `deploys` applies the pull request's manifests to kind inside the runner.
+  The kind node is a privileged container, so a hostPath pod reaches the
+  runner's file system.
+
+  - Test: manual: workflow review; actionlint
+  - Since: not implemented
+
+- RCP-21: A pull request that moves a recipe to a new chart version MUST
+  show, apart from the object diff, every image that changed, the `can-i`
+  diff of each subject between the old and the new recipe, and any added
+  webhook, hostPath volume, privileged container or host namespace.
+  Such pull requests MUST NOT merge automatically.
+
+  `renders` compares the recipe with the chart. A compromised chart
+  release passes it. This diff is what a reviewer can still catch.
+
+  - Test: `check` tests; Renovate configuration
+  - Since: not implemented
+
+- RCP-22: `check` MUST be released with its own version tag
+  `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version
+  instead of writing its own normalization.
+
+  An agent reads chart templates, `NOTES.txt` and `values.yaml`, which the
+  chart author controls. A comparison the agent writes itself can be
+  steered by text in them. A diff against a pinned script cannot, and an
+  injected extra object then shows up as a difference outside RCP-12.
+
+  - Test: manual: the skill names a `check` version
+  - Since: not implemented
+
+Two gaps sit in Kapitan rather than here. A dependency's `output_path` is
+not confined, so a fetched file can overwrite `inventory/resolvers.py`,
+which the omegaconf backend imports, or a user's own class, which the
+copy overwrites without notice. `from_file` is not confined either. Both
+are drafted as Kapitan issues (OQ-2, OQ-6).
+
 ## Verification
 
 - AC-1 (RCP-1 to RCP-7): `check lint` fails on a recipe with
@@ -319,6 +413,13 @@ kapitan compile
   each class, and fail or pass accordingly.
 - AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
   --level migrates` in CI.
+- AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
+  `external` entry, a `jinja2` entry, `${from_file:...}`, an unpinned or
+  foreign dependency, a key under another application's component, and a
+  literal `?{base64:` ref.
+- AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
+  new recipe with an added image, an added ClusterRole verb and an added
+  hostPath volume makes `check` list all three.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by digest and compiles it with the two commands above.
 
@@ -349,6 +450,15 @@ kapitan compile
   maintainers of this repository?
 - OQ-5: Does Renovate's chart update only report the diff (RCP-16), or does
   an agent run `to-recipe` on the new chart and propose the changed recipe?
+
+- OQ-6: Kapitan feature: confine `from_file` and dependency `output_path`
+  to the project, and warn when a fetch overwrites an existing file.
+  Drafted as a Kapitan issue.
+- OQ-7: Not checked yet: how far the consumer workflow's gVisor sandbox
+  contains a recipe that breaks RCP-17, and whether `helm template` itself
+  can be attacked by a chart while `check` renders it. `template` has no
+  cluster access, which limits functions like `lookup`, but that is not
+  verified.
 
 ## Implementation inventory
 
