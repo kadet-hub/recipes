@@ -12,7 +12,7 @@ LEVEL_LINE = re.compile(r"^Level: `(\w+)`$", re.M)
 DEPENDENCY = re.compile(r"^ghcr\.io/kadet-hub/([a-z0-9][a-z0-9._-]*)(:[\w.-]+)?@sha256:[0-9a-f]{64}$")
 PINNED = re.compile(r"@sha256:[0-9a-f]{64}$")
 IMAGE_ARG = re.compile(r"^--?[\w-]*image[\w-]*=(.+)$")
-FORBIDDEN_RESOLVER = re.compile(r"\$\{\s*(from_file|write)\s*:")
+FORBIDDEN_RESOLVER = re.compile(r"\$\{\s*(from_file|write|oc\.env|filename|parent_filename|path|parent_path)\s*:")
 SHA_COMMENT = re.compile(r"#.*SHA-256 ([0-9a-f]{64})")
 
 

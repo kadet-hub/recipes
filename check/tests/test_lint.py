@@ -83,9 +83,19 @@ class Lint(unittest.TestCase):
         errors = self.errors_with("parameters:\n  kapitan:\n    compile:\n      - input_type: jinja2\n        input_paths:\n          - templates\n")
         self.assertIn("compile entry of input_type jinja2 (RCP-17)", errors)
 
-    def test_from_file(self):
-        errors = self.errors_with("parameters:\n  applications:\n    cert-manager:\n      key: ${from_file:/etc/passwd}\n")
-        self.assertIn("uses the resolver from_file (RCP-17)", errors)
+    def test_forbidden_resolvers(self):
+        for resolver, call in [
+            ("from_file", "${from_file:/etc/passwd}"),
+            ("write", "${write:components.x,applications.cert-manager}"),
+            ("oc.env", "${oc.decode:${oc.env:GITHUB_TOKEN}}"),
+            ("filename", "${filename:}"),
+            ("parent_filename", "${parent_filename:}"),
+            ("path", "${path:}"),
+            ("parent_path", "${parent_path:}"),
+        ]:
+            with self.subTest(resolver):
+                errors = self.errors_with(f"parameters:\n  applications:\n    cert-manager:\n      key: {call}\n")
+                self.assertIn(f"uses the resolver {resolver} (RCP-17)", errors)
 
     def test_unpinned_dependency(self):
         errors = self.errors_with(
