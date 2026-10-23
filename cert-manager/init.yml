@@ -1,0 +1,116 @@
+classes:
+  - .controller
+  - .cainjector
+  - .webhook
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.7.0@sha256:7ef7b01e27597e74122bd559aa036ef51f380652f9cf44df560a4ba22b014ce4
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    cert-manager:
+      version: v1.21.2
+      log_level: 2
+      leader_election_namespace: kube-system
+      component_defaults:
+        enable_service_links: false
+        node_selector:
+          kubernetes.io/os: linux
+        workload_security_context:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        security_context:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+        pod_annotations:
+          prometheus.io/path: /metrics
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9402"
+        service_account:
+          create: true
+          automount_service_account_token: true
+        automount_service_account_token: true
+        env:
+          POD_NAMESPACE:
+            fieldRef: {fieldPath: metadata.namespace}
+        ports:
+          http-metrics:
+            service_port: 9402
+      # The signers cert-manager approves and signs for.
+      signers:
+        - issuers.cert-manager.io/*
+        - clusterissuers.cert-manager.io/*
+      # Rules that several of the chart's roles repeat.
+      rules:
+        events:
+          apiGroups: [""]
+          resources: [events]
+          verbs: [create, patch]
+        read_secrets:
+          apiGroups: [""]
+          resources: [secrets]
+          verbs: [get, list, watch]
+        read_issuers:
+          apiGroups: [cert-manager.io]
+          resources: [issuers, clusterissuers]
+          verbs: [get, list, watch]
+        leases_create:
+          apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          verbs: [create]
+        subjectaccessreviews:
+          apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
+  generators:
+    kubernetes:
+      rbac:
+        # Bound to nobody: these aggregate into the built-in roles.
+        cert-manager-cluster-view:
+          labels:
+            rbac.authorization.k8s.io/aggregate-to-cluster-reader: "true"
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [clusterissuers]
+              verbs: [get, list, watch]
+        cert-manager-view:
+          labels:
+            rbac.authorization.k8s.io/aggregate-to-view: "true"
+            rbac.authorization.k8s.io/aggregate-to-edit: "true"
+            rbac.authorization.k8s.io/aggregate-to-admin: "true"
+            rbac.authorization.k8s.io/aggregate-to-cluster-reader: "true"
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [certificates, certificaterequests, issuers]
+              verbs: [get, list, watch]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [challenges, orders]
+              verbs: [get, list, watch]
+        cert-manager-edit:
+          labels:
+            rbac.authorization.k8s.io/aggregate-to-edit: "true"
+            rbac.authorization.k8s.io/aggregate-to-admin: "true"
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [certificates, certificaterequests, issuers]
+              verbs: [create, delete, deletecollection, patch, update]
+            - apiGroups: [cert-manager.io]
+              resources: [certificates/status]
+              verbs: [update]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [challenges]
+              verbs: [delete, deletecollection, patch, update]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [orders]
+              verbs: [delete, deletecollection]

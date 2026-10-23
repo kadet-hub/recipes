@@ -1,0 +1,202 @@
+parameters:
+  applications:
+    cert-manager:
+      controller:
+        service_accounts:
+          - ${namespace}/cert-manager
+  components:
+    cert-manager:
+      application: cert-manager
+      image: quay.io/jetstack/cert-manager-controller:${applications.cert-manager.version}@sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8
+      args:
+        - --v=${applications.cert-manager.log_level}
+        - --cluster-resource-namespace=$(POD_NAMESPACE)
+        - --leader-election-namespace=${applications.cert-manager.leader_election_namespace}
+        - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:${applications.cert-manager.version}@sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
+        - --max-concurrent-challenges=60
+      service:
+        type: ClusterIP
+      ports:
+        http-healthz:
+          container_port: 9403
+      healthcheck:
+        liveness:
+          type: http
+          port: http-healthz
+          path: /livez
+          initial_delay_seconds: 10
+          timeout_seconds: 15
+          failure_threshold: 8
+  generators:
+    kubernetes:
+      rbac:
+        cert-manager-leaderelection:
+          namespace: ${applications.cert-manager.leader_election_namespace}
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              resourceNames: [cert-manager-controller]
+              verbs: [get, update, patch]
+            - ${applications.cert-manager.rules.leases_create}
+        cert-manager-controller-issuers:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [issuers, issuers/status]
+              verbs: [update, patch]
+            - apiGroups: [cert-manager.io]
+              resources: [issuers]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [get, list, watch, create, update, delete]
+            - ${applications.cert-manager.rules.events}
+        cert-manager-controller-clusterissuers:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [clusterissuers, clusterissuers/status]
+              verbs: [update, patch]
+            - apiGroups: [cert-manager.io]
+              resources: [clusterissuers]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [get, list, watch, create, update, delete]
+            - ${applications.cert-manager.rules.events}
+        cert-manager-controller-certificates:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources:
+                - certificates
+                - certificates/status
+                - certificaterequests
+                - certificaterequests/status
+              verbs: [update, patch]
+            - apiGroups: [cert-manager.io]
+              resources:
+                - certificates
+                - certificaterequests
+                - clusterissuers
+                - issuers
+              verbs: [get, list, watch]
+            - apiGroups: [cert-manager.io]
+              resources:
+                - certificates/finalizers
+                - certificaterequests/finalizers
+              verbs: [update]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [orders]
+              verbs: [create, delete, get, list, watch]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [get, list, watch, create, update, delete, patch]
+            - ${applications.cert-manager.rules.events}
+        cert-manager-controller-orders:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [acme.cert-manager.io]
+              resources: [orders, orders/status]
+              verbs: [update, patch]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [orders, challenges]
+              verbs: [get, list, watch]
+            - ${applications.cert-manager.rules.read_issuers}
+            - apiGroups: [acme.cert-manager.io]
+              resources: [challenges]
+              verbs: [create, delete]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [orders/finalizers]
+              verbs: [update]
+            - apiGroups: [cert-manager.io]
+              resources: [clusterissuers/finalizers, issuers/finalizers]
+              verbs: [update]
+            - ${applications.cert-manager.rules.read_secrets}
+            - ${applications.cert-manager.rules.events}
+        cert-manager-controller-challenges:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [acme.cert-manager.io]
+              resources: [challenges, challenges/status]
+              verbs: [update, patch]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [challenges]
+              verbs: [get, list, watch]
+            - ${applications.cert-manager.rules.read_issuers}
+            - ${applications.cert-manager.rules.read_secrets}
+            - ${applications.cert-manager.rules.events}
+            - apiGroups: [""]
+              resources: [pods, services]
+              verbs: [get, list, watch, create, delete]
+            - apiGroups: [networking.k8s.io]
+              resources: [ingresses]
+              verbs: [get, list, watch, create, delete, update]
+            - apiGroups: [gateway.networking.k8s.io]
+              resources: [httproutes]
+              verbs: [get, list, watch, create, delete, update]
+            - apiGroups: [route.openshift.io]
+              resources: [routes/custom-host]
+              verbs: [create]
+            - apiGroups: [acme.cert-manager.io]
+              resources: [challenges/finalizers]
+              verbs: [update]
+        cert-manager-controller-ingress-shim:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [certificates, certificaterequests]
+              verbs: [create, update, delete]
+            - apiGroups: [cert-manager.io]
+              resources:
+                - certificates
+                - certificaterequests
+                - issuers
+                - clusterissuers
+              verbs: [get, list, watch]
+            - apiGroups: [networking.k8s.io]
+              resources: [ingresses]
+              verbs: [get, list, watch]
+            - apiGroups: [networking.k8s.io]
+              resources: [ingresses/finalizers]
+              verbs: [update]
+            - apiGroups: [gateway.networking.k8s.io]
+              resources: [gateways, httproutes, listenersets]
+              verbs: [get, list, watch]
+            - apiGroups: [gateway.networking.k8s.io]
+              resources:
+                - gateways/finalizers
+                - httproutes/finalizers
+                - listenersets/finalizers
+              verbs: [update]
+            - ${applications.cert-manager.rules.events}
+        cert-manager-controller-approve-cert-manager-io:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [signers]
+              verbs: [approve]
+              resourceNames: ${applications.cert-manager.signers}
+        cert-manager-controller-certificatesigningrequests:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.controller.service_accounts}
+          rules:
+            - apiGroups: [certificates.k8s.io]
+              resources: [certificatesigningrequests]
+              verbs: [get, list, watch, update]
+            - apiGroups: [certificates.k8s.io]
+              resources: [certificatesigningrequests/status]
+              verbs: [update, patch]
+            - apiGroups: [certificates.k8s.io]
+              resources: [signers]
+              resourceNames: ${applications.cert-manager.signers}
+              verbs: [sign]
+            - ${applications.cert-manager.rules.subjectaccessreviews}

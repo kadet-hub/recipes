@@ -1,0 +1,51 @@
+parameters:
+  applications:
+    cert-manager:
+      cainjector:
+        service_accounts:
+          - ${namespace}/cert-manager-cainjector
+  components:
+    cert-manager-cainjector:
+      application: cert-manager
+      image: quay.io/jetstack/cert-manager-cainjector:${applications.cert-manager.version}@sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562
+      args:
+        - --v=${applications.cert-manager.log_level}
+        - --leader-election-namespace=${applications.cert-manager.leader_election_namespace}
+      service:
+        type: ClusterIP
+  generators:
+    kubernetes:
+      rbac:
+        cert-manager-cainjector:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.cainjector.service_accounts}
+          rules:
+            - apiGroups: [cert-manager.io]
+              resources: [certificates]
+              verbs: [get, list, watch]
+            - ${applications.cert-manager.rules.read_secrets}
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [get, create, update, patch]
+            - apiGroups: [admissionregistration.k8s.io]
+              resources:
+                - validatingwebhookconfigurations
+                - mutatingwebhookconfigurations
+              verbs: [get, list, watch, update, patch]
+            - apiGroups: [apiregistration.k8s.io]
+              resources: [apiservices]
+              verbs: [get, list, watch, update, patch]
+            - apiGroups: [apiextensions.k8s.io]
+              resources: [customresourcedefinitions]
+              verbs: [get, list, watch, update, patch]
+        cert-manager-cainjector-leaderelection:
+          namespace: ${applications.cert-manager.leader_election_namespace}
+          service_accounts: ${applications.cert-manager.cainjector.service_accounts}
+          rules:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              resourceNames:
+                - cert-manager-cainjector-leader-election
+                - cert-manager-cainjector-leader-election-core
+              verbs: [get, update, patch]
+            - ${applications.cert-manager.rules.leases_create}

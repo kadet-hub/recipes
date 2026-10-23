@@ -1,0 +1,103 @@
+parameters:
+  applications:
+    cert-manager:
+      webhook:
+        service_accounts:
+          - ${namespace}/cert-manager-webhook
+        ca_secret: cert-manager-webhook-ca
+  components:
+    cert-manager-webhook:
+      application: cert-manager
+      image: quay.io/jetstack/cert-manager-webhook:${applications.cert-manager.version}@sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae
+      args:
+        - --v=${applications.cert-manager.log_level}
+        - --secure-port=10250
+        - --dynamic-serving-ca-secret-namespace=$(POD_NAMESPACE)
+        - --dynamic-serving-ca-secret-name=${applications.cert-manager.webhook.ca_secret}
+        - --dynamic-serving-dns-names=cert-manager-webhook
+        - --dynamic-serving-dns-names=cert-manager-webhook.$(POD_NAMESPACE)
+        - --dynamic-serving-dns-names=cert-manager-webhook.$(POD_NAMESPACE).svc
+      ports:
+        https:
+          container_port: 10250
+        healthcheck:
+          container_port: 6080
+      healthcheck:
+        liveness:
+          type: http
+          port: healthcheck
+          path: /livez
+          initial_delay_seconds: 60
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: healthcheck
+          path: /healthz
+          initial_delay_seconds: 5
+          period_seconds: 5
+          timeout_seconds: 1
+      webhook_annotations:
+        cert-manager.io/inject-ca-from-secret: ${namespace}/${applications.cert-manager.webhook.ca_secret}
+      webhooks:
+        - name: webhook.cert-manager.io
+          namespaceSelector: {}
+          rules:
+            - apiGroups: [cert-manager.io]
+              apiVersions: [v1]
+              operations: [CREATE]
+              resources: [certificaterequests]
+          timeoutSeconds: 30
+          clientConfig:
+            service:
+              path: /mutate
+      validating_webhooks:
+        - name: webhook.cert-manager.io
+          namespaceSelector:
+            matchExpressions:
+              - key: cert-manager.io/disable-validation
+                operator: NotIn
+                values: ["true"]
+          rules:
+            - apiGroups: [cert-manager.io, acme.cert-manager.io]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: ["*/*"]
+          timeoutSeconds: 30
+          clientConfig:
+            service:
+              path: /validate
+  generators:
+    kubernetes:
+      # The chart names the metrics port of this Service differently from
+      # the container port, which only a standalone Service can express.
+      services:
+        cert-manager-webhook:
+          type: ClusterIP
+          selector:
+            name: cert-manager-webhook
+          ports:
+            https:
+              service_port: 443
+              container_port: https
+              app_protocol: ""
+            metrics:
+              service_port: 9402
+              container_port: http-metrics
+      rbac:
+        cert-manager-webhook-subjectaccessreviews:
+          cluster_wide: true
+          service_accounts: ${applications.cert-manager.webhook.service_accounts}
+          rules:
+            - ${applications.cert-manager.rules.subjectaccessreviews}
+        cert-manager-webhook-dynamic-serving:
+          namespace: ${namespace}
+          service_accounts: ${applications.cert-manager.webhook.service_accounts}
+          rules:
+            - apiGroups: [""]
+              resources: [secrets]
+              resourceNames:
+                - ${applications.cert-manager.webhook.ca_secret}
+              verbs: [get, list, watch, update]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [create]

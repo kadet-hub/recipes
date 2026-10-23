@@ -1,0 +1,9 @@
+parameters:
+  kapitan:
+    compile:
+      - input_type: copy
+        input_paths:
+          # SHA-256 262fef78478492cd35b73a1b227106b7802f9c056361d1f561d04b32d751337f
+          # from https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.crds.yaml
+          - inventory/classes/recipes/cert-manager/vendor/cert-manager.crds.yaml
+        output_path: manifests/

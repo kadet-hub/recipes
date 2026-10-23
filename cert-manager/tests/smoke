@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# A self-signed ClusterIssuer issues a Certificate: the webhook admits both
+# once the cainjector has put the CA into its configurations, and the
+# controller signs.
+set -euo pipefail
+kubectl wait --for=jsonpath='{.webhooks[0].clientConfig.caBundle}' --timeout=120s \
+  mutatingwebhookconfigurations,validatingwebhookconfigurations --all
+kubectl apply -f - <<'YAML'
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: smoke-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: smoke
+  namespace: default
+spec:
+  secretName: smoke-tls
+  dnsNames:
+    - smoke.example.org
+  issuerRef:
+    kind: ClusterIssuer
+    name: smoke-selfsigned
+YAML
+kubectl -n default wait certificate/smoke --for=condition=Ready --timeout=120s

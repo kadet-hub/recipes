@@ -1,0 +1,8 @@
+classes:
+  - recipes.cert-manager
+  - recipes.cert-manager.crds
+parameters:
+  namespace: cert-manager
+  kapitan:
+    vars:
+      target: cert-manager
