@@ -396,11 +396,12 @@ the `to-recipe` skill and most users compile locally.
   - Test: manual: the skill names a `check` version
   - Since: not implemented
 
-Two gaps sit in Kapitan rather than here. A dependency's `output_path` is
-not confined, so a fetched file can overwrite `inventory/resolvers.py`,
-which the omegaconf backend imports, or a user's own class, which the
-copy overwrites without notice. `from_file` is not confined either. Both
-are drafted as Kapitan issues (OQ-2, OQ-6).
+Kapitan trusts its inventory: a class may run any binary through an
+`external` entry. Recipes change that model, because their classes come
+from a third party. RCP-17 and RCP-18 restore it for recipe content. What
+Kapitan itself would need once it fetches classes (OQ-2), such as limits
+on where a fetched class's dependencies may write, is part of that
+feature's design (OQ-6).
 
 ## Verification
 
@@ -451,9 +452,10 @@ are drafted as Kapitan issues (OQ-2, OQ-6).
 - OQ-5: Does Renovate's chart update only report the diff (RCP-16), or does
   an agent run `to-recipe` on the new chart and propose the changed recipe?
 
-- OQ-6: Kapitan feature: confine `from_file` and dependency `output_path`
-  to the project, and warn when a fetch overwrites an existing file.
-  Drafted as a Kapitan issue.
+- OQ-6: Which limits does Kapitan need once classes can come from a third
+  party, for example confining `from_file` and the `output_path` of a
+  fetched class's dependencies to the project? To be settled with the
+  Kapitan maintainers together with OQ-2.
 - OQ-7: Not checked yet: how far the consumer workflow's gVisor sandbox
   contains a recipe that breaks RCP-17, and whether `helm template` itself
   can be attacked by a chart while `check` renders it. `template` has no
