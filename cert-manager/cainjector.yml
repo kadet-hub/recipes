@@ -9,8 +9,8 @@ parameters:
       application: cert-manager
       image: quay.io/jetstack/cert-manager-cainjector:${applications.cert-manager.version}@sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562
       args:
-        - --v=${applications.cert-manager.log_level}
-        - --leader-election-namespace=${applications.cert-manager.leader_election_namespace}
+        verbosity: --v=${applications.cert-manager.log_level}
+        leader-election-namespace: --leader-election-namespace=${applications.cert-manager.leader_election_namespace}
       service:
         type: ClusterIP
   generators:

@@ -30,7 +30,7 @@ release v1.21.2, SHA-256
 | Chart value | Inventory |
 |---|---|
 | `namespace` (release namespace) | `namespace` |
-| `image.tag` of all images | `applications.cert-manager.version`, together with the digests in the `image` lines and the acmesolver argument |
+| `image.tag` of all images | `applications.cert-manager.version`, together with the digests in the `image` lines and `components.cert-manager.args.acme-http01-solver-image` |
 | `global.logLevel` | `applications.cert-manager.log_level` |
 | `global.leaderElection.namespace` | `applications.cert-manager.leader_election_namespace` |
 | `replicaCount`, `webhook.replicaCount`, `cainjector.replicaCount` | `components.cert-manager.replicas`, `components.cert-manager-webhook.replicas`, `components.cert-manager-cainjector.replicas` |
@@ -38,12 +38,16 @@ release v1.21.2, SHA-256
 | `nodeSelector` | `applications.cert-manager.component_defaults.node_selector` |
 | `tolerations`, `affinity` | `components.<component>.tolerations`, `components.<component>.affinity` |
 | `podAnnotations` | `applications.cert-manager.component_defaults.pod_annotations` |
-| `extraArgs` | `components.<component>.args` |
+| `extraArgs` | `components.<component>.args.<key>`, a new key for an extra argument or a recipe key such as `verbosity` to replace one |
 | `webhook.timeoutSeconds` | `timeoutSeconds` in `components.cert-manager-webhook.webhooks` and `validating_webhooks` |
 
-A list set in the target is appended to the recipe's list. To replace one,
-such as `args`, set the key to `~` in a class included after the recipe and
-the new list in the target.
+`args` is a mapping and renders in the recipe's key order, with new keys
+after them. A string value is one argument, a list several, and `~` drops
+the entry, for example `components.cert-manager.args.verbosity: --v=4`.
+
+Any other list set in the target is appended to the recipe's list. To
+replace one, set the key to `~` in a class included after the recipe and the
+new list in the target.
 
 No parameter has to be set.
 
