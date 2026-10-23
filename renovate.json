@@ -1,0 +1,116 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "github>kadet-hub/renovate-config"
+  ],
+  "automerge": false,
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "customManagers": [
+    {
+      "description": "RCP-30: tool versions marked with a renovate comment; release-asset and image pins carry their checksum along",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/",
+        "/^\\.github/actions/[^/]+/action\\.yml$/",
+        "check/check.py"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>\\S+)\\n\\s*[A-Z_]+: (?<currentValue>[^\"\\s:@]+)\\n",
+        "# renovate: datasource=(?<datasource>github-release-attachments) depName=(?<depName>\\S+)\\n\\s*[A-Z_]+: (?<currentValue>\\S+)\\n\\s*[A-Z_]+_SHA256: (?<currentDigest>[0-9a-f]{64})",
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)\\n[A-Z_]+ = \"\\S+?:(?<currentValue>[^@\"\\s:]+)@(?<currentDigest>sha256:[0-9a-f]{64})\""
+      ]
+    },
+    {
+      "description": "RCP-16: the chart a recipe is derived from, by version and digest in its README's Source line",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/README\\.md$/"
+      ],
+      "matchStrings": [
+        "Source: `oci://(?<depName>[^:`\\s]+):(?<currentValue>[^@`\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})`"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "RCP-30: the generators a recipe pins, as github>kadet-hub/renovate-config matches them in inventories",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "source:\\s*[\"']?(?<depName>ghcr\\.io/kadet-hub/[a-z][a-z0-9-]{1,38}):(?<currentValue>[A-Za-z0-9_][A-Za-z0-9._-]{0,127})@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "RCP-29: the next pin follows the digest of the tag next, in one pull request updated at most once a day",
+      "matchPackageNames": [
+        "ghcr.io/kadet-hub/kapitan"
+      ],
+      "timezone": "Europe/Berlin",
+      "schedule": [
+        "* 0-5 * * *"
+      ]
+    },
+    {
+      "description": "RCP-30: kind and the node image of its release",
+      "matchDepNames": [
+        "kubernetes-sigs/kind",
+        "kindest/node"
+      ],
+      "groupName": "kind"
+    },
+    {
+      "description": "Runners stay on ubuntu-24.04: actionlint 1.7.12 does not know newer labels",
+      "matchDatasources": [
+        "github-runners"
+      ],
+      "matchPackageNames": [
+        "ubuntu"
+      ],
+      "allowedVersions": "24.04"
+    },
+    {
+      "description": "check's requires-python pins Python 3.13, the interpreter Kapitan 0.36.3 is used with",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepNames": [
+        "python"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "check/.python-version stays on 3.13, which requires-python allows",
+      "matchManagers": [
+        "pyenv"
+      ],
+      "allowedVersions": "<3.14"
+    },
+    {
+      "description": "Kapitan 0.36.3's omegaconf backend needs ListMergeMode, which later omegaconf releases removed (kapicorp/kapitan#1621)",
+      "matchPackageNames": [
+        "omegaconf"
+      ],
+      "allowedVersions": "/^2\\.4\\.0\\.dev4$/"
+    },
+    {
+      "description": "Registries other than Docker Hub report no release timestamp",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "/^[^/]*[.:][^/]*//",
+        "!/^(docker\\.io|index\\.docker\\.io)//"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    }
+  ]
+}

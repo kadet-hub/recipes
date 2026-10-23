@@ -25,10 +25,14 @@ import compare
 import lint
 
 VERSION = "0.1.0"
-# kind v0.33.0 release notes list this image for Kubernetes 1.37.0.
+# The image the release notes of the kind version in .github/actions/tools
+# list for its Kubernetes version; Renovate moves both together (RCP-30).
+# renovate: datasource=docker depName=kindest/node
 KIND_NODE_IMAGE = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
-# kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan (RCP-24).
-KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next-60ef48019c68@sha256:a7b7a163b89c8423a1789fe46b8b86420199443b0a9f4179a1b960359b2e43f3"
+# kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
+# (RCP-24). Renovate moves the digest of the tag next (RCP-29).
+# renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
+KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:a7b7a163b89c8423a1789fe46b8b86420199443b0a9f4179a1b960359b2e43f3"
 INDEX = "ghcr.io/kadet-hub/index"
 RELEASE_IDENTITY = "https://github.com/kadet-hub/registry/.github/workflows/release.yml@refs/heads/main"
 BUILTIN_ROLES = ("view", "edit", "admin")
@@ -302,11 +306,11 @@ def cmd_check(recipe, level, work, keep):
     project = work / "project"
     next_error = compile_next(project, work / "next")
     if next_error:
-        say(f"kapitan next ({KAPITAN_NEXT.split('@')[0]}): compile failed, not deciding: {next_error}")
+        say(f"kapitan next ({KAPITAN_NEXT}): compile failed, not deciding: {next_error}")
     else:
         other = compiled_files(work / "next", recipe.name)
         changed = sorted(p for p in set(files) | set(other) if files.get(p) != other.get(p))
-        say(f"kapitan next ({KAPITAN_NEXT.split('@')[0]}): "
+        say(f"kapitan next ({KAPITAN_NEXT}): "
             + (f"output differs in {', '.join(changed)}, not deciding" if changed else "same output as 0.36.3"))
 
     subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)

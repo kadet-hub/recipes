@@ -8,6 +8,12 @@ on:
 
 permissions: {}
 
+# Pins Renovate moves (RCP-30).
+env:
+  # renovate: datasource=github-release-attachments depName=rhysd/actionlint
+  ACTIONLINT_VERSION: v1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -25,8 +31,8 @@ jobs:
         run: uv run --locked --project check python -m unittest discover -s check/tests -t check -v
       - name: actionlint
         run: |
-          curl -fsSLo actionlint.tgz https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
-          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tgz" | sha256sum -c --quiet
+          curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION#v}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  actionlint.tgz" | sha256sum -c --quiet
           tar -xzf actionlint.tgz actionlint
           ./actionlint -color
 
