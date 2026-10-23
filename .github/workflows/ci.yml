@@ -1,0 +1,121 @@
+name: ci
+
+on:
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - name: Unit tests of check
+        run: uv run --locked --project check python -m unittest discover -s check/tests -t check -v
+      - name: actionlint
+        run: |
+          curl -fsSLo actionlint.tgz https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tgz" | sha256sum -c --quiet
+          tar -xzf actionlint.tgz actionlint
+          ./actionlint -color
+
+  # The recipes this run checks, each at the level its README states
+  # (RCP-13, RCP-28).
+  select:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      recipes: ${{ steps.select.outputs.recipes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: select
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # On pull_request, HEAD is the merge commit and HEAD^1 the base.
+          changed=$(if [[ $EVENT == pull_request ]]; then git diff --name-only HEAD^1 HEAD; fi)
+          all=$([[ $EVENT != pull_request ]] || grep -qE '^(check|\.github)/' <<<"$changed" && echo 1 || true)
+          for init in */init.yml; do
+            name=${init%/init.yml}
+            if [[ $all ]] || grep -q "^$name/" <<<"$changed"; then
+              level=$(sed -n 's/^Level: .\(.*\).$/\1/p' "$name/README.md")
+              jq -nc --arg name "$name" --arg level "$level" '{name: $name, level: $level}'
+            fi
+          done | jq -sc . | sed 's/^/recipes=/' >>"$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  lint:
+    needs: select
+    if: needs.select.outputs.recipes != '[]'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      attestations: read
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: ${{ fromJSON(needs.select.outputs.recipes) }}
+    name: lint ${{ matrix.recipe.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - uses: ./.github/actions/tools
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RECIPE: ${{ matrix.recipe.name }}
+        run: uv run --locked --project check check/check.py lint "$RECIPE"
+
+  check:
+    needs: [select, lint]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      attestations: read
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: ${{ fromJSON(needs.select.outputs.recipes) }}
+    name: check ${{ matrix.recipe.name }} --level ${{ matrix.recipe.level }}
+    # deploys and migrates run a fork's manifests on kind in this runner:
+    # they wait for a maintainer's approval (RCP-20).
+    environment: ${{ github.event.pull_request.head.repo.fork && matrix.recipe.level != 'renders' && 'fork-pull-request' || '' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - uses: ./.github/actions/tools
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RECIPE: ${{ matrix.recipe.name }}
+          LEVEL: ${{ matrix.recipe.level }}
+        run: |
+          status=0
+          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --report report.txt || status=$?
+          { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
