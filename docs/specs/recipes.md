@@ -2,7 +2,7 @@
 
 ```text
 Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-15, RCP-21, RCP-22 and RCP-31 to RCP-34 are not
+        (RCP-14), RCP-15, RCP-21, RCP-22 and RCP-31 to RCP-35 are not
         implemented.
 Code: <name>/, check/, .github/, renovate.json
 Verified against: #3, cert-manager at deploys
@@ -73,6 +73,7 @@ Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/
   init.yml          # generator pins, applications.<name>, classes of the components
   <component>.yml   # one per component, with its RBAC
   <option>.yml      # optional class, such as crds.yml
+  vendor/           # vendored files, each with <file>.LICENSE (RCP-35)
   README.md
   tests/
     values.yaml     # the values the proof renders the chart with
@@ -131,6 +132,20 @@ A recipe follows the authoring guide: each value is written once, values
 the generator derives are left out, values equal to the generator's
 default are left out, and a line that does not change the output does not
 belong in the recipe.
+
+- RCP-35: Every vendored file `vendor/<file>` MUST have the upstream license
+  as `vendor/<file>.LICENSE`, and the upstream NOTICE as
+  `vendor/<file>.NOTICE` when the upstream source has one. `check lint`
+  MUST fail on a file a `copy` entry names without its `.LICENSE`.
+
+  The registry publishes the recipe directory, so it redistributes the
+  vendored files. Apache-2.0, the license of cert-manager's CRDs, requires
+  the license and the NOTICE with each copy (section 4). The registry gate
+  checks the same (REC-15). cert-manager needs
+  `vendor/cert-manager.crds.yaml.LICENSE` before its first release.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: not implemented
 
 - RCP-4: YAML in a recipe MUST use block style. Flow style is allowed only
   for a mapping or list that fits on one line of at most 80 characters,
@@ -661,8 +676,9 @@ feature's design (OQ-6).
   hostPath volume makes `check` list all three.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by digest and compiles it with the two commands above.
-- AC-8 (RCP-31 to RCP-34): `check lint` fails on a README whose first
-  paragraph exceeds 300 characters and on a recipe with `vendor/x.yml`;
+- AC-8 (RCP-31 to RCP-35): `check lint` fails on a README whose first
+  paragraph exceeds 300 characters, on a recipe with `vendor/x.yml` and on
+  a vendored file without `.LICENSE`;
   `check cert-manager --level renders` with a compiled output and a chart
   render given reports the same result as without them; a tag pushed by a
   non-admin is rejected.
