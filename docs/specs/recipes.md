@@ -2,7 +2,7 @@
 
 ```text
 Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-21, RCP-22 and RCP-31 to RCP-35 are not
+        (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys
@@ -141,11 +141,11 @@ belong in the recipe.
   The registry publishes the recipe directory, so it redistributes the
   vendored files. Apache-2.0, the license of cert-manager's CRDs, requires
   the license and the NOTICE with each copy (section 4). The registry gate
-  checks the same (REC-15). cert-manager needs
-  `vendor/cert-manager.crds.yaml.LICENSE` before its first release.
+  checks the same (REC-15). cert-manager's upstream source v1.21.2 has
+  no NOTICE.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #7
 
 - RCP-4: YAML in a recipe MUST use block style. Flow style is allowed only
   for a mapping or list that fits on one line of at most 80 characters,
@@ -499,16 +499,17 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: not implemented
 
-- RCP-33: A recipe's class files MUST be the `*.yml` files at the root of
-  its directory. No other file of the recipe MAY end in `.yml` or `.py`.
+- RCP-33: A recipe's class files MUST be the files RCP-36 lints. No file of
+  the recipe MAY end in `.py`.
 
-  `check lint` reads only the root's `*.yml` files, but the omegaconf
-  backend loads `vendor/x.yml` as `.vendor.x` for any class that includes
-  it, and RCP-17 would never see that file. The registry gate checks the
-  same (REC-4).
+  The omegaconf backend loads `vendor/x.yml` as `.vendor.x` for any class
+  that includes it, so a nested YAML file is a class file unless it is
+  vendored data that nothing includes. The registry gate checks the same
+  (REC-4). Revised in #7: the first version banned every `.yml` file
+  below the root, which RCP-36 replaces by linting those files.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #6, #7
 
 - RCP-34: `check <name> --level renders` MUST accept the compiled output of
   the recipe and the rendered chart as input, and then run neither Kapitan
@@ -589,7 +590,7 @@ merge, conversion and boolean resolvers.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #2
 
-- RCP-35: `check lint` MUST apply its class file rules, RCP-17 to RCP-19
+- RCP-36: `check lint` MUST apply its class file rules, RCP-17 to RCP-19
   among them, to every file of a recipe that can act as a class: each
   `*.yml` and `*.yaml` below the recipe directory, except `tests/` and the
   files a `copy` entry of the recipe names as input. Every `classes` entry
@@ -598,9 +599,9 @@ merge, conversion and boolean resolvers.
   The omegaconf backend loads any YAML file below the classes path that a
   class names, such as `vendor/x.yml` through `.vendor.x`, so a check of
   the root's `*.yml` files alone leaves nested files unchecked. `tests/`
-  holds the proof's chart values and target, and a `copy` input is
-  vendored data. Neither is linted, so a recipe must not include them as
-  classes. `check lint` resolves an entry as Kapitan
+  holds the proof's chart values and target. A `copy` input is vendored
+  data, which `check lint` checks for its license (RCP-35) but not as a
+  class. Neither is linted as a class, so a recipe must not include them. `check lint` resolves an entry as Kapitan
   0.36.3's omegaconf backend does: a relative entry against the including
   file's directory, an absolute `recipes.<name>.` entry against the
   repository root, `init` before the file of the same name and `.yml`
@@ -610,7 +611,7 @@ merge, conversion and boolean resolvers.
   a `copy` entry names them.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: this change
+  - Since: #7
 
 - RCP-20: CI MUST run pull requests with `pull_request`, never
   `pull_request_target`, with `permissions: {}` and no secrets, and MUST NOT
@@ -711,10 +712,10 @@ feature's design (OQ-6).
   `external` entry, a `jinja2` entry, each resolver RCP-17 forbids, an
   unpinned or foreign dependency, a key under another application's component, and a
   literal `?{base64:` ref.
-- AC-9 (RCP-35): `check lint` fails on a nested `vendor/x.yml` with an
-  `external` entry and on one with `oc.env`, both included as
-  `.vendor.x`, and on an include of `tests/target.yml`, and passes on
-  cert-manager.
+- AC-9 (RCP-33, RCP-36): `check lint` fails on a nested `vendor/x.yml`
+  with an `external` entry and on one with `oc.env`, both included as
+  `.vendor.x`, on an include of `tests/target.yml` and on a `.py` file,
+  and passes on cert-manager.
 - AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
   new recipe with an added image, an added ClusterRole verb and an added
   hostPath volume makes `check` list all three.
@@ -722,9 +723,9 @@ feature's design (OQ-6).
   by commit SHA and compiles it with the two commands above, and once
   cert-manager is published, by digest through the registry's consumer
   workflow.
-- AC-8 (RCP-31 to RCP-35): `check lint` fails on a README whose first
-  paragraph exceeds 300 characters, on a recipe with `vendor/x.yml` and on
-  a vendored file without `.LICENSE`;
+- AC-8 (RCP-31, RCP-32, RCP-34, RCP-35): `check lint` fails on a README
+  whose first paragraph exceeds 300 characters and on a vendored file
+  without `.LICENSE`;
   `check cert-manager --level renders` with a compiled output and a chart
   render given reports the same result as without them; a tag pushed by a
   non-admin is rejected.
@@ -772,7 +773,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-35) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
