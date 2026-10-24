@@ -27,7 +27,6 @@ parameters:
             - pg_isready
             - -U
             - ${applications.miniflux.database.user}
-          period_seconds: 10
           timeout_seconds: 30
       volume_mounts:
         miniflux-db:
