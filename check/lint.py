@@ -7,8 +7,13 @@ from pathlib import Path
 
 import yaml
 
+import compare
+
 LEVELS = ("renders", "deploys", "migrates")
 SOURCE_LINE = re.compile(r"^Source: `oci://(\S+?):(\S+?)@(sha256:[0-9a-f]{64})`$", re.M)
+COMPOSE_LINE = re.compile(
+    r"^Source: `https://github\.com/([\w.-]+/[\w.-]+)/blob/([0-9a-f]{40})/(\S+?)@(sha256:[0-9a-f]{64})`$", re.M
+)
 LEVEL_LINE = re.compile(r"^Level: `(\w+)`$", re.M)
 DEPENDENCY = re.compile(r"^ghcr\.io/kadet-hub/([a-z0-9][a-z0-9._-]*)(:[\w.-]+)?@sha256:[0-9a-f]{64}$")
 PINNED = re.compile(r"@sha256:[0-9a-f]{64}$")
@@ -61,11 +66,12 @@ def resolve_class(recipe, f, cls):
 
 
 def readme_fields(recipe):
-    """Source and Level lines of the README (RCP-23)."""
+    """Source and Level lines of the README (RCP-23). The source is ("chart", (repo, version, digest)),
+    ("compose", (repo, commit, path, digest)) or None."""
     text = (Path(recipe) / "README.md").read_text()
-    source, level = SOURCE_LINE.search(text), LEVEL_LINE.search(text)
+    chart, compose, level = SOURCE_LINE.search(text), COMPOSE_LINE.search(text), LEVEL_LINE.search(text)
     return (
-        source.groups() if source else None,
+        ("chart", chart.groups()) if chart else ("compose", compose.groups()) if compose else None,
         level.group(1) if level else None,
     )
 
@@ -180,14 +186,21 @@ def lint_files(recipe):
     recipe = Path(recipe)
     name = recipe.name
     errors = []
-    for required in ("init.yml", "README.md", "tests/values.yaml", "tests/target.yml"):
+    for required in ("init.yml", "README.md", "tests/target.yml"):
         if not (recipe / required).is_file():
             errors.append(f"{required} is missing (RCP-1)")
     if errors:
         return errors
     source, level = readme_fields(recipe)
     if not source:
-        errors.append("README.md has no line Source: `oci://<chart>:<version>@sha256:<digest>` (RCP-23)")
+        errors.append(
+            "README.md has no line Source: `oci://<chart>:<version>@sha256:<digest>`"
+            " or `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` (RCP-23)"
+        )
+    elif source[0] == "chart" and not (recipe / "tests/values.yaml").is_file():
+        errors.append("tests/values.yaml is missing (RCP-1)")
+    elif source[0] == "compose" and level != "deploys":
+        errors.append(f"a compose source is proven at level deploys, not {level} (RCP-38)")
     if level not in LEVELS:
         errors.append(f"README.md has no line Level: `<{'|'.join(LEVELS)}>` (RCP-13)")
     elif level != "renders" and not (recipe / "tests/smoke").is_file():
@@ -253,4 +266,16 @@ def lint_output(name, objects, chart_names):
                 for image in images:
                     if not PINNED.search(image):
                         errors.append(f"{o.get('kind')}/{obj_name}: image {image} is not pinned by digest (RCP-6)")
+    return errors
+
+
+def lint_compose_output(objects):
+    """RCP-38: what a compose recipe proves without a reference to compare with."""
+    errors = [
+        f"{compare.ident(o)}: RBAC object, a compose file grants no API access (RCP-38)"
+        for o in objects if o.get("kind") in compare.RBAC_KINDS
+    ]
+    selected, own = compare.selections(objects)
+    errors += [f"{e} (RCP-38)" for e in own]
+    errors += [f"{i}: selector selects no pods (RCP-38)" for i, s in sorted(selected.items()) if not s]
     return errors

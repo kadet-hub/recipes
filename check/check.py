@@ -1,4 +1,4 @@
-"""check: lint a recipe, or prove it against the chart it replaces.
+"""check: lint a recipe, or prove it against the chart it replaces or deploy it (compose source).
 
   check lint <name>
   check <name> --level renders|deploys
@@ -9,6 +9,7 @@ Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import os
 import shutil
@@ -17,6 +18,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -24,7 +26,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node
@@ -118,6 +120,15 @@ def fetch_chart(source, work):
     if str(chart.get("version")) != version:
         raise Failed(f"oci://{repo}@{digest} is version {chart.get('version')}, the README names {version}")
     return tgz
+
+
+def fetch_compose(source):
+    """The compose file at the pinned commit; its SHA-256 must be the one the README names (RCP-23)."""
+    repo, commit, path, digest = source
+    with urllib.request.urlopen(f"https://raw.githubusercontent.com/{repo}/{commit}/{path}", timeout=60) as r:
+        actual = "sha256:" + hashlib.sha256(r.read()).hexdigest()
+    if actual != digest:
+        raise Failed(f"{path} of {repo} at {commit} has {actual}, the README names {digest}")
 
 
 def render_chart(name, recipe, tgz, namespace):
@@ -217,12 +228,17 @@ class Cluster:
         )
 
 
-def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces):
-    """RCP-8, RCP-26: the API server's view of one side and what each subject may do."""
+def prepare(cluster, namespaces, namespace):
+    """RCP-8: a fresh cluster with every namespace, the target namespace as the context's."""
     cluster.create()
     cluster.apply([{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": n}}
                    for n in sorted(namespaces - SYSTEM_NAMESPACES)])
     cluster.kubectl("config", "set-context", "--current", "--namespace", namespace)
+
+
+def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces):
+    """RCP-8, RCP-26: the API server's view of one side and what each subject may do."""
+    prepare(cluster, namespaces, namespace)
     crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
     rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
     if crds:
@@ -270,9 +286,12 @@ def cmd_lint(recipe, work):
     project = build_project(recipe, work)
     notes = fetch_generators(recipe, project, work)
     compile_recipe(project, work / "out")
-    chart, _ = render_chart(recipe.name, recipe, fetch_chart(source, work), namespace)
-    errors = lint.lint_output(recipe.name, objects_of(compiled_files(work / "out", recipe.name)),
-                              {o["metadata"]["name"] for o in chart})
+    objs = objects_of(compiled_files(work / "out", recipe.name))
+    if source[0] == "compose":
+        fetch_compose(source[1])
+        return lint.lint_output(recipe.name, objs, set()) + lint.lint_compose_output(objs), notes
+    chart, _ = render_chart(recipe.name, recipe, fetch_chart(source[1], work), namespace)
+    errors = lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in chart})
     return errors, notes
 
 
@@ -291,15 +310,21 @@ def cmd_check(recipe, level, work, keep):
         for e in errors:
             say(f"lint: {e}")
         return report, True
-    source, _ = lint.readme_fields(recipe)
+    (kind, source), _ = lint.readme_fields(recipe)
     namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
-    say(f"chart: oci://{source[0]}:{source[1]}@{source[2]}, values tests/values.yaml")
-    chart, hooks = render_chart(recipe.name, recipe, next((work / "chart").glob("*.tgz")), namespace)
-    readme = (recipe / "README.md").read_text()
-    for h in hooks:
-        listed = f"`{h}`" in readme
-        failed |= not listed
-        say(f"hook left out: {h}" + ("" if listed else " NOT LISTED in README.md (RCP-25)"))
+    if kind == "compose":
+        if level != "deploys":
+            say(f"{level}: a compose source is proven at level deploys only (RCP-38)")
+            return report, True
+        say(f"compose: https://github.com/{source[0]}/blob/{source[1]}/{source[2]}, {source[3]} verified")
+    else:
+        say(f"chart: oci://{source[0]}:{source[1]}@{source[2]}, values tests/values.yaml")
+        chart, hooks = render_chart(recipe.name, recipe, next((work / "chart").glob("*.tgz")), namespace)
+        readme = (recipe / "README.md").read_text()
+        for h in hooks:
+            listed = f"`{h}`" in readme
+            failed |= not listed
+            say(f"hook left out: {h}" + ("" if listed else " NOT LISTED in README.md (RCP-25)"))
     files = compiled_files(work / "out", recipe.name)
     objs = objects_of(files)
 
@@ -312,6 +337,19 @@ def cmd_check(recipe, level, work, keep):
         changed = sorted(p for p in set(files) | set(other) if files.get(p) != other.get(p))
         say(f"kapitan next ({KAPITAN_NEXT}): "
             + (f"output differs in {', '.join(changed)}, not deciding" if changed else "same output as 0.36.3"))
+
+    if kind == "compose":
+        # RCP-38: lint checked RBAC and selectors; one cluster, the recipe deployed for real.
+        cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
+        try:
+            prepare(cluster, {namespace} | {o["metadata"]["namespace"] for o in objs if o["metadata"].get("namespace")},
+                    namespace)
+            say("smoke: " + (deploy(cluster, objs, recipe).strip().splitlines() or ["passed"])[-1])
+            say("deploys: passed")
+        finally:
+            if not keep:
+                cluster.delete()
+        return report, failed
 
     subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)
     rbac_ns = compare.rbac_namespaces(chart + objs, subjects)

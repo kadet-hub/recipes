@@ -1,4 +1,4 @@
-"""AC-1, AC-5, AC-8 and AC-9: check lint on the cert-manager recipe and on broken copies of it."""
+"""AC-1, AC-5, AC-8, AC-9 and AC-10: check lint on the cert-manager and miniflux recipes and on broken copies of them."""
 
 import shutil
 import tempfile
@@ -8,6 +8,7 @@ from pathlib import Path
 import lint
 
 RECIPE = Path(__file__).resolve().parents[2] / "cert-manager"
+COMPOSE_RECIPE = RECIPE.parent / "miniflux"
 DIGEST = "sha256:" + "0" * 64
 
 
@@ -161,6 +162,51 @@ class Lint(unittest.TestCase):
         readme = self.recipe / "README.md"
         readme.write_text(readme.read_text().replace("Level: `deploys`", "Level: deploys"))
         self.assertIn("README.md has no line Level:", "\n".join(lint.lint_files(self.recipe)))
+
+
+
+class LintCompose(unittest.TestCase):
+    """AC-10: a recipe derived from a compose file."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.recipe = self.tmp / "miniflux"
+        shutil.copytree(COMPOSE_RECIPE, self.recipe)
+        self.readme = self.recipe / "README.md"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_miniflux_passes_without_values_yaml(self):
+        self.assertFalse((self.recipe / "tests/values.yaml").exists())
+        self.assertEqual(lint.lint_files(self.recipe), [])
+        self.assertEqual(lint.readme_fields(self.recipe)[0][0], "compose")
+
+    def test_level_renders(self):
+        self.readme.write_text(self.readme.read_text().replace("Level: `deploys`", "Level: `renders`"))
+        self.assertIn("a compose source is proven at level deploys, not renders (RCP-38)", lint.lint_files(self.recipe))
+
+    def test_source_without_full_commit(self):
+        self.readme.write_text(self.readme.read_text().replace("/blob/238c5614e584ebc87894e7d9f10bc91373a0b2c2/", "/blob/2.3.4/"))
+        self.assertIn("README.md has no line Source:", "\n".join(lint.lint_files(self.recipe)))
+
+    def test_output(self):
+        pod = {"metadata": {"labels": {"name": "miniflux"}}}
+        deployment = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "miniflux", "namespace": "miniflux"},
+                      "spec": {"selector": {"matchLabels": {"name": "miniflux"}}, "template": pod}}
+        service = {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "miniflux", "namespace": "miniflux"},
+                   "spec": {"selector": {"name": "miniflux"}}}
+        self.assertEqual(lint.lint_compose_output([deployment, service]), [])
+        stray = {**service, "metadata": {"name": "miniflux-db", "namespace": "miniflux"}, "spec": {"selector": {"name": "db"}}}
+        binding = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+                   "metadata": {"name": "miniflux", "namespace": "miniflux"}}
+        self.assertEqual(
+            lint.lint_compose_output([deployment, service, stray, binding]),
+            [
+                "RoleBinding.rbac.authorization.k8s.io/miniflux/miniflux: RBAC object, a compose file grants no API access (RCP-38)",
+                "Service/miniflux/miniflux-db: selector selects no pods (RCP-38)",
+            ],
+        )
 
 
 if __name__ == "__main__":
