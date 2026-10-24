@@ -117,7 +117,7 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   so the class directory carries them.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, this change
+  - Since: #2, #8
 
 - RCP-2: A recipe MUST NOT set `generators.manifest.default_config`. Settings
   shared by its components go into `applications.<name>.component_defaults`,
@@ -145,7 +145,7 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   collide.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, this change
+  - Since: #2, #8
 
 ## Writing a recipe
 
@@ -234,7 +234,7 @@ from `PATH`; CI installs them pinned (RCP-28).
   yet.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, this change
+  - Since: #2, #8
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -449,7 +449,7 @@ What the table does not map is a gap, and so is each of these:
   needs it.
 
   - Test: manual: review against the compose file
-  - Since: this change
+  - Since: #8
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -465,7 +465,7 @@ What the table does not map is a gap, and so is each of these:
   (RCP-24) runs unchanged.
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: this change
+  - Since: #8
 
 - RCP-39: The `tests/smoke` of a compose recipe MUST check what the compose
   file sets up: every published port answers through its Service, every
@@ -474,7 +474,7 @@ What the table does not map is a gap, and so is each of these:
   its database stores.
 
   - Test: manual: review; CI `check` job
-  - Since: this change
+  - Since: #8
 
 ## Migration
 
