@@ -1,9 +1,10 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
-        implemented; RCP-15 only up to publication.
+Status: Draft. check 0.2.0 implements renders and deploys, for compose
+        sources deploys (RCP-38); migrates (RCP-14), RCP-21, RCP-22,
+        RCP-31, RCP-32 and RCP-34 are not implemented; RCP-15 only up
+        to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys
 ```
@@ -18,6 +19,10 @@ metrics-server, cert-manager and kube-prometheus-stack (`chart-vs-kapitan`).
 Two test runs of the `to-recipe` agent skill on cert-manager v1.21.2 showed
 that the migration can be done by an agent, but also that every run writes
 its own comparison and that the result is only as good as that comparison.
+
+Many self-hosted applications ship no chart, only a Docker Compose file in
+their repository. Migrating one is the same mapping to generators, but the
+source has no Kubernetes objects to compare the recipe with.
 
 A recipe is that rebuilt application, maintained and proven in one place,
 so that users include a recipe the way they would install a chart. This
@@ -62,6 +67,20 @@ used and reduce this to one command.
 
 DEC-7: No Open Component Model (OCM) packaging for now (OQ-1).
 
+DEC-8: A Docker Compose file is a source, and a recipe derived from one is
+proven at `deploys` only (Compose sources). `renders` compares Kubernetes
+objects, and a compose file has none. kompose would render some, but its
+output is a heuristic translation itself, so agreeing with it proves
+nothing about the compose file. `migrates` replaces a Helm release in the
+cluster, and a compose stack runs outside it. The proof is therefore
+behaviour: the recipe deploys and its smoke test exercises what the
+compose file sets up.
+
+DEC-9: The source type follows from the form of the README's `Source` line
+(RCP-23): `oci://` is a chart, a GitHub file URL a compose file. A separate
+`Source-Type:` line was considered. It would repeat what the line already
+says, and the two could contradict each other.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -76,7 +95,7 @@ Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/
   vendor/           # vendored files, each with <file>.LICENSE (RCP-35)
   README.md
   tests/
-    values.yaml     # the values the proof renders the chart with
+    values.yaml     # chart source: the values the proof renders the chart with
     target.yml      # the target the proof compiles the recipe with
     smoke           # deploys level: proves the application works
 check/              # the comparison script and its tests
@@ -89,15 +108,16 @@ class directory through its `init.yml` and resolves relative includes such
 as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
 
 - RCP-1: Every recipe MUST be a directory `<name>/` with an `init.yml`, one
-  file per component, a `README.md`, `tests/values.yaml` and
-  `tests/target.yml`, and above level `renders` also `tests/smoke`.
+  file per component, a `README.md` and `tests/target.yml`, from a chart
+  source also `tests/values.yaml`, and above level `renders` also
+  `tests/smoke`.
 
   `init.yml` sets no `components`, so each component lives in its own
   file. Vendored files, such as the CRDs, live below the recipe directory,
   so the class directory carries them.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2
+  - Since: #2, this change
 
 - RCP-2: A recipe MUST NOT set `generators.manifest.default_config`. Settings
   shared by its components go into `applications.<name>.component_defaults`,
@@ -114,17 +134,18 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   - Since: #2
 
 - RCP-3: Every object name a recipe renders MUST start with the recipe's
-  name or a name the chart uses.
+  name or, from a chart source, a name the chart uses.
 
   `check lint` compiles `tests/target.yml` and renders the chart with
-  `tests/values.yaml` to compare the names.
+  `tests/values.yaml` to compare the names. A compose file names no
+  Kubernetes objects, so there every name starts with the recipe's.
 
   Recipes share the `components` and `generators.kubernetes.rbac`
   namespaces of the inventory, so two recipes in one target must not
   collide.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2
+  - Since: #2, this change
 
 ## Writing a recipe
 
@@ -196,19 +217,24 @@ users, and PyYAML. The kind node image and the Kapitan `next` image are
 pinned by digest in `check/check.py`. helm, kubectl, kind, oras and gh come
 from `PATH`; CI installs them pinned (RCP-28).
 
-- RCP-23: A recipe's README MUST contain the line
-  ``Source: `oci://<chart>:<version>@sha256:<digest>` `` and the line
-  ``Level: `<level>` ``. `check` pulls the chart by that digest and fails
-  unless the chart's version is `<version>`. The release name is the
+- RCP-23: A recipe's README MUST contain the line ``Level: `<level>` `` and
+  one `Source` line. For a chart it is
+  ``Source: `oci://<chart>:<version>@sha256:<digest>` ``, and `check`
+  pulls the chart by that digest and fails unless the chart's version is
+  `<version>`. For a compose file it is
+  ``Source: `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` ``
+  with the full commit SHA, and `check` fetches the file at that commit
+  and fails unless its SHA-256 is `<digest>`. The release name is the
   recipe's name, and the namespace is `parameters.namespace` of
   `tests/target.yml`.
 
   `tests/target.yml` is the recipe's side of `tests/values.yaml`: it
   includes the recipe and the options those values switch on. Charts from
-  an HTTP repository are not supported yet.
+  an HTTP repository and compose files outside GitHub are not supported
+  yet.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2
+  - Since: #2, this change
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -272,6 +298,9 @@ from `PATH`; CI installs them pinned (RCP-28).
 | `renders` | Same objects after server-side dry run and normalization, selectors select the same objects, same permissions for every subject | kind, API server only |
 | `deploys` | `renders`, and a fresh install becomes ready and passes `tests/smoke` | kind |
 | `migrates` | `deploys`, and a running Helm release is replaced by the recipe while `tests/smoke` keeps passing | kind |
+
+For a compose source, `deploys` proves the recipe side of `renders` only
+(RCP-38) and has no `migrates` level.
 
 - RCP-8: Each side MUST be compared on its own fresh kind cluster. Every
   namespace either side names MUST exist before the dry run, and the
@@ -366,6 +395,87 @@ from `PATH`; CI installs them pinned (RCP-28).
   - Test: CI `select` job
   - Since: #2
 
+## Compose sources
+
+A compose recipe maps the services of one compose file, pinned by
+repository, commit and SHA-256 (RCP-23), to components of the `kubernetes`
+generator 1.7.0 or later. Variables in the file resolve to their defaults,
+as `docker compose config` resolves them without an `.env` file, and
+`extends` within the same file is resolved first. The main service becomes
+the component `<name>`, every other service `<name>-<service>`, so RCP-3
+holds. Every reference to a service name or `container_name` in
+environment values, commands and configs is rewritten to the new name,
+and the README lists the renames.
+
+| Compose | Recipe | Decision |
+|---|---|---|
+| `services.<service>` | a component: a Deployment, or a StatefulSet if it mounts a named volume | |
+| `image` | `image` as `tag@sha256:<digest>` | `latest` or a missing tag is pinned to the version it resolves to at migration, which the README names. |
+| `entrypoint`, `command` | `command`, `args` | Compose overrides ENTRYPOINT and CMD the same way. A string is split as `docker compose` splits it. |
+| `environment`, `env_file` | `env` | A credential becomes a key of the component's `secrets`, referenced with `secretKeyRef`. Its value is a parameter under `applications.<name>` that the recipe leaves unset, so the compile fails until the target sets it (RCP-19). |
+| `ports` | a port with `container_port` and `service_port`, `service.type: ClusterIP` | The published port becomes the Service port. A host IP is dropped, and exposing the Service outside the cluster is left to the target. |
+| `expose`, and ports other services connect to | a port with `service_port` | Services on a compose network reach every port, so a port the others use is declared even without `expose`. |
+| `healthcheck` | `healthcheck.readiness` of `type: command`, `CMD-SHELL` as `sh -c` | `interval`, `timeout` and `retries` become period, timeout and failure threshold. The compose defaults 30s, 30s and 3 are written where the generator's differ. Compose never restarts an unhealthy container, so there is no liveness probe. `start_period` and `start_interval` only delay failures and are dropped. `disable: true` renders no probe. |
+| `depends_on` | nothing | The dependency's readiness probe keeps its Service without endpoints until it is ready, and the dependent restarts until it connects. An init container that waits was rejected, because it adds an image the compose file does not have. |
+| `deploy.replicas` | `replicas` | |
+| `deploy.resources` | `resources`: `limits` from `limits`, `requests` from `reservations` | `cpus` is in CPU units. Compose memory units are binary, so `512M` is `512Mi`. |
+| named `volumes` of one service | `volume_claims` with `volume_mounts` | Compose sizes nothing. The claim is `ReadWriteOnce` with `1Gi`, which the README offers as a setting. |
+| `configs`, `secrets` | `config_maps`, `secrets` with `mount` at the compose target | The default targets are `/<config>` and `/run/secrets/<secret>`. A config's content is written inline, with its source file and SHA-256 in the README. A secret's value is a parameter the target sets. |
+| bind mount of a file in the pinned repository | as `configs`, read-only | It is the same file a config would name. |
+| `restart` | nothing | Every policy becomes `restartPolicy: Always`. A service that exits by design becomes a Job, which the user confirms. |
+| `user` | `security_context.runAsUser` and `runAsGroup` | The API takes numbers only, so a user name is resolved from the image's `/etc/passwd`. |
+| `labels` | `pod_annotations` | Values such as Traefik rules are not valid Kubernetes label values. |
+| `container_name`, `networks` that every service shares | nothing | Pods are named by their workload, and one namespace already reaches every Service. |
+
+What the table does not map is a gap, and so is each of these:
+
+| Compose | Why it stops |
+|---|---|
+| `build` without a published `image` | There is no image to pin |
+| `network_mode` | `host` puts the pod on the node's network, `service:` and `container:` share a network namespace, which only containers of one pod can |
+| bind mounts of directories or of paths outside the repository, the Docker socket among them | They carry host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
+| `privileged`, `cap_add`, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
+| `networks` that separate services, `aliases`, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
+| `extends` or `include` of a file outside the pinned repository | The content is not pinned |
+| a named volume of several services | `ReadWriteOnce` cannot be shared across nodes, and kind has no `ReadWriteMany` storage to prove it on |
+| `working_dir` | The `kubernetes` generator 1.7.0 has no key for `workingDir`. It is a generator request. |
+
+- RCP-37: A compose recipe MUST map every key of its compose file as the
+  table above says. A key the table does not map, or one of the gaps,
+  MUST stop the migration with a report, and no recipe is written.
+
+  A gap is reported to kadet-hub/registry like a missing generator
+  (RCP-7). A mapping is added to the table only with the migration that
+  needs it.
+
+  - Test: manual: review against the compose file
+  - Since: this change
+
+- RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
+  fail on an RBAC object in the compiled recipe, on a workload whose
+  selector does not select its own pods, and on a Service,
+  PodDisruptionBudget or NetworkPolicy whose selector selects no pods.
+  `check` MUST then apply the recipe for real on one fresh kind cluster,
+  wait for the rollout of every workload and run `tests/smoke`, as RCP-26
+  describes.
+
+  These are the parts of `renders` that need no reference. A compose file
+  grants no Kubernetes API access, so a Role or binding in its recipe
+  would grant something the source never had. The `next` compile
+  (RCP-24) runs unchanged.
+
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
+  - Since: this change
+
+- RCP-39: The `tests/smoke` of a compose recipe MUST check what the compose
+  file sets up: every published port answers through its Service, every
+  service with a `healthcheck` is ready, and one functional request needs
+  the services together, such as a write through the application that
+  its database stores.
+
+  - Test: manual: review; CI `check` job
+  - Since: this change
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -456,6 +566,8 @@ first command.
   works from. The images take their tag from
   `applications.<name>.version`, which Renovate cannot read, so it does
   not update them on its own.
+
+  Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
   - Since: #3
@@ -729,6 +841,11 @@ feature's design (OQ-6).
   `check cert-manager --level renders` with a compiled output and a chart
   render given reports the same result as without them; a tag pushed by a
   non-admin is rejected.
+- AC-10 (RCP-1, RCP-23, RCP-37 to RCP-39): `check lint` fails on a compose
+  recipe at level `renders`, on a compose `Source` line without a full
+  commit SHA, and on a fixture with a RoleBinding or a Service whose
+  selector matches no pods; miniflux passes `check miniflux --level
+  deploys` in CI.
 - AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
   repository extracts the chart of every recipe, the `next` pin, the kind
   node image, the generator pins, every tool and action pin and the
@@ -765,6 +882,9 @@ feature's design (OQ-6).
   can be attacked by a chart while `check` renders it. `template` has no
   cluster access, which limits functions like `lookup`, but that is not
   verified.
+- OQ-10: Should Renovate propose the newest commit of a compose source's
+  repository, so the SHA-256 check of RCP-23 shows when the file changed?
+  RCP-16 covers charts only.
 
 ## Implementation inventory
 
@@ -773,9 +893,9 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/ruleset-tags.json` | RCP-31, applied with `gh api` |
@@ -790,5 +910,6 @@ feature's design (OQ-6).
 | Registry entry | kadet-hub/registry `recipes/<name>.yaml` |
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
 | First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
+| First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
