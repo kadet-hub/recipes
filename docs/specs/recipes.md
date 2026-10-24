@@ -487,6 +487,29 @@ merge, conversion and boolean resolvers.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #2
 
+- RCP-35: `check lint` MUST apply its class file rules, RCP-17 to RCP-19
+  among them, to every file of a recipe that can act as a class: each
+  `*.yml` and `*.yaml` below the recipe directory, except `tests/` and the
+  files a `copy` entry of the recipe names as input. Every `classes` entry
+  of a linted file MUST resolve to a linted file.
+
+  The omegaconf backend loads any YAML file below the classes path that a
+  class names, such as `vendor/x.yml` through `.vendor.x`, so a check of
+  the root's `*.yml` files alone leaves nested files unchecked. `tests/`
+  holds the proof's chart values and target, and a `copy` input is
+  vendored data. Neither is linted, so a recipe must not include them as
+  classes. `check lint` resolves an entry as Kapitan
+  0.36.3's omegaconf backend does: a relative entry against the including
+  file's directory, an absolute `recipes.<name>.` entry against the
+  repository root, `init` before the file of the same name and `.yml`
+  before `.yaml`. An entry fails when the backend could try a path
+  outside the repository before the linted file, because that path may
+  exist in a consumer's inventory. Root files are always linted, even if
+  a `copy` entry names them.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: this change
+
 - RCP-20: CI MUST run pull requests with `pull_request`, never
   `pull_request_target`, with `permissions: {}` and no secrets, and MUST NOT
   write caches from pull request runs. The `deploys` and `migrates` levels
@@ -585,6 +608,10 @@ feature's design (OQ-6).
   `external` entry, a `jinja2` entry, each resolver RCP-17 forbids, an
   unpinned or foreign dependency, a key under another application's component, and a
   literal `?{base64:` ref.
+- AC-9 (RCP-35): `check lint` fails on a nested `vendor/x.yml` with an
+  `external` entry and on one with `oc.env`, both included as
+  `.vendor.x`, and on an include of `tests/target.yml`, and passes on
+  cert-manager.
 - AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
   new recipe with an added image, an added ClusterRole verb and an added
   hostPath volume makes `check` list all three.
@@ -639,9 +666,9 @@ feature's design (OQ-6).
 |---|---|
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-35) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh |
