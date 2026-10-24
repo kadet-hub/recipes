@@ -2,8 +2,8 @@
 
 ```text
 Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-15, RCP-21 and RCP-22 are not implemented.
-Code: <name>/, check/, .github/, renovate.json
+        (RCP-14), RCP-21 and RCP-22 are not implemented.
+Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys
 ```
 
@@ -395,16 +395,29 @@ with the recipe's dependency in the same inventory:
 A fetch inventory that holds only the recipe dependencies works:
 
 ```sh
-kapitan compile --inventory-path fetch --force-fetch --output-path .
-kapitan compile
+kapitan compile --inventory-path fetch --fetch --output-path .
+kapitan compile --fetch
 ```
+
+The first command exits with status 1 and
+`No such file or directory: .../compiled`, because the fetch target
+compiles nothing. The recipe is fetched all the same. After a pin is
+raised, `--fetch` keeps the existing directory, and `--force-fetch` copies
+the new recipe over it, so files the new version removed stay. The
+consumer therefore deletes `inventory/classes/recipes/<name>` before the
+first command.
 
 - RCP-15: Consumers MUST fetch recipes with a separate fetch inventory, pinned
   by digest, and verify them as the consumers guide describes for
   generators, until Kapitan fetches such classes itself (OQ-2).
 
-  - Test: manual: the consumers guide's steps on a fresh clone
-  - Since: not implemented
+  Until recipes are published (OQ-3), the fetch inventory pins this
+  repository by commit SHA as a `git` dependency, and the consumer verifies
+  the generators the recipe pins. The steps are in the README's
+  "Using a recipe".
+
+  - Test: manual: the README's "Using a recipe" steps on a fresh clone
+  - Since: #5
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at
@@ -589,7 +602,7 @@ feature's design (OQ-6).
   new recipe with an added image, an added ClusterRole verb and an added
   hostPath volume makes `check` list all three.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
-  by digest and compiles it with the two commands above.
+  by commit SHA and compiles it with the two commands above.
 - AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
   repository extracts the chart of every recipe, the `next` pin, the kind
   node image, the generator pins, every tool and action pin and the
@@ -637,6 +650,7 @@ feature's design (OQ-6).
 
 | Path | Purpose |
 |---|---|
+| `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23) |
