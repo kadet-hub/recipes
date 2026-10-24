@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# What basic.yml sets up (RCP-39): the database passes its healthcheck,
+# miniflux answers on the published port 80, and a category created through
+# the API with the admin account reads back, which needs the migrations and
+# the database.
+set -euo pipefail
+kubectl exec statefulset/miniflux-db -- pg_isready -U miniflux
+password=$(kubectl get secret miniflux -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d)
+kubectl port-forward service/miniflux 18080:80 >/dev/null &
+trap 'kill $!' EXIT
+url=http://127.0.0.1:18080
+for _ in $(seq 30); do curl -fsS "$url/healthcheck" >/dev/null 2>&1 && break; sleep 2; done
+[[ $(curl -fsS "$url/healthcheck") == OK ]]
+curl -fsS -u "admin:$password" -H 'Content-Type: application/json' \
+  -d '{"title":"smoke"}' "$url/v1/categories" >/dev/null
+curl -fsS -u "admin:$password" "$url/v1/categories" | grep -q '"title":"smoke"'
+echo "category smoke created and read back through the miniflux API"

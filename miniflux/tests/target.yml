@@ -1,0 +1,14 @@
+classes:
+  - recipes.miniflux
+parameters:
+  namespace: miniflux
+  kapitan:
+    vars:
+      target: miniflux
+  # The credentials of the compose file.
+  applications:
+    miniflux:
+      database:
+        password: secret
+      admin:
+        password: test123

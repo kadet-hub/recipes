@@ -1,0 +1,29 @@
+parameters:
+  components:
+    miniflux:
+      application: miniflux
+      image: miniflux/miniflux:${applications.miniflux.version}@sha256:72e49f513a63104506aab98ba8cfc3a409d4fde23550a583dec07ec941f1e94e
+      ports:
+        http:
+          container_port: 8080
+          service_port: 80
+      service:
+        type: ClusterIP
+      env:
+        DATABASE_URL:
+          secretKeyRef:
+            key: DATABASE_URL
+        RUN_MIGRATIONS: 1
+        CREATE_ADMIN: 1
+        ADMIN_USERNAME: ${applications.miniflux.admin.username}
+        ADMIN_PASSWORD:
+          secretKeyRef:
+            key: ADMIN_PASSWORD
+        DEBUG: 1
+      secrets:
+        credentials:
+          string_data:
+            DATABASE_URL:
+              value: postgres://${applications.miniflux.database.user}:${applications.miniflux.database.password}@miniflux-db/${applications.miniflux.database.name}?sslmode=disable
+            ADMIN_PASSWORD:
+              value: ${applications.miniflux.admin.password}

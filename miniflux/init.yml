@@ -1,0 +1,27 @@
+classes:
+  - .miniflux
+  - .db
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.7.0@sha256:7ef7b01e27597e74122bd559aa036ef51f380652f9cf44df560a4ba22b014ce4
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    miniflux:
+      version: 2.3.4
+      # The target sets database.password and admin.password.
+      database:
+        user: miniflux
+        name: miniflux
+      admin:
+        username: admin
+      component_defaults:
+        # Compose injects no service link variables.
+        enable_service_links: false
