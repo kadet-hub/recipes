@@ -2,9 +2,9 @@
 
 ```text
 Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-15, RCP-21, RCP-22 and RCP-31 to RCP-35 are not
-        implemented.
-Code: <name>/, check/, .github/, renovate.json
+        (RCP-14), RCP-21, RCP-22 and RCP-31 to RCP-35 are not
+        implemented; RCP-15 only up to publication.
+Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys
 ```
 
@@ -413,21 +413,38 @@ with the recipe's dependency in the same inventory:
 A fetch inventory that holds only the recipe dependencies works:
 
 ```sh
-kapitan compile --inventory-path fetch --force-fetch --output-path .
-kapitan compile
+kapitan compile --inventory-path fetch --fetch --output-path .
+kapitan compile --fetch
 ```
 
-- RCP-15: Consumers MUST fetch recipes with a separate fetch inventory, pinned
-  by digest, and verify them as the consumers guide describes, until
-  Kapitan fetches such classes itself (OQ-2).
+The first command exits with status 1 and
+`No such file or directory: .../compiled`, because the fetch target
+compiles nothing. The recipe is fetched all the same. After a pin is
+raised, `--fetch` keeps the existing directory, and `--force-fetch` copies
+the new recipe over it, so files the new version removed stay. The
+consumer therefore deletes `inventory/classes/recipes/<name>` before the
+first command.
 
-  The registry's consumer workflow does this when its policy names the
-  fetch inventory (CON-4 there). It verifies the recipe against the
-  `recipes` section of the index (CON-5), and then the generators the
-  recipe pins as dependencies of the main inventory, like any generator.
+- RCP-15: Consumers MUST fetch recipes with a separate fetch inventory,
+  pinned by digest once the recipe is published and by commit SHA before,
+  and verify them as the consumers guide describes, until Kapitan fetches
+  such classes itself (OQ-2).
 
-  - Test: manual: the consumers guide's steps on a fresh clone
-  - Since: not implemented
+  Until a recipe's first release (Releasing), the fetch inventory pins this
+  repository by commit SHA as a `git` dependency, and the consumer verifies
+  the generators the recipe pins. The steps are in the README's
+  "Using a recipe".
+
+  Once it is published, the fetch inventory pins
+  `ghcr.io/kadet-hub/recipes/<name>` by digest instead. The registry's
+  consumer workflow handles that when its policy names the fetch inventory
+  (CON-4 there). It verifies the recipe against the `recipes` section of
+  the index (CON-5), and then the generators the recipe pins as
+  dependencies of the main inventory, like any generator.
+
+  - Test: manual: the README's "Using a recipe" steps on a fresh clone;
+    the digest path: the registry's `consumer-selftest` (not written)
+  - Since: #5 (commit SHA); not implemented (digest)
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at
@@ -675,7 +692,9 @@ feature's design (OQ-6).
   new recipe with an added image, an added ClusterRole verb and an added
   hostPath volume makes `check` list all three.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
-  by digest and compiles it with the two commands above.
+  by commit SHA and compiles it with the two commands above, and once
+  cert-manager is published, by digest through the registry's consumer
+  workflow.
 - AC-8 (RCP-31 to RCP-35): `check lint` fails on a README whose first
   paragraph exceeds 300 characters, on a recipe with `vendor/x.yml` and on
   a vendored file without `.LICENSE`;
@@ -723,6 +742,7 @@ feature's design (OQ-6).
 
 | Path | Purpose |
 |---|---|
+| `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23) |
