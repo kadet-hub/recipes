@@ -18,7 +18,7 @@ SHA_COMMENT = re.compile(r"#.*SHA-256 ([0-9a-f]{64})")
 
 
 def class_files(recipe):
-    """Every file of the recipe that can act as a class: its YAML files but tests/ and copy inputs below the root (RCP-35)."""
+    """Every file of the recipe that can act as a class: its YAML files but tests/ and copy inputs below the root (RCP-36)."""
     recipe = Path(recipe)
     prefix = f"inventory/classes/recipes/{recipe.name}/"
     files = sorted(
@@ -41,7 +41,7 @@ def class_files(recipe):
 
 def resolve_class(recipe, f, cls):
     """The file Kapitan 0.36.3's omegaconf backend loads for class cls included from recipe/f, or None
-    when it is not found or may lie outside the repository (RCP-35)."""
+    when it is not found or may lie outside the repository (RCP-36)."""
     base = os.path.dirname(f"recipes/{Path(recipe).name}/{f}") if cls.startswith(".") else ""
     parts = cls.split(".")
     for ext in (".yml", ".yaml"):
@@ -168,6 +168,8 @@ def _compile_errors(name, recipe, f, text, kapitan, pinned):
                     errors.append(f"{f}: copy input {p} is not a file of the recipe (RCP-17)")
                 elif hashlib.sha256(local.read_bytes()).hexdigest() not in hashes:
                     errors.append(f"{f}: copy input {p} has no matching SHA-256 comment (RCP-17)")
+                if local.is_file() and not local.with_name(local.name + ".LICENSE").is_file():
+                    errors.append(f"{f}: copy input {p} has no {local.name}.LICENSE (RCP-35)")
         else:
             errors.append(f"{f}: compile entry of input_type {kind} (RCP-17)")
     return errors
@@ -191,6 +193,8 @@ def lint_files(recipe):
     elif level != "renders" and not (recipe / "tests/smoke").is_file():
         errors.append(f"tests/smoke is missing for level {level} (RCP-1)")
 
+    for path in sorted(recipe.rglob("*.py")):
+        errors.append(f"{path.relative_to(recipe)}: a recipe contains no Python (RCP-33)")
     pinned, compiles = set(), []
     linted = class_files(recipe)
     for path in linted:
@@ -215,11 +219,11 @@ def lint_files(recipe):
                 continue
             target = resolve_class(recipe, f, str(cls))
             if target is None:
-                errors.append(f"{f}: class {cls} does not resolve to a file of this repository (RCP-35)")
+                errors.append(f"{f}: class {cls} does not resolve to a file of this repository (RCP-36)")
                 continue
             owner = recipe.parent / target.relative_to(recipe.parent).parts[0]
             if not (owner / "init.yml").is_file() or target not in (linted if owner == recipe else class_files(owner)):
-                errors.append(f"{f}: class {cls} resolves to {target.relative_to(recipe.parent)}, which is not linted (RCP-35)")
+                errors.append(f"{f}: class {cls} resolves to {target.relative_to(recipe.parent)}, which is not linted (RCP-36)")
         params = doc.get("parameters") or {}
         if f == "init.yml" and params.get("components"):
             errors.append("init.yml: components belong in their own files (RCP-1)")

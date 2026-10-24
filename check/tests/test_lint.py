@@ -1,4 +1,4 @@
-"""AC-1, AC-5 and AC-9: check lint on the cert-manager recipe and on broken copies of it."""
+"""AC-1, AC-5, AC-8 and AC-9: check lint on the cert-manager recipe and on broken copies of it."""
 
 import shutil
 import tempfile
@@ -145,7 +145,17 @@ class Lint(unittest.TestCase):
 
     def test_include_outside_the_linted_files(self):
         errors = self.errors_with("classes:\n  - .tests.target\n")
-        self.assertIn("broken.yml: class .tests.target resolves to cert-manager/tests/target.yml, which is not linted (RCP-35)", errors)
+        self.assertIn("broken.yml: class .tests.target resolves to cert-manager/tests/target.yml, which is not linted (RCP-36)", errors)
+
+    def test_python_file(self):
+        (self.recipe / "vendor/x.py").write_text("")
+        self.assertIn("vendor/x.py: a recipe contains no Python (RCP-33)", "\n".join(lint.lint_files(self.recipe)))
+
+    # AC-8
+
+    def test_copy_without_license(self):
+        (self.recipe / "vendor/cert-manager.crds.yaml.LICENSE").unlink()
+        self.assertIn("has no cert-manager.crds.yaml.LICENSE (RCP-35)", "\n".join(lint.lint_files(self.recipe)))
 
     def test_readme_fields(self):
         readme = self.recipe / "README.md"
