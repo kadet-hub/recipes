@@ -1,6 +1,7 @@
 """check lint: the rules a recipe's files and its compiled output must follow."""
 
 import hashlib
+import os
 import re
 from pathlib import Path
 
@@ -17,7 +18,46 @@ SHA_COMMENT = re.compile(r"#.*SHA-256 ([0-9a-f]{64})")
 
 
 def class_files(recipe):
-    return sorted(Path(recipe).glob("*.yml"))
+    """Every file of the recipe that can act as a class: its YAML files but tests/ and copy inputs below the root (RCP-35)."""
+    recipe = Path(recipe)
+    prefix = f"inventory/classes/recipes/{recipe.name}/"
+    files = sorted(
+        p for p in recipe.rglob("*")
+        if p.suffix in (".yml", ".yaml") and p.is_file() and p.relative_to(recipe).parts[0] != "tests"
+    )
+    data = set()
+    for path in files:
+        try:
+            entries = yaml.safe_load(path.read_text())["parameters"]["kapitan"]["compile"]
+            data.update(
+                recipe / p.removeprefix(prefix)
+                for e in entries if e["input_type"] == "copy"
+                for p in e["input_paths"] if p.startswith(prefix)
+            )
+        except (yaml.YAMLError, LookupError, TypeError, AttributeError):
+            continue
+    return [p for p in files if p.parent == recipe or p not in data]
+
+
+def resolve_class(recipe, f, cls):
+    """The file Kapitan 0.36.3's omegaconf backend loads for class cls included from recipe/f, or None
+    when it is not found or may lie outside the repository (RCP-35)."""
+    base = os.path.dirname(f"recipes/{Path(recipe).name}/{f}") if cls.startswith(".") else ""
+    parts = cls.split(".")
+    for ext in (".yml", ".yaml"):
+        for case in (
+            os.path.join(base, *parts, "init" + ext),
+            os.path.join(base, *parts) + ext,
+            os.path.join(base, *parts[2:]) + ext,
+            os.path.join(base, *parts[2:], "init" + ext),
+        ):
+            case = os.path.normpath(case)
+            if not case.startswith("recipes/"):
+                return None
+            path = Path(recipe).parent / case.removeprefix("recipes/")
+            if path.is_file():
+                return path
+    return None
 
 
 def readme_fields(recipe):
@@ -30,7 +70,7 @@ def readme_fields(recipe):
     )
 
 
-def _flow_errors(path, text):
+def _flow_errors(f, text):
     """RCP-4: flow style only for a node on one line of at most 80 characters."""
     lines = text.splitlines()
     errors = []
@@ -39,7 +79,7 @@ def _flow_errors(path, text):
         if isinstance(node, (yaml.MappingNode, yaml.SequenceNode)) and node.flow_style:
             start, end = node.start_mark.line, node.end_mark.line
             if start != end or len(lines[start]) > 80:
-                errors.append(f"{path.name}:{start + 1}: flow style on a line longer than 80 characters (RCP-4)")
+                errors.append(f"{f}:{start + 1}: flow style on a line longer than 80 characters (RCP-4)")
             return
         if isinstance(node, yaml.MappingNode):
             for k, v in node.value:
@@ -152,15 +192,16 @@ def lint_files(recipe):
         errors.append(f"tests/smoke is missing for level {level} (RCP-1)")
 
     pinned, compiles = set(), []
-    for path in class_files(recipe):
-        f = path.name
+    linted = class_files(recipe)
+    for path in linted:
+        f = path.relative_to(recipe).as_posix()
         text = path.read_text()
         if "?{" in text:
             errors.append(f"{f}: names a ref backend with ?{{ (RCP-19)")
         for m in FORBIDDEN_RESOLVER.finditer(text):
             errors.append(f"{f}: uses the resolver {m.group(1)} (RCP-17)")
         try:
-            errors += _flow_errors(path, text)
+            errors += _flow_errors(f, text)
             doc = yaml.safe_load(text) or {}
         except yaml.YAMLError as e:
             errors.append(f"{f}: {e}")
@@ -171,6 +212,14 @@ def lint_files(recipe):
         for cls in doc.get("classes") or []:
             if not (str(cls).startswith(".") or str(cls).startswith("recipes.")):
                 errors.append(f"{f}: includes class {cls} from outside recipes (RCP-18)")
+                continue
+            target = resolve_class(recipe, f, str(cls))
+            if target is None:
+                errors.append(f"{f}: class {cls} does not resolve to a file of this repository (RCP-35)")
+                continue
+            owner = recipe.parent / target.relative_to(recipe.parent).parts[0]
+            if not (owner / "init.yml").is_file() or target not in (linted if owner == recipe else class_files(owner)):
+                errors.append(f"{f}: class {cls} resolves to {target.relative_to(recipe.parent)}, which is not linted (RCP-35)")
         params = doc.get("parameters") or {}
         if f == "init.yml" and params.get("components"):
             errors.append("init.yml: components belong in their own files (RCP-1)")

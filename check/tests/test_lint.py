@@ -1,4 +1,4 @@
-"""AC-1 and AC-5: check lint on the cert-manager recipe and on broken copies of it."""
+"""AC-1, AC-5 and AC-9: check lint on the cert-manager recipe and on broken copies of it."""
 
 import shutil
 import tempfile
@@ -127,6 +127,25 @@ class Lint(unittest.TestCase):
     def test_ref_backend(self):
         errors = self.errors_with("parameters:\n  applications:\n    cert-manager:\n      password: ?{base64:cert-manager/password}\n")
         self.assertIn("names a ref backend with ?{ (RCP-19)", errors)
+
+    # AC-9
+
+    def nested_errors(self, text):
+        """Errors after adding vendor/x.yml with the given text, included as .vendor.x."""
+        (self.recipe / "vendor/x.yml").write_text(text)
+        return self.errors_with("classes:\n  - .vendor.x\n")
+
+    def test_nested_external_entry(self):
+        errors = self.nested_errors("parameters:\n  kapitan:\n    compile:\n      - input_type: external\n        input_paths:\n          - /bin/sh\n")
+        self.assertIn("vendor/x.yml: compile entry of input_type external (RCP-17)", errors)
+
+    def test_nested_env_resolver(self):
+        errors = self.nested_errors("parameters:\n  applications:\n    cert-manager:\n      key: ${oc.env:GITHUB_TOKEN}\n")
+        self.assertIn("vendor/x.yml: uses the resolver oc.env (RCP-17)", errors)
+
+    def test_include_outside_the_linted_files(self):
+        errors = self.errors_with("classes:\n  - .tests.target\n")
+        self.assertIn("broken.yml: class .tests.target resolves to cert-manager/tests/target.yml, which is not linted (RCP-35)", errors)
 
     def test_readme_fields(self):
         readme = self.recipe / "README.md"
