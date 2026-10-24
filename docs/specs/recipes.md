@@ -2,7 +2,8 @@
 
 ```text
 Status: Draft. check 0.1.0 implements renders and deploys; migrates
-        (RCP-14), RCP-15, RCP-21 and RCP-22 are not implemented.
+        (RCP-14), RCP-15, RCP-21, RCP-22 and RCP-31 to RCP-34 are not
+        implemented.
 Code: <name>/, check/, .github/, renovate.json
 Verified against: #3, cert-manager at deploys
 ```
@@ -29,7 +30,9 @@ DEC-1: This repository holds the recipe sources, the comparison script
 `check` and the CI. Publishing goes through kadet-hub/registry like a
 generator: a tagged recipe is registered there, and the release workflow
 publishes it as an OCI artifact with an attestation and an entry in the
-index. The registry side needs its own change (OQ-3).
+index. The registry side is its spec
+[`docs/specs/recipes.md`](https://github.com/kadet-hub/registry/blob/main/docs/specs/recipes.md)
+(`REC-`).
 
 DEC-2: A recipe is a class directory, split by component. The RBAC entries
 of a component live in that component's file, because they bind its
@@ -400,8 +403,13 @@ kapitan compile
 ```
 
 - RCP-15: Consumers MUST fetch recipes with a separate fetch inventory, pinned
-  by digest, and verify them as the consumers guide describes for
-  generators, until Kapitan fetches such classes itself (OQ-2).
+  by digest, and verify them as the consumers guide describes, until
+  Kapitan fetches such classes itself (OQ-2).
+
+  The registry's consumer workflow does this when its policy names the
+  fetch inventory (CON-4 there). It verifies the recipe against the
+  `recipes` section of the index (CON-5), and then the generators the
+  recipe pins as dependencies of the main inventory, like any generator.
 
   - Test: manual: the consumers guide's steps on a fresh clone
   - Since: not implemented
@@ -419,6 +427,68 @@ kapitan compile
 
   - Test: manual: Renovate dry run
   - Since: #3
+
+### Releasing
+
+A recipe version is released by a tag in this repository and registered in
+kadet-hub/registry as `recipes/<name>.yaml`, which pins the tag and its
+commit. The first version is a maintainer pull request there; Renovate
+proposes every later tag with the same prefix (REG-7). The registry gate
+then checks the recipe itself, with a pinned `check` release, its own
+sandbox and level `renders` (REC-4 to REC-10), and the release workflow
+publishes the class directory without `tests/` (REC-11). What the gate
+checks, formerly OQ-3, is decided there. Owners per recipe, formerly OQ-4,
+are the `owners` of the registry entry, set by the maintainer (REC-3).
+
+- RCP-31: A recipe version MUST be a tag `<name>-vX.Y.Z` on a commit of
+  `main` where CI ran `check` at the README's level for that recipe and
+  passed. Only the admin role MAY create such tags, and no one MAY move or
+  delete them.
+
+  The version is the recipe's own SemVer. The major version rises when a
+  target that included the previous version needs a change to compile the
+  same application, for example a renamed key or a removed option. A new
+  chart version is a minor version unless it also does that. A `tags`
+  ruleset enforces who creates tags. The registry's SEC-16 opens an issue
+  when a registered tag moves.
+
+  - Test: manual: `gh api repos/kadet-hub/recipes/rulesets`
+  - Since: not implemented
+
+- RCP-32: The first paragraph of a recipe's README, after the heading, MUST
+  describe the recipe in at most 300 characters, without control or
+  bidirectional formatting characters.
+
+  The registry's index takes it as the recipe's description (REC-13), and
+  the catalog shows it in lists and in `/llms.txt`. cert-manager's first
+  paragraph currently runs into the `Source` line with a colon and needs
+  splitting.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: not implemented
+
+- RCP-33: A recipe's class files MUST be the `*.yml` files at the root of
+  its directory. No other file of the recipe MAY end in `.yml` or `.py`.
+
+  `check lint` reads only the root's `*.yml` files, but the omegaconf
+  backend loads `vendor/x.yml` as `.vendor.x` for any class that includes
+  it, and RCP-17 would never see that file. The registry gate checks the
+  same (REC-4).
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: not implemented
+
+- RCP-34: `check <name> --level renders` MUST accept the compiled output of
+  the recipe and the rendered chart as input, and then run neither Kapitan
+  nor helm.
+
+  The registry gate compiles and renders in its gVisor sandbox and gives
+  `check` only the two outputs (DEC-21 there), so a chart that attacks
+  `helm template` (OQ-7) or a generator stays inside the sandbox. In this
+  repository's CI `check` keeps compiling and rendering itself.
+
+  - Test: `check/tests/` (not written); the registry's `gate-selftest`
+  - Since: not implemented
 
 ## Security
 
@@ -558,7 +628,8 @@ merge, conversion and boolean resolvers.
   An agent reads chart templates, `NOTES.txt` and `values.yaml`, which the
   chart author controls. A comparison the agent writes itself can be
   steered by text in them. A diff against a pinned script cannot, and an
-  injected extra object then shows up as a difference outside RCP-12.
+  injected extra object then shows up as a difference outside RCP-12. The
+  registry gate pins a `check` release in the same way (REC-5, REC-9).
 
   - Test: manual: the skill names a `check` version
   - Since: not implemented
@@ -590,6 +661,11 @@ feature's design (OQ-6).
   hostPath volume makes `check` list all three.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by digest and compiles it with the two commands above.
+- AC-8 (RCP-31 to RCP-34): `check lint` fails on a README whose first
+  paragraph exceeds 300 characters and on a recipe with `vendor/x.yml`;
+  `check cert-manager --level renders` with a compiled output and a chart
+  render given reports the same result as without them; a tag pushed by a
+  non-admin is rejected.
 - AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
   repository extracts the chart of every recipe, the `next` pin, the kind
   node image, the generator pins, every tool and action pin and the
@@ -614,12 +690,6 @@ feature's design (OQ-6).
   described remote inventories in 2021. Kapitan 0.36.3 loads the inventory
   with `ignore_class_not_found` during `--fetch` and has an unused
   `reset_inv()`, but neither takes effect.
-- OQ-3: What does the registry gate check for a recipe? A recipe contains
-  no generator code, so the sandboxed compile and the scans of a generator
-  do not all apply. A first answer: the gate runs `check lint` and
-  `renders`, and the release workflow publishes the class directory.
-- OQ-4: Who owns a recipe? Owners per recipe as for generators, or the
-  maintainers of this repository?
 - OQ-5: Does Renovate's chart update only report the diff (RCP-16), or does
   an agent run `to-recipe` on the new chart and propose the changed recipe?
 
@@ -644,6 +714,7 @@ feature's design (OQ-6).
 | `check/tests/` | AC-1, AC-2, AC-5 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
+| `.github/ruleset-tags.json` | RCP-31, applied with `gh api` |
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 
@@ -651,7 +722,8 @@ feature's design (OQ-6).
 |---|---|
 | Repository | `kadet-hub/recipes`, public, Apache-2.0 |
 | Artifact | `ghcr.io/kadet-hub/recipes/<name>` |
-| Tag | `<name>-vX.Y.Z` |
+| Tag | `<name>-vX.Y.Z`, created by the admin role only |
+| Registry entry | kadet-hub/registry `recipes/<name>.yaml` |
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
 | First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
