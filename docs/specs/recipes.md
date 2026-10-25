@@ -13,7 +13,8 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #19, powerdns at deploys; #29, strimzi at deploys;
                   #26, keycloak-operator at deploys;
                   #33, external-dns-powerdns at deploys;
-                  #34, kafka at deploys; #35, postgresql at deploys
+                  #34, kafka at deploys; #35, postgresql at deploys;
+                  #36, rabbitmq-cluster-operator and rabbitmq at deploys
 ```
 
 ## Problem
@@ -1536,6 +1537,91 @@ the examples check: the Kafka, the topic and the user are Ready, and a
 client with the user's certificate writes a message to the topic and reads
 it back over mutual TLS through the bootstrap Service.
 
+## RabbitMQ
+
+The RabbitMQ Cluster Operator runs RabbitMQ from a RabbitmqCluster
+resource. It ships as a release manifest and no chart (Release manifests).
+The `rabbitmq` generator 1.1.0, built for the operator 2.23.1, renders its
+resources. RabbitMQ therefore moves from kadet-hub/examples as two recipes
+(DEC-14, DEC-15):
+
+| Recipe | Source | Role |
+|---|---|---|
+| `rabbitmq-cluster-operator` | `https://github.com/rabbitmq/cluster-operator/releases/download/v2.23.1/cluster-operator.yml@sha256:ae35a547751656bc64bb734026249a845d226d96aba5a73783e05c5ec3444687`, MPL-2.0 | prerequisite of `rabbitmq`: the operator, its webhooks, RBAC and the CRD, requires `cert-manager` |
+| `rabbitmq` | `docker.io/library/rabbitmq:4.3.6-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58` | one RabbitmqCluster of three nodes, requires `rabbitmq-cluster-operator` |
+
+A target with `rabbitmq` needs `rabbitmq-cluster-operator` installed first,
+and that one `cert-manager` (Prerequisites).
+
+### The operator
+
+The recipe renders the manifest's objects with the `kubernetes` generator
+1.9.0, and its two Certificates and the Issuer with the `certmanager`
+generator 1.0.2. That generator sets `privateKey.rotationPolicy: Always`,
+which the manifest leaves to cert-manager (RCP-12). The recipe therefore
+needs cert-manager 1.18 or later with the feature gate
+`DefaultPrivateKeyRotationPolicyAlways` on, its default, and its README says
+so. The `cert-manager` recipe installs 1.21.2.
+
+`tests/target.yml` installs the operator in `rabbitmq-system`, the namespace
+the manifest names, and the recipe renders that Namespace as the manifest
+does. The CRD is `config/crd/bases/rabbitmq.com_rabbitmqclusters.yaml` of
+v2.23.1, SHA-256
+`6203b7216bbb76aa6eeedc8ee3d07e4750b8ed66c9498346e6098be9a89c309e`, the same
+object as in the manifest, copied with the repository's `LICENSE.txt`.
+rabbitmq/cluster-operator has no NOTICE (RCP-35).
+
+The webhook configurations keep the manifest's names. The generator's
+`<namespace>-<component>` would start with neither the recipe's name nor a
+name of the manifest (RCP-3). The two bindings take the names of their
+`rbac` entries, which the README lists (RCP-11).
+
+The manifest's webhook Service has one port without a name. The
+`kubernetes` generator names every Service port after its key, so the
+recipe gives the port an empty key, which the API stores as no name. An
+RCP-12 class for a port name the generator adds was considered. It would
+need a new `check` release before the registry gate accepts the recipe
+(REC-9 there).
+
+### The RabbitMQ cluster
+
+`rabbitmq` renders the RabbitmqCluster `rabbitmq` in the target's namespace
+with three nodes and the requests and limits of the examples class. Each
+node keeps the operator's default claim of 10Gi. The resource sets the
+image of the `Source` line as `spec.image` (RCP-58), the `management`
+variant the examples class ran. The operator creates the default user and
+its Secret `rabbitmq-default-user`, so no parameter has to be set.
+
+### Moving from kadet-hub/examples
+
+The examples class rendered the Namespace `messaging` and the
+RabbitmqCluster `production` and included cert-manager's class. The
+operator was installed from its release manifest by hand. A target that
+moves sets `name: production` on the entry `rabbitmq`. The `rabbitmq`
+generator then names the resource as the examples class did, and the
+operator derives the same StatefulSet `production-server`, Secret
+`production-default-user` and claims `persistence-production-server-<n>`, so
+the cluster keeps its queues and messages. The Namespace `messaging` has to
+outlive the examples class, because deleting it deletes the claims.
+cert-manager and the operator move to targets of their own. The move is not
+tested (RCP-14).
+
+Renaming `production` to `rabbitmq` was considered. As for Kafka, the new
+cluster would start empty.
+
+### Proof
+
+Both are at level `deploys`. `rabbitmq-cluster-operator`'s `tests/smoke`
+creates a RabbitmqCluster in another namespace. The webhooks admit it with
+the CA that cert-manager injected, the mutating webhook sets its image, and
+its replicas become ready.
+
+For `rabbitmq`, `check` installs `cert-manager` and then
+`rabbitmq-cluster-operator` (RCP-55). `tests/smoke` is the examples check,
+all replicas ready and `rabbitmq-diagnostics check_running`. Through the
+Service `rabbitmq` it then sends a message through a quorum queue over the
+HTTP API and reaches the AMQP and Prometheus ports.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -1660,6 +1746,17 @@ first command.
   moves to. Docker Hub lists the repository's 11 tags on one page, so
   Renovate gets their release timestamps.
 
+  The rabbitmq image, a Docker Official Image, has more than 1000 tags too,
+  so Renovate gets no release timestamp for it. A package rule makes the
+  timestamp optional for the image. Without the rule a dry run held
+  `4.4.0-management` as pending, and with it the dry run proposed it.
+  docker-library rebuilds the image when RabbitMQ's entry in its
+  official-images library changes or the Ubuntu base image does. Between
+  2026-07-25 and 2026-10-25 the entry changed 13 times and Ubuntu's 7 times.
+  That moves the digest at most about twice a week, not daily as MongoDB's,
+  so the image needs no schedule window. Renovate's docker versioning
+  proposes only tags with the suffix `-management`, which keeps the variant.
+
   A package rule groups the `Source` lines of `keycloak-operator` and
   `keycloak` into one pull request, because one operator supports only the
   Keycloak version it was released with (Keycloak). Keycloak has no
@@ -1700,7 +1797,7 @@ first command.
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
     keycloak: #26; release manifests: #22, #25; kafka: #34; HTTP
-    repository: #23
+    repository: #23; rabbitmq: #36
 
 ### Releasing
 
