@@ -15,7 +15,7 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #33, external-dns-powerdns at deploys;
                   #34, kafka at deploys; #35, postgresql at deploys;
                   #36, rabbitmq-cluster-operator and rabbitmq at deploys;
-                  #37, keycloak at deploys
+                  #38, keycloak at deploys
 ```
 
 ## Problem
@@ -959,7 +959,7 @@ both compile entries run that version.
   kadet-hub/examples recipe it replaces.
 
   - Test: `check/tests/test_check.py`; CI `check` job
-  - Since: #15; implemented: #31; designed parents: #37
+  - Since: #15; implemented: #31; designed parents: #38
 
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
@@ -1379,7 +1379,7 @@ The target sets `applications.keycloak.host` and
 
   - Test: `check keycloak`; manual: compile of the README's `Replaces`
     snippet
-  - Since: #37
+  - Since: #38
 
 ### Moving from kadet-hub/examples
 
