@@ -1,4 +1,4 @@
-"""check: lint a recipe, or prove it against the chart it replaces or deploy it (compose source, designed recipe).
+"""check: lint a recipe, or prove it against the chart or release manifest it replaces, or deploy it (compose, design).
 
   check lint <name>
   check <name> --level renders|deploys
@@ -129,6 +129,18 @@ def fetch_compose(source):
         actual = "sha256:" + hashlib.sha256(r.read()).hexdigest()
     if actual != digest:
         raise Failed(f"{path} of {repo} at {commit} has {actual}, the README names {digest}")
+
+
+def fetch_manifest(source, work):
+    """The release asset; its SHA-256 must be the one the README names (RCP-23). Returns its objects (RCP-59)."""
+    repo, tag, file, digest = source
+    with urllib.request.urlopen(f"https://github.com/{repo}/releases/download/{tag}/{file}", timeout=60) as r:
+        data = r.read()
+    actual = "sha256:" + hashlib.sha256(data).hexdigest()
+    if actual != digest:
+        raise Failed(f"{file} of {repo} release {tag} has {actual}, the README names {digest}")
+    (work / "manifest.yaml").write_bytes(data)
+    return load_all(data.decode())
 
 
 def render_chart(name, recipe, tgz, namespace):
@@ -292,6 +304,9 @@ def cmd_lint(recipe, work):
         return lint.lint_output(recipe.name, objs, set()) + lint.lint_compose_output(objs), notes
     if source[0] == "design":
         return lint.lint_output(recipe.name, objs, set()) + lint.lint_design_output(objs, source[1]), notes
+    if source[0] == "manifest":
+        manifest = fetch_manifest(source[1], work)
+        return lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in manifest}), notes
     chart, _ = render_chart(recipe.name, recipe, fetch_chart(source[1], work), namespace)
     errors = lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in chart})
     return errors, notes
@@ -324,6 +339,9 @@ def cmd_check(recipe, level, work, keep):
             say(f"{level}: a designed recipe is proven at level deploys only (RCP-44)")
             return report, True
         say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
+    elif kind == "manifest":
+        say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, {source[3]} verified")
+        chart = load_all((work / "manifest.yaml").read_text())
     else:
         say(f"chart: oci://{source[0]}:{source[1]}@{source[2]}, values tests/values.yaml")
         chart, hooks = render_chart(recipe.name, recipe, next((work / "chart").glob("*.tgz")), namespace)
