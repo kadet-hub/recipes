@@ -377,7 +377,7 @@ def cmd_check(recipe, level, work, keep):
         return report, failed
 
     subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)
-    rbac_ns = compare.rbac_namespaces(chart + objs, subjects)
+    rbac_ns = compare.rbac_namespaces(chart + objs, subjects, namespace)
     namespaces = {namespace} | {o["metadata"]["namespace"] for o in chart + objs if o["metadata"].get("namespace")}
     clusters = {side: Cluster(f"check-{recipe.name}-{side}-{os.getpid()}"[:50], work) for side in ("chart", "recipe")}
     try:
