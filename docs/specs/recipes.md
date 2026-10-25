@@ -1713,6 +1713,15 @@ first command.
   `applications.<name>.version`, which Renovate cannot read, so it does
   not update them on its own.
 
+  Renovate opens and updates the pull requests for `Source` lines only on
+  Mondays from 00:00 to 06:00 Europe/Berlin, so a recipe's source moves at
+  most once a week and a maintainer reviews the week's chart and image
+  updates together. `updateNotScheduled: false` keeps Renovate from pushing
+  to an open pull request outside that window. Where Renovate gets release
+  timestamps, the repository's three days of release age apply as well. A
+  security fix can therefore wait up to a week plus three days; a
+  maintainer who needs it sooner moves the pin by hand.
+
   For a designed recipe Renovate moves the image of the `Source` line in
   the same way, and `check lint` fails until the recipe runs the new image
   (RCP-23). A package rule keeps the image on the release line the README
@@ -1731,11 +1740,8 @@ first command.
   timestamp-required`, the repository's three days would hold every update
   of it, so the image has no minimum release age, as the `next` pin of
   RCP-29 has none. MongoDB pushes the newest patch tag again with almost
-  every daily build. Renovate therefore opens and updates the image's pull
-  request only on Mondays from 00:00 to 06:00 Europe/Berlin, so the digest
-  moves at most once a week. `updateNotScheduled: false` keeps Renovate
-  from pushing a new digest to the open pull request outside that window.
-  Docker Hub credentials for Renovate were considered. They would give
+  every daily build, and the weekly window above keeps its digest to one
+  move a week. Docker Hub credentials for Renovate were considered. They would give
   timestamps, but a tag pushed again with each build would reach the three
   days only once MongoDB stops rebuilding it, one release late.
 
@@ -1753,8 +1759,8 @@ first command.
   docker-library rebuilds the image when RabbitMQ's entry in its
   official-images library changes or the Ubuntu base image does. Between
   2026-07-25 and 2026-10-25 the entry changed 13 times and Ubuntu's 7 times.
-  That moves the digest at most about twice a week, not daily as MongoDB's,
-  so the image needs no schedule window. Renovate's docker versioning
+  That moves the digest at most about twice a week, and the weekly window
+  above bundles those moves into one. Renovate's docker versioning
   proposes only tags with the suffix `-management`, which keeps the variant.
 
   A package rule groups the `Source` lines of `keycloak-operator` and
