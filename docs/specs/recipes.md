@@ -6,7 +6,7 @@ Status: Draft. check 0.2.0 implements renders and deploys, for compose
         RCP-31, RCP-32 and RCP-34 are not implemented; RCP-15 only up
         to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
-Verified against: #3, cert-manager at deploys
+Verified against: #3, cert-manager at deploys; #10, valkey at deploys
 ```
 
 ## Problem
@@ -80,6 +80,16 @@ DEC-9: The source type follows from the form of the README's `Source` line
 (RCP-23): `oci://` is a chart, a GitHub file URL a compose file. A separate
 `Source-Type:` line was considered. It would repeat what the line already
 says, and the two could contradict each other.
+
+DEC-10: A recipe of kadet-hub/examples moves here with the project's own
+Helm chart or Kustomize base as its source where the project ships one
+(Recipes from kadet-hub/examples). It is then proven like any chart recipe,
+and the examples recipe's behaviour becomes `tests/values.yaml` and its
+check `tests/smoke`. Moving the examples recipe as it is was considered. It
+has no upstream artifact to compare with, and users of the project's chart
+could not move to it with a proof. A recipe designed in kadet-hub for a
+project that ships no chart, base or compose file needs a source type of
+its own. It is specified with the first recipe that needs one.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -202,6 +212,25 @@ belong in the recipe.
 
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #2
+
+- RCP-42: A class file that carries text a chart renders from its
+  templates, such as a script in a ConfigMap, MUST name the chart file and
+  version in a comment above it and have the upstream license next to it
+  as `<file>.LICENSE`. Each `${` of that text MUST be written as
+  `${escape:...}`.
+
+  The registry publishes the class file, so it redistributes the text as
+  RCP-35 describes for vendored files. The generator renders ConfigMaps, so
+  the text stays in the class instead of a `copy` of the whole object
+  (RCP-7). Kapitan 0.36.3 resolves the omegaconf inventory twice, so `\${`
+  is resolved on the second pass. `${escape:...}` comes out as `${...}`. A
+  value the chart computes from its templates, such as a `checksum/*` pod
+  annotation, is written as the chart renders it with `tests/values.yaml`,
+  and the README says that it does not follow a change of the recipe.
+  `check lint` cannot tell copied text from written text.
+
+  - Test: manual: review; CI `check` job
+  - Since: #10
 
 ## Proof
 
@@ -476,6 +505,28 @@ What the table does not map is a gap, and so is each of these:
   - Test: manual: review; CI `check` job
   - Since: #8
 
+## Recipes from kadet-hub/examples
+
+kadet-hub/examples carried recipes as single classes, written in kadet-hub
+in place of Bitnami charts (EX-5 there). Each one moves here with its
+project's chart as source (DEC-10), and the examples repository then points
+to the recipe here. valkey was the first: valkey-io publishes the chart
+`valkey` in valkey-io/valkey-helm, BSD-3-Clause, at
+`oci://ghcr.io/valkey-io/valkey-helm/valkey`, whose standalone mode renders
+a Deployment, a PersistentVolumeClaim and ACL authentication where the
+examples recipe had a StatefulSet and `--requirepass`.
+
+- RCP-41: The README of a recipe that replaces one of kadet-hub/examples
+  MUST have a section `Replaces` that names that recipe and lists the
+  objects, names and settings that change for a target moving from it.
+
+  A target that included the examples recipe compiles different objects
+  from the new one, such as another Secret key, so the move is a change
+  its owner makes on purpose.
+
+  - Test: manual: review
+  - Since: #10
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -663,7 +714,8 @@ for them. No built-in resolver reads the clock. `oc.decode` only parses
 its argument, and `${oc.decode:${oc.env:X}}` is caught through `oc.env`.
 The remaining ones read only the inventory: `oc.create`, `oc.select`,
 `oc.deprecated`, `oc.dict.keys`, `oc.dict.values` and Kapitan's key,
-merge, conversion and boolean resolvers.
+merge, conversion and boolean resolvers. Kapitan's `escape` returns its
+argument as a literal `${...}` and reads nothing.
 
 - RCP-17: A recipe MUST contain only parameters, `kadet` compile entries
   whose input is a kadet-hub generator pinned by digest in the same
@@ -846,6 +898,10 @@ feature's design (OQ-6).
   commit SHA, and on a fixture with a RoleBinding or a Service whose
   selector matches no pods; miniflux passes `check miniflux --level
   deploys` in CI.
+- AC-11 (RCP-41, RCP-42): valkey passes `check valkey --level deploys` in
+  CI, its README names the kadet-hub/examples recipe it replaces, and
+  `valkey.yml` names the chart file of its init script and has
+  `valkey.yml.LICENSE`.
 - AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
   repository extracts the chart of every recipe, the `next` pin, the kind
   node image, the generator pins, every tool and action pin and the
@@ -910,6 +966,7 @@ feature's design (OQ-6).
 | Registry entry | kadet-hub/registry `recipes/<name>.yaml` |
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
 | First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
+| First recipe from kadet-hub/examples | valkey, chart `valkey` 0.12.0 of valkey-io/valkey-helm, level `deploys` |
 | First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
