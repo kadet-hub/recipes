@@ -61,6 +61,13 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "RCP-16: mysql stays on MySQL's 9.7 LTS line; from 26.7 the Innovation releases use calendar versions",
+      "matchPackageNames": [
+        "container-registry.oracle.com/mysql/community-server"
+      ],
+      "allowedVersions": "<10"
+    },
+    {
       "description": "RCP-30: kind and the node image of its release",
       "matchDepNames": [
         "kubernetes-sigs/kind",

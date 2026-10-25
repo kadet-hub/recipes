@@ -1,0 +1,11 @@
+classes:
+  - recipes.mysql
+parameters:
+  namespace: mysql
+  kapitan:
+    vars:
+      target: mysql
+  applications:
+    mysql:
+      password: smoke-password
+      root_password: smoke-root-password

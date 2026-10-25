@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# The kadet-hub/examples recipe's check through the Service (RCP-45): the
+# user app runs select 1 in its database app, connecting to the Service
+# mysql on port 3306.
+set -euo pipefail
+password=$(kubectl get secret mysql -o jsonpath='{.data.password}' | base64 -d)
+out=$(kubectl exec statefulset/mysql -c mysql -- mysql -h mysql -P 3306 -uapp -p"$password" app -Nse 'select 1')
+[[ $out == 1 ]]
+echo "select 1 as the user app in its database app, through the Service mysql"

@@ -1,0 +1,63 @@
+parameters:
+  components:
+    mysql:
+      application: mysql
+      type: statefulset
+      # linux/amd64 only: the arm64 build is the tag <version>-aarch64.
+      image: container-registry.oracle.com/mysql/community-server:${applications.mysql.version}@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb
+      security_profile: restricted
+      workload_security_context:
+        runAsUser: 27
+        runAsGroup: 27
+        fsGroup: 27
+      env:
+        MYSQL_DATABASE: ${applications.mysql.database}
+        MYSQL_USER: ${applications.mysql.user}
+        MYSQL_PASSWORD:
+          secretKeyRef:
+            key: password
+        MYSQL_ROOT_PASSWORD:
+          secretKeyRef:
+            key: root-password
+      secrets:
+        auth:
+          string_data:
+            password:
+              value: ${applications.mysql.password}
+            root-password:
+              value: ${applications.mysql.root_password}
+      ports:
+        mysql:
+          service_port: 3306
+      # The entrypoint initializes the data directory with networking off,
+      # so the port opens only once the server is ready.
+      healthcheck:
+        startup:
+          type: tcp
+          port: mysql
+          failure_threshold: 30
+        readiness: &probe
+          type: tcp
+          port: mysql
+        liveness: *probe
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+      # mysqld --initialize refuses a data directory with lost+found in it.
+      volume_mounts:
+        data:
+          mount_path: /var/lib/mysql
+          sub_path: mysql
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 8Gi
+      service:
+        type: ClusterIP
