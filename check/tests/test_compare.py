@@ -158,6 +158,12 @@ class Normalize(unittest.TestCase):
         self.assertEqual(template["annotations"], {"prometheus.io/port": "9402"})
         self.assertEqual(compare.normalize(find(chart, "ServiceAccount"), "chart")["metadata"], {"name": "demo", "namespace": "demo"})
 
+    def test_drops_the_release_labels_of_strimzis_chart(self):
+        labels = {"chart": "strimzi-kafka-operator-1.3.0", "release": "strimzi", "heritage": "Helm",
+                  "component": "service-account", "strimzi.io/kind": "cluster-operator"}
+        sa = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "s", "labels": labels}}
+        self.assertEqual(compare.normalize(sa, "chart")["metadata"]["labels"], {"strimzi.io/kind": "cluster-operator"})
+
     def test_digests_only_on_the_recipe_side(self):
         recipe = find(load("recipe.yaml"), "Deployment")
         container = compare.normalize(recipe, "recipe")["spec"]["template"]["spec"]["containers"][0]

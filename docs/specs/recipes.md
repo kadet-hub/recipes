@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.4.0 implements renders and deploys, also from
+Status: Draft. check 0.5.0 implements renders and deploys, also from
         release manifests (RCP-59), for compose sources and designed
         recipes deploys (RCP-38, RCP-44, RCP-58); migrates (RCP-14),
         RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not implemented;
@@ -9,7 +9,7 @@ Status: Draft. check 0.4.0 implements renders and deploys, also from
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
-                  #19, powerdns at deploys
+                  #19, powerdns at deploys; #29, strimzi at deploys
 ```
 
 ## Problem
@@ -499,7 +499,7 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   would name a manager that does not manage the object.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; `chart`, `release`, `heritage`, `component`: not implemented
+  - Since: #2; `chart`, `release`, `heritage`, `component`: #29
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
