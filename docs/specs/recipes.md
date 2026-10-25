@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.8.0 implements renders and deploys, for charts
+Status: Draft. check 0.8.1 implements renders and deploys, for charts
         from OCI and HTTP repositories and for release manifests (RCP-59),
         for compose sources and designed recipes deploys (RCP-38, RCP-44,
         RCP-58), included recipes and prerequisites (RCP-47 to RCP-50,
@@ -14,7 +14,8 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #26, keycloak-operator at deploys;
                   #33, external-dns-powerdns at deploys;
                   #34, kafka at deploys; #35, postgresql at deploys;
-                  #36, rabbitmq-cluster-operator and rabbitmq at deploys
+                  #36, rabbitmq-cluster-operator and rabbitmq at deploys;
+                  #37, keycloak at deploys
 ```
 
 ## Problem
@@ -958,7 +959,7 @@ both compile entries run that version.
   kadet-hub/examples recipe it replaces.
 
   - Test: `check/tests/test_check.py`; CI `check` job
-  - Since: #15; implemented: #31
+  - Since: #15; implemented: #31; designed parents: #37
 
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
@@ -1282,7 +1283,7 @@ experimental (`docs/guides/operator/installation.adoc` of keycloak/keycloak
 26.8.1). The Quarkus Helm extension generates the chart from the same
 manifests as the Kustomize base, and the chart names the Keycloak Team as
 maintainer (`operator/README.md`). quay.io lists it from 26.8.0 on. The
-`keycloak` generator 1.0.3, built for operator 26.8.1, renders Keycloak's
+`keycloak` generator 1.1.0, built for operator 26.8.1, renders Keycloak's
 resources. Keycloak therefore moves from kadet-hub/examples as two recipes
 (DEC-14):
 
@@ -1331,10 +1332,11 @@ of the release day, 2026-10-13. The chart's 26.8.1 was also created on
 
 ### The Keycloak resource
 
-`keycloak` renders the `Keycloak` resource `keycloak` in the target's
-namespace. The operator creates the StatefulSet `keycloak`, the Services
-`keycloak-service` and `keycloak-discovery`, and the Secret
-`keycloak-initial-admin` with a generated password for a temporary admin.
+`keycloak` renders one `Keycloak` resource in the target's namespace, named
+`keycloak` unless the target sets another name (RCP-61). The operator
+creates the StatefulSet `<name>`, the Services `<name>-service` and
+`<name>-discovery`, and the Secret `<name>-initial-admin` with a generated
+password for a temporary admin.
 The resource sets the image of the `Source` line (RCP-58). With an image
 set, the operator starts Keycloak with `--optimized`, which assumes an
 image built for its configuration (`KeycloakDeploymentDependentResource.java`).
@@ -1343,16 +1345,18 @@ The project's image is not built for PostgreSQL, so the recipe sets
 recipe.
 
 The database is the included recipe `postgresql` (DEC-4, DEC-12). Keycloak
-connects to the Service `postgresql-cluster-rw` and the database `app`.
-CloudNativePG creates `app` with the owner `app` when the chart sets no
-`initdb`. The user and password are the keys `username` and `password` of
-the Secret `postgresql-cluster-app`, the keys the generator's
-`credentials_secret` reads. Keycloak 26.8.1 is tested against PostgreSQL 18
+connects to the Service `<cluster>-rw` and the database
+`applications.postgresql.database`, where `<cluster>` is
+`applications.postgresql.cluster` (RCP-60). The user and password are the
+keys `username` and `password` of the Secret `<cluster>-app`, the keys the
+generator's `credentials_secret` reads. With `postgresql`'s defaults these
+are `postgresql-cluster-rw`, `app` and `postgresql-cluster-app`.
+Keycloak 26.8.1 is tested against PostgreSQL 18
 (`postgresql.version` in its `pom.xml`), the version `postgresql` runs.
 
 Keycloak serves HTTPS on port 8443 with the Secret `keycloak-tls`. The
 cert-manager Certificate `keycloak-tls` issues it for the host and for
-`keycloak-service.<namespace>.svc`, from an issuer the target names. The
+`<name>-service.<namespace>.svc`, from an issuer the target names. The
 certificate's common name is the host. The examples recipe set it because
 Keycloak rejected its self-signed certificate with an empty issuer DN.
 
@@ -1364,6 +1368,19 @@ The target sets `applications.keycloak.host` and
 `applications.keycloak.issuer`, the issuer's `name` and `kind`.
 `postgresql` requires no parameter (RCP-51).
 
+- RCP-61: `keycloak` MUST take the name of its `Keycloak` resource from
+  `applications.keycloak.name`, `keycloak` by default, and its certificate
+  MUST name `<name>-service.<namespace>.svc`.
+
+  The generator entry keeps the key `keycloak` (RCP-18) and passes the
+  name as `name`, which the `keycloak` generator reads since 1.1.0, as
+  `kafka` keeps `events`. The Certificate and its Secret stay
+  `keycloak-tls`.
+
+  - Test: `check keycloak`; manual: compile of the README's `Replaces`
+    snippet
+  - Since: #37
+
 ### Moving from kadet-hub/examples
 
 The examples recipe rendered the Namespace `keycloak`, the three operators
@@ -1372,21 +1389,29 @@ Issuer `keycloak-selfsigned`, the Certificate `sso-tls` and the Keycloak
 `sso`. The operators become the prerequisites `keycloak-operator`,
 `cert-manager` and `cnpg`, each in a target of its own. The old
 operator in the namespace `keycloak` has to be gone before
-`keycloak-operator` starts, or both reconcile the same resource. RCP-3
-renames `sso` to `keycloak`, and with it the objects the operator derives
-from the name.
+`keycloak-operator` starts, or both reconcile the same resource.
 
-Keycloak keeps its realms, users and sessions in the database, and the
-database does not carry over by name. The data is in the Cluster
-`keycloak-db`, database `keycloak`, and the recipe connects to
-`postgresql-cluster`, database `app`. A target moving from the examples
-recipe imports the old database into the new Cluster with CloudNativePG's
-import bootstrap (`bootstrap.initdb.import` of type `microservice`) before
-Keycloak first starts on it, and the README's `Replaces` section gives the
-values. The import is not tested yet. Keeping the Cluster `keycloak-db` in
-`keycloak` was considered. It would keep the data in place, but repeat the
-Cluster that `postgresql` proves and pins, so Keycloak and Nextcloud would
-run their databases two ways.
+Keycloak keeps its realms, users and sessions in the database, so a target
+moving from the examples recipe keeps the names that hold them. It sets
+`name: sso` on `keycloak` (RCP-61). The operator then keeps the StatefulSet
+`sso`, the Services `sso-service` and `sso-discovery` and the Secret
+`sso-initial-admin`. On `postgresql` it sets `cluster: keycloak-db`,
+`database: keycloak`, `owner: keycloak`, `storage: 10Gi` and
+`instances: 2` (RCP-60), so the Cluster keeps its claims `keycloak-db-<n>`
+and Keycloak its database. Nothing is renamed or imported. The certificate
+moves from `sso-tls` to `keycloak-tls` for the same DNS names. The recipe
+renders no Issuer, so a target that keeps `keycloak-selfsigned` renders it
+as `tests/target.yml` does. The README's `Replaces` section gives the
+values and the order. The move is not tested (RCP-14).
+
+Renaming `sso` to `keycloak` and importing `keycloak-db` into
+`postgresql-cluster` with CloudNativePG's import bootstrap was considered.
+The import runs once, when the new Cluster is created, so Keycloak would
+have to stay stopped from the import until it starts on the new Cluster,
+and the move would depend on an untested step. A Cluster `keycloak-db`
+rendered by `keycloak` itself was considered too. It would keep the data in
+place, but repeat the Cluster that `postgresql` proves and pins, so
+Keycloak and Nextcloud would run their databases two ways.
 
 ### Proof
 
@@ -2110,12 +2135,14 @@ feature's design (OQ-6).
   consumer clone compiles nextcloud with the fetch inventory pinning
   nextcloud, postgresql and valkey at one commit, and the first nextcloud
   tag follows tags of postgresql and valkey whose trees it contains.
-- AC-18 (RCP-55, RCP-58): `check lint` fails on a designed recipe whose
-  `Source` image neither a container runs nor a `spec.image` sets, and
-  passes on keycloak. `check keycloak-operator --level deploys` and
+- AC-18 (RCP-55, RCP-58, RCP-61): `check lint` fails on a designed recipe
+  whose `Source` image neither a container runs nor a `spec.image` sets,
+  and passes on keycloak. `check keycloak-operator --level deploys` and
   `check keycloak --level deploys` pass in CI, and the latter's report
   lists `postgresql` as included and `keycloak-operator`, `cert-manager`
-  and `cnpg` as installed.
+  and `cnpg` as installed. keycloak's README `Replaces` snippet compiles
+  to the Keycloak `sso` on the Service `keycloak-db-rw`, and its
+  certificate names `sso-service.keycloak.svc`.
 - AC-11 (RCP-41, RCP-42): valkey passes `check valkey --level deploys` in
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
@@ -2247,6 +2274,6 @@ feature's design (OQ-6).
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
-| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.0.3, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
