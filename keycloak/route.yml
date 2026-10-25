@@ -1,0 +1,42 @@
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    keycloak:
+      # The target sets gateway.name and gateway.namespace.
+      gateway:
+        section: ~
+  generators:
+    keycloak:
+      instances:
+        keycloak:
+          # The Gateway terminates TLS and sends plain HTTP to port 8080.
+          http:
+            http_enabled: true
+          proxy:
+            headers: xforwarded
+    kubernetes:
+      routes:
+        keycloak:
+          hostnames:
+            - ${applications.keycloak.host}
+          parent_refs:
+            - name: ${applications.keycloak.gateway.name}
+              namespace: ${applications.keycloak.gateway.namespace}
+              section_name: ${applications.keycloak.gateway.section}
+          rules:
+            keycloak:
+              matches:
+                root:
+                  value: /
+              name: ${applications.keycloak.name}-service
+              port: 8080

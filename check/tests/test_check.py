@@ -1,7 +1,9 @@
 """AC-19 and AC-21: check downloads a release manifest, and a chart from an HTTP repository served on localhost,
 and fails unless the SHA-256 is the one of the Source line (RCP-23).
-AC-15: null fields, the order of prerequisites and the owner of an object, which need no cluster."""
+AC-15: null fields, the order of prerequisites and the owner of an object, which need no cluster.
+RCP-34: check at renders on a given compiled output and chart render, without Kapitan, helm or a cluster."""
 
+import contextlib
 import functools
 import hashlib
 import http.server
@@ -167,6 +169,79 @@ class Partition(unittest.TestCase):
         own, parts = check.partition(objs, {"postgresql": {("Cluster", "app-db")}, "valkey": {("Secret", "valkey-auth")}})
         self.assertEqual([o["kind"] for o in own], ["Deployment", "Service"])
         self.assertEqual({n: [o["kind"] for o in p] for n, p in parts.items()}, {"postgresql": ["Cluster"], "valkey": ["Secret"]})
+
+
+def write_all(path, *objs):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(check.dump_all(list(objs)))
+
+
+def obj(kind, name, api="v1", **fields):
+    return {"apiVersion": api, "kind": kind, "metadata": {"name": name, "namespace": "nextcloud"}, **fields}
+
+
+class GivenOutputs(unittest.TestCase):
+    """RCP-34: nextcloud, which includes postgresql and valkey and requires cnpg (through postgresql) and
+    gateway-api, at renders on outputs the caller compiled and rendered."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.out, self.rendered = self.tmp / "out", self.tmp / "rendered.yaml"
+        config = obj("ConfigMap", "nextcloud-config", data={"a": "1"})
+        secret = obj("Secret", "valkey-auth", stringData={"password": "x"})
+        cluster = obj("Cluster", "postgresql-cluster", api="postgresql.cnpg.io/v1", spec={"instances": 1})
+        write_all(self.rendered, obj("ServiceAccount", "nextcloud"),
+                  {**config, "metadata": {**config["metadata"], "labels": {"helm.sh/chart": "nextcloud-9.4.1"}}})
+        write_all(self.out / "compiled/nextcloud/manifests.yml", obj("ServiceAccount", "nextcloud"), config, secret, cluster)
+        write_all(self.out / "compiled/valkey/manifests.yml", secret)
+        write_all(self.out / "compiled/postgresql/manifests.yml", cluster)
+        write_all(self.out / "compiled/cnpg/manifests.yml", obj("Namespace", "cnpg-system"))
+        self.ran = []
+        for target in ("check.run", "subprocess.run", "subprocess.Popen", "urllib.request.urlopen"):
+            mock.patch(target, side_effect=lambda *a, **kw: self.ran.append(a)).start()
+        mock.patch("check.GatewayProvider").start()
+        mock.patch("check.Cluster.delete").start()
+        self.prove = mock.patch("check.prove_side", side_effect=lambda cluster, objs, *a: (objs, {})).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def main(self, *args):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            status = check.main([str(RECIPES / "nextcloud"), *args])
+        return status, err.getvalue()
+
+    def test_compares_the_given_outputs(self):
+        report = self.tmp / "report.txt"
+        status, _ = self.main("--compiled", str(self.out), "--rendered", str(self.rendered), "--report", str(report))
+        lines = report.read_text().splitlines()
+        self.assertEqual(self.ran, [])
+        self.assertEqual(status, 0, lines)
+        for line in [
+            "requires: gateway-api, cloud-provider-kind with the Gateway gateway/gateway, installed before the proof",
+            "requires: cnpg, 1 objects, installed before the proof",
+            "included valkey: `Secret/valkey-auth`",
+            "included postgresql: `Cluster/postgresql-cluster`",
+            "renders: passed",
+        ]:
+            self.assertIn(line, lines)
+        sides = {tuple(o["metadata"]["name"] for o in c.args[1]) for c in self.prove.call_args_list}
+        self.assertEqual(sides, {("nextcloud", "nextcloud-config")})
+
+    def test_missing_compile_of_an_included_recipe_fails(self):
+        shutil.rmtree(self.out / "compiled/valkey")
+        status, err = self.main("--compiled", str(self.out), "--rendered", str(self.rendered))
+        self.assertEqual(status, 2)
+        self.assertIn("no compiled output of valkey", err)
+        self.assertEqual(self.ran, [])
+
+    def test_flags_only_together_and_at_renders(self):
+        both = ["--compiled", str(self.out), "--rendered", str(self.rendered)]
+        for args in (both[:2], both[2:], [*both, "--level", "deploys"]):
+            with self.subTest(args=args), self.assertRaises(SystemExit):
+                self.main(*args)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            check.main(["lint", str(RECIPES / "nextcloud"), *both])
+        self.assertEqual(self.ran, [])
 
 
 if __name__ == "__main__":
