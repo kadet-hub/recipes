@@ -1914,14 +1914,14 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   ```
 
   `<recipes>` holds the recipe's directory at the recipe's commit, and next
-  to it the directory of each recipe it includes or requires, as in this
-  repository. `check` reads their READMEs, class files and
-  `tests/target.yml` there.
+  to it the directory of each recipe it includes (RCP-49) and of each
+  prerequisite (RCP-55), as in this repository. `check` reads their
+  READMEs, class files and `tests/target.yml` there.
 
   `<out>` is a Kapitan output path. It holds `compiled/<recipe>/` for the
-  recipe, for each recipe it includes (RCP-49) and for each prerequisite
-  (RCP-55). Each is the compile of that recipe's own `tests/target.yml`,
-  whose `kapitan.vars.target` is the recipe's name.
+  recipe and for each of those recipes. Each is the compile of that
+  recipe's own `tests/target.yml`, whose `kapitan.vars.target` is the
+  recipe's name. `check` fails when one is missing.
 
   `<file>` is the unfiltered output of
   `helm template <name> <chart> -n <namespace> -f tests/values.yaml --include-crds`,
