@@ -1,8 +1,9 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.3.0 implements renders and deploys, for compose
-        sources and designed recipes deploys (RCP-38, RCP-44); migrates
+Status: Draft. check 0.4.0 implements renders and deploys, also from
+        release manifests (RCP-59), for compose sources and designed
+        recipes deploys (RCP-38, RCP-44); migrates
         (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
@@ -386,8 +387,8 @@ from `PATH`; CI installs them pinned (RCP-28).
   yet.
 
   - Test: `check lint`; `check/tests/test_lint.py`; release manifest
-    download: `check/tests/test_check.py` (not written)
-  - Since: #2, #8, #14; release manifest: this change
+    download: `check/tests/test_check.py`
+  - Since: #2, #8, #14; release manifest: #22, this change
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -669,8 +670,8 @@ cert-manager Certificates with their Issuer, so the recipe
 
   helm does not render the file, so RCP-25 has no hooks to leave out.
 
-  - Test: `check/tests/test_check.py` (not written); CI `check` job
-  - Since: not implemented
+  - Test: CI `check` job
+  - Since: #22, this change
 
 ## Designed recipes
 
@@ -1365,7 +1366,7 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; keycloak: not
-    implemented; release manifests: this change
+    implemented; release manifests: #22
 
 ### Releasing
 
