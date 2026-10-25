@@ -13,7 +13,7 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #19, powerdns at deploys; #29, strimzi at deploys;
                   #26, keycloak-operator at deploys;
                   #33, external-dns-powerdns at deploys;
-                  #34, kafka at deploys
+                  #34, kafka at deploys; #35, postgresql at deploys
 ```
 
 ## Problem
@@ -910,9 +910,10 @@ target's namespace under its own names, and the parent connects to them by
 those names. Nextcloud reaches its database through the Service
 `postgresql-cluster-rw` and the Secret `postgresql-cluster-app`, and its
 cache through the Service `valkey` and the Secret `valkey-auth`. These
-names are literals in the parent. A rename in the included recipe breaks
-the parent, which CI shows (RCP-50) and which raises the included recipe's
-major version (RCP-53).
+names are literals in the parent, except the Cluster's name, which the
+parent reads from `applications.postgresql.cluster` (RCP-60). A rename in
+the included recipe breaks the parent, which CI shows (RCP-50) and which
+raises the included recipe's major version (RCP-53).
 
 Each recipe pins its own generators, so a parent and its included recipes
 can pin the same generator twice. Kapitan merges the `kapitan.dependencies`
@@ -1100,21 +1101,43 @@ The chart passes the operator image by tag in `OPERATOR_IMAGE_NAME`, which
 the operator gives to the instance pods, and the recipe keeps the tag.
 
 `postgresql` replaces the kadet-hub/examples recipe of the same name
-(RCP-41). That recipe rendered the Cluster `app-db` in the namespace
-`databases` and installed the operator from its chart through a `helm`
-compile entry, which RCP-17 rules out here. The operator becomes the
-recipe `cnpg`, and the Cluster comes from CloudNativePG's own
-`cluster` chart (DEC-10), rendered by the `cloudnative-pg` generator 1.0.1,
-whose `spec` key passes the fields it has no flat key for. With the release
-name `postgresql` the chart names the Cluster `postgresql-cluster`. The
-operator then writes the Secret `postgresql-cluster-app` with the keys
-`username`, `password`, `host` and `dbname` (`pkg/specs/secrets.go` of
-CloudNativePG v1.30.1), and the read-write Service is
-`postgresql-cluster-rw`. The operator generates the database password, so
-no target sets one. The chart's Helm test Job
+(RCP-41). That recipe rendered the Cluster `app-db` with 10Gi per
+instance and the Pooler `app-db-pooler-rw` in the namespace `databases`,
+and installed the operator from its chart through a `helm` compile entry,
+which RCP-17 rules out here. The operator becomes the recipe `cnpg`, and
+the Cluster comes from CloudNativePG's own `cluster` chart (DEC-10),
+rendered by the `cloudnative-pg` generator 1.1.0, whose `spec` key passes
+the fields it has no flat key for. With the release name `postgresql` the
+chart names the Cluster `postgresql-cluster`. The operator then writes
+the Secret `<cluster>-app` with the keys `username`, `password`, `host` and
+`dbname` (`pkg/specs/secrets.go` of CloudNativePG v1.30.1), and the
+read-write Service is `<cluster>-rw`. The operator generates the database
+password, so no target sets one. The chart's Helm test Job
 `postgresql-cluster-ping-test` is left out (RCP-25). The recipe runs
 PostgreSQL 18, which Nextcloud 35's system requirements recommend, as
 `ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie`.
+
+- RCP-60: `postgresql` MUST take the Cluster's name, the database, its
+  owner, the storage size and the number of instances from
+  `applications.postgresql.cluster`, `.database`, `.owner`, `.storage`
+  and `.instances`.
+
+  The defaults are what the chart renders for the release name
+  `postgresql`: `postgresql-cluster`, `app`, `app`, 8Gi and 3.
+  CloudNativePG names the claims `<cluster>-<n>` and the Secret
+  `<cluster>-app` after the Cluster, so a Cluster keeps its data only under
+  its old name. A target moving from kadet-hub/examples sets
+  `cluster: app-db` and `storage: 10Gi` and keeps the claims and the Secret
+  `app-db-app`. The chart renders no Pooler by default, so a target that
+  keeps `app-db-pooler-rw` sets it as an entry of its own. The generator
+  entry keeps the key `postgresql` (RCP-18) and passes the name as `name`,
+  which the `cloudnative-pg` generator reads since 1.1.0, as `kafka` keeps
+  `events`. A parent reads these keys for the Service, the Secret and the
+  database and sets none of them (DEC-12).
+
+  - Test: `check postgresql`; manual: compile of the README's `Replaces`
+    snippet
+  - Since: #35
 
 Nextcloud's admin manual for version 35 lists Valkey as a Redis-compatible
 backend for the distributed cache and for transactional file locking
@@ -2123,7 +2146,7 @@ feature's design (OQ-6).
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
-| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
+| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.9.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
