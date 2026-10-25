@@ -168,6 +168,19 @@ belong in the recipe.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #7
 
+- RCP-40: A recipe's README MUST have a section "Required parameters"
+  directly after "Include", and `check lint` MUST fail when it is missing
+  or empty. The section names every parameter the target must set, or
+  says "No parameter has to be set."
+
+  A value the recipe leaves unset, such as a ref of RCP-19, stops the
+  compile until the target sets it. The include snippet alone does not
+  say which values those are. The registry shows the section on the
+  recipe's page next to the snippet (CAT-37c there).
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #9
+
 - RCP-4: YAML in a recipe MUST use block style. Flow style is allowed only
   for a mapping or list that fits on one line of at most 80 characters,
   such as `{fieldPath: metadata.namespace}`.
@@ -835,9 +848,9 @@ feature's design (OQ-6).
   by commit SHA and compiles it with the two commands above, and once
   cert-manager is published, by digest through the registry's consumer
   workflow.
-- AC-8 (RCP-31, RCP-32, RCP-34, RCP-35): `check lint` fails on a README
-  whose first paragraph exceeds 300 characters and on a vendored file
-  without `.LICENSE`;
+- AC-8 (RCP-31, RCP-32, RCP-34, RCP-35, RCP-40): `check lint` fails on a
+  README whose first paragraph exceeds 300 characters, on one without the
+  section "Required parameters" and on a vendored file without `.LICENSE`;
   `check cert-manager --level renders` with a compiled output and a chart
   render given reports the same result as without them; a tag pushed by a
   non-admin is rejected.
@@ -893,7 +906,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
