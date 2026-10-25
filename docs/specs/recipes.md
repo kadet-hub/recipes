@@ -30,8 +30,7 @@ project is designed in kadet-hub, with no upstream artifact to derive it
 from or to compare it with.
 
 Some operators ship as one YAML file attached to a GitHub release, which
-`kubectl apply` installs. The RabbitMQ Cluster Operator is one. A RabbitMQ
-cluster is then a custom resource that the operator turns into workloads.
+`kubectl apply` installs. The RabbitMQ Cluster Operator is one.
 
 A recipe is that rebuilt application, maintained and proven in one place,
 so that users include a recipe the way they would install a chart. This
@@ -148,7 +147,7 @@ proof (Included recipes). An operator included like a database would be
 rendered by every target that uses it, and two operators would reconcile
 the same objects.
 
-DEC-14: A manifest that a project attaches to a GitHub release is a source
+DEC-15: A manifest that a project attaches to a GitHub release is a source
 like a chart, pinned by the release's tag and the file's SHA-256 (Release
 manifests). The file holds the objects as the project installs them, so
 `renders` compares the recipe with them as with a rendered chart, and helm
@@ -158,14 +157,6 @@ the RabbitMQ Cluster Operator's base does not name the operator image,
 which its release build sets. A Kapitan `https` dependency that brings the
 file into the target is ruled out by RCP-17, and it fetches without a
 checksum.
-
-DEC-15: A designed recipe can run its image through an operator. It
-renders the operator's custom resource with the operator's kadet-hub
-generator, and the operator is its prerequisite (DEC-13). The image stays
-the source (DEC-11), and RCP-59 finds it in the custom resource, which has
-no container. The operator's CRD was considered as the source. It changes
-when the operator is released, not when the application is, so Renovate
-would not propose a new RabbitMQ release.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -372,8 +363,7 @@ from `PATH`; CI installs them pinned (RCP-28).
   `<digest>`. For a designed recipe it is
   ``Source: `<registry>/<repository>:<tag>@sha256:<digest>` ``, the
   project's image with its registry host, and `check lint` fails unless a
-  container of the compiled recipe runs exactly that image, or a custom
-  resource names it (RCP-59). The release
+  container of the compiled recipe runs exactly that image. The release
   name is the recipe's name, and the namespace is `parameters.namespace`
   of `tests/target.yml`.
 
@@ -660,7 +650,7 @@ and RBAC, a mutating and a validating webhook configuration, and two
 cert-manager Certificates with their Issuer, so the recipe
 `rabbitmq-cluster-operator` requires `cert-manager` (Prerequisites).
 
-- RCP-58: At `renders`, `check` MUST compare a recipe from a release
+- RCP-59: At `renders`, `check` MUST compare a recipe from a release
   manifest with the manifest's objects as RCP-8 to RCP-12 compare a chart
   recipe with the rendered chart.
 
@@ -731,28 +721,6 @@ the recipe's `tests/smoke`.
 
   - Test: manual: review; CI `check` job
   - Since: #14
-
-A designed recipe on an operator (DEC-15) renders the operator's custom
-resource and no pod template, and the operator creates the workloads and
-Services from it. RCP-44 holds as it is, because such a recipe renders no
-RBAC object and no selector. `check` finds no workload of the recipe to
-wait for, so `tests/smoke` waits for the resource's ready condition, and
-the Services of RCP-45 are the ones the operator creates. rabbitmq is the
-first: a RabbitmqCluster of the kadet-hub `rabbitmq` generator, whose
-`spec.image` names the image, with `rabbitmq-cluster-operator` as its
-prerequisite.
-
-- RCP-59: A designed recipe that renders no pod template MUST render a
-  custom resource that carries the `Source` image as the value of a key
-  `image`, at any depth. `check lint` MUST fail unless one does, and at
-  `deploys` `check` MUST fail unless a pod in the recipe's namespace runs
-  that image once `tests/smoke` has passed.
-
-  The lint reads only the resource, and an operator can ignore the key.
-  The pod shows that the operator runs the image the `Source` line names.
-
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: not implemented
 
 ## Recipes from kadet-hub/examples
 
@@ -1551,19 +1519,15 @@ feature's design (OQ-6).
   pins, every tool and action pin and the `check` lock, and finds no
   update set to merge automatically. With mysql one patch release back, it
   proposes the next 9.7 release and no 26.x.
-- AC-18 (RCP-16, RCP-23, RCP-34, RCP-58): `check`'s tests fail the
+- AC-19 (RCP-16, RCP-23, RCP-34, RCP-59): `check`'s tests fail the
   download of a release manifest whose SHA-256 differs from the `Source`
   line and pass it when it matches. `rabbitmq-cluster-operator` passes
   `check` at its README's level in CI, and a local Renovate dry run
   extracts its `Source` line with `github-release-attachments`.
-- AC-19 (RCP-54, RCP-55): `check lint` fails on a recipe that requires
+- AC-20 (RCP-54, RCP-55): `check lint` fails on a recipe that requires
   itself and on two recipes that require each other. The report of
   `check rabbitmq --level deploys` lists `cert-manager` as installed before
   `rabbitmq-cluster-operator`.
-- AC-20 (RCP-59): `check lint` fails on a designed recipe without a pod
-  template when no custom resource carries the `Source` image under a key
-  `image`, and passes on rabbitmq. `check rabbitmq --level deploys` passes
-  in CI, and its report names a pod that runs the image.
 
 ## Open questions
 
@@ -1621,9 +1585,9 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-59) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-18, AC-20 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
