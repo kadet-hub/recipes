@@ -57,7 +57,8 @@
       "timezone": "Europe/Berlin",
       "schedule": [
         "* 0-5 * * *"
-      ]
+      ],
+      "minimumReleaseAge": "0 days"
     },
     {
       "description": "RCP-30: kind and the node image of its release",

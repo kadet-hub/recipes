@@ -34,7 +34,7 @@ KIND_NODE_IMAGE = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
-KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:a7b7a163b89c8423a1789fe46b8b86420199443b0a9f4179a1b960359b2e43f3"
+KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:fca6da0da9f5caebc285740cebe1720e6d8c66dc0f25f1f9fd3367703946aef4"
 INDEX = "ghcr.io/kadet-hub/index"
 RELEASE_IDENTITY = "https://github.com/kadet-hub/registry/.github/workflows/release.yml@refs/heads/main"
 BUILTIN_ROLES = ("view", "edit", "admin")
