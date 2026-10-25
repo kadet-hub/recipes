@@ -515,8 +515,13 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   `cert-manager-controller-approve:cert-manager-io` and lists the renames
   in its README.
 
+  A RoleBinding without a namespace binds in the target namespace, where
+  RCP-8 applies it. `helm template` leaves the namespace of an object out
+  when the chart's template does, as the Keycloak Operator's chart does for
+  its RoleBinding to `view`.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2
+  - Since: #2; RoleBinding without a namespace: this change
 
 - RCP-12: After normalization the object diff MUST be empty, except for
   differences of the classes below. `check` reports each remaining
