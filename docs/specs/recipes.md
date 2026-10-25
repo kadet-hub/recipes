@@ -303,9 +303,12 @@ from `PATH`; CI installs them pinned (RCP-28).
   `org.opencontainers.image.revision` label and in kadet-hub/kapitan#1.
   The window, 00:00 to 06:00 Europe/Berlin, keeps a build every 15
   minutes from turning into a stream of pull requests.
+  The pin has no minimum release age: a digest update of a moving tag has
+  no release timestamp, so the repository's `minimumReleaseAge` with
+  `minimumReleaseAgeBehaviour: timestamp-required` would hold it forever.
 
   - Test: manual: Renovate dry run
-  - Since: #3
+  - Since: #3; release age exempted: this change
 
 - RCP-25: `check` MUST leave out every chart object with the annotation
   `helm.sh/hook`, and MUST fail unless the README names each of them as
