@@ -867,7 +867,7 @@ both compile entries run that version.
   when the included recipe includes a recipe itself.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #15; implemented: this change
+  - Since: #15; implemented: #31
 
 - RCP-48: A parent and its included recipes MUST pin every generator they
   share at the same source. `check lint` MUST fail on two
@@ -875,7 +875,7 @@ both compile entries run that version.
   sources.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #15; implemented: this change
+  - Since: #15; implemented: #31
 
 - RCP-49: `check` MUST build the project from the parent and each recipe it
   includes, at the same commit, and verify the generators of each as RCP-27
@@ -897,13 +897,13 @@ both compile entries run that version.
   kadet-hub/examples recipe it replaces.
 
   - Test: `check/tests/test_check.py`; CI `check` job
-  - Since: #15; implemented: this change
+  - Since: #15; implemented: #31
 
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
 
   - Test: CI `select` job
-  - Since: #15; implemented: this change
+  - Since: #15; implemented: #31
 
 - RCP-51: The section "Required parameters" of a parent MUST name the
   parameters its included recipes require as well.
@@ -980,7 +980,7 @@ proof that requires `gateway-api`.
   through the `Requires:` lines of its prerequisites.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #15; implemented: this change
+  - Since: #15; implemented: #31
 
 - RCP-55: Before the proof, `check` MUST install the prerequisites of the
   recipe, of its included recipes and, in turn, of those prerequisites on
@@ -1000,7 +1000,7 @@ proof that requires `gateway-api`.
   repeated apply covers.
 
   - Test: CI `check` job, report lines `requires`
-  - Since: #15; implemented: this change
+  - Since: #15; implemented: #31
 
 - RCP-56: The `tests/smoke` of a recipe that renders a route MUST reach the
   application through that route.
