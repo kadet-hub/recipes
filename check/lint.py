@@ -14,6 +14,9 @@ SOURCE_LINE = re.compile(r"^Source: `oci://(\S+?):(\S+?)@(sha256:[0-9a-f]{64})`$
 COMPOSE_LINE = re.compile(
     r"^Source: `https://github\.com/([\w.-]+/[\w.-]+)/blob/([0-9a-f]{40})/(\S+?)@(sha256:[0-9a-f]{64})`$", re.M
 )
+MANIFEST_LINE = re.compile(
+    r"^Source: `https://github\.com/([\w.-]+/[\w.-]+)/releases/download/([^/\s`]+)/([^/\s`@]+)@(sha256:[0-9a-f]{64})`$", re.M
+)
 IMAGE_LINE = re.compile(r"^Source: `([a-z0-9.-]+\.[a-z]+/[\w./-]+):([\w.-]+)@(sha256:[0-9a-f]{64})`$", re.M)
 LEVEL_LINE = re.compile(r"^Level: `(\w+)`$", re.M)
 DEPENDENCY = re.compile(r"^ghcr\.io/kadet-hub/([a-z0-9][a-z0-9._-]*)(:[\w.-]+)?@sha256:[0-9a-f]{64}$")
@@ -69,13 +72,15 @@ def resolve_class(recipe, f, cls):
 
 def readme_fields(recipe):
     """Source and Level lines of the README (RCP-23). The source is ("chart", (repo, version, digest)),
-    ("compose", (repo, commit, path, digest)), ("design", (image, tag, digest)) or None."""
+    ("compose", (repo, commit, path, digest)), ("manifest", (repo, tag, file, digest)),
+    ("design", (image, tag, digest)) or None."""
     text = (Path(recipe) / "README.md").read_text()
     chart, compose, image = SOURCE_LINE.search(text), COMPOSE_LINE.search(text), IMAGE_LINE.search(text)
+    manifest = MANIFEST_LINE.search(text)
     level = LEVEL_LINE.search(text)
     return (
         ("chart", chart.groups()) if chart else ("compose", compose.groups()) if compose
-        else ("design", image.groups()) if image else None,
+        else ("manifest", manifest.groups()) if manifest else ("design", image.groups()) if image else None,
         level.group(1) if level else None,
     )
 
@@ -199,7 +204,8 @@ def lint_files(recipe):
     if not source:
         errors.append(
             "README.md has no line Source: `oci://<chart>:<version>@sha256:<digest>`,"
-            " `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>`"
+            " `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>`,"
+            " `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>@sha256:<digest>`"
             " or `<registry>/<repository>:<tag>@sha256:<digest>` (RCP-23)"
         )
     elif source[0] == "chart" and not (recipe / "tests/values.yaml").is_file():

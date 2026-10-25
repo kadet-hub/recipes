@@ -37,6 +37,17 @@
       "datasourceTemplate": "docker"
     },
     {
+      "description": "RCP-16: the release manifest a recipe is derived from, by tag and SHA-256 in its README's Source line",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/README\\.md$/"
+      ],
+      "matchStrings": [
+        "Source: `https://github\\.com/(?<depName>[^/`\\s]+/[^/`\\s]+)/releases/download/(?<currentValue>[^/`\\s]+)/[^/`\\s@]+@sha256:(?<currentDigest>[0-9a-f]{64})`"
+      ],
+      "datasourceTemplate": "github-release-attachments"
+    },
+    {
       "description": "RCP-30: the generators a recipe pins, as github>kadet-hub/renovate-config matches them in inventories",
       "customType": "regex",
       "managerFilePatterns": [
