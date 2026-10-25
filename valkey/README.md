@@ -1,7 +1,7 @@
 # valkey
 
 Valkey as a single instance with ACL authentication and a persistent volume,
-rendered by the kadet-hub `kubernetes` generator 1.7.0 from the Valkey
+rendered by the kadet-hub `kubernetes` generator 1.9.0 from the Valkey
 project's own Helm chart 0.12.0 in its standalone mode.
 
 Source: `oci://ghcr.io/valkey-io/valkey-helm/valkey:0.12.0@sha256:8d1e895e2cbd8052de6c94155379a8f5cde14ba5867b429e2b290555d5338820`

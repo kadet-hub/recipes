@@ -381,7 +381,7 @@ class LintIncludesAndRequires(unittest.TestCase):
 
     def test_different_pins_fail(self):
         init = self.parent / "init.yml"
-        init.write_text(init.read_text().replace("kubernetes:1.7.0@sha256:7ef7", "kubernetes:1.6.0@sha256:7ef7"))
+        init.write_text(re.sub(r"kubernetes:[0-9.]+@", "kubernetes:1.6.0@", init.read_text()))
         self.assertIn("lib/kubernetes is pinned at different sources", self.errors())
 
     def test_requires_entries(self):
