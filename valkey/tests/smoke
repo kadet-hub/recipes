@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# What the chart's left-out test pod checks, and the kadet-hub/examples recipe
+# before it: Valkey answers PING as the ACL user default with the password
+# from the Secret, and a value written is read back.
+set -euo pipefail
+password=$(kubectl get secret valkey-auth -o jsonpath='{.data.default-password}' | base64 -d)
+cli() { kubectl exec deployment/valkey -c valkey -- valkey-cli --no-auth-warning --user default --pass "$password" "$@"; }
+[[ $(cli ping) == PONG ]]
+[[ $(kubectl exec deployment/valkey -c valkey -- valkey-cli ping) == NOAUTH* ]]
+cli set smoke ok >/dev/null
+[[ $(cli get smoke) == ok ]]
+echo "PING, SET and GET as user default, PING without password refused"
