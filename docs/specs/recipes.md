@@ -1,10 +1,10 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.3.0 implements renders and deploys, for compose
-        sources and designed recipes deploys (RCP-38, RCP-44); migrates
-        (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
-        implemented; RCP-15 only up to publication.
+Status: Draft. check 0.4.0 implements renders and deploys, for compose
+        sources and designed recipes deploys (RCP-38, RCP-44, RCP-58);
+        migrates (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are
+        not implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys
@@ -749,7 +749,7 @@ the recipe's `tests/smoke`.
   (RCP-45).
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: not implemented
+  - Since: this change
 
 ## Recipes from kadet-hub/examples
 
@@ -1770,7 +1770,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
@@ -1780,7 +1780,6 @@ feature's design (OQ-6).
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
-| `check/lint.py` | `spec.image` of a designed recipe on an operator (RCP-58) |
 
 | Value | Setting |
 |---|---|
