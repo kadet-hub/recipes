@@ -868,6 +868,22 @@ argument as a literal `${...}` and reads nothing.
   - Test: manual: Renovate dry run
   - Since: #3
 
+- RCP-44: Every pull request MUST request a review from `neat-bot`. That
+  review MUST NOT be a condition for merging.
+
+  `.github/CODEOWNERS` names `@neat-bot` for every path. GitHub requests a
+  code owner only when it has write access, and never the author of the
+  pull request. With write access, an approval by `neat-bot` also counts
+  toward the one approval the `main` ruleset requires. The ruleset leaves
+  code owner review off, so a missing review from `neat-bot` does not
+  block a merge.
+
+  - Test: manual: `gh pr view <n> --json reviewRequests` on a new pull
+    request; `gh api repos/kadet-hub/recipes/codeowners/errors` lists no
+    errors; the `main` ruleset in `gh api repos/kadet-hub/recipes/rulesets`
+    has `require_code_owner_review: false`
+  - Since: #13
+
 - RCP-21: A pull request that moves a recipe to a new chart version MUST
   show, apart from the object diff, every image that changed, the `can-i`
   diff of each subject between the old and the new recipe, and any added
@@ -997,6 +1013,7 @@ feature's design (OQ-6).
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
+| `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
 | `.github/ruleset-tags.json` | RCP-31, applied with `gh api` |
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
