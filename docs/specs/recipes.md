@@ -6,7 +6,8 @@ Status: Draft. check 0.3.0 implements renders and deploys, for compose
         (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
-Verified against: #3, cert-manager at deploys; #10, valkey at deploys
+Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
+                  #14, mysql at deploys
 ```
 
 ## Problem
@@ -171,7 +172,7 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   collide.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8, this change
+  - Since: #2, #8, #14
 
 ## Writing a recipe
 
@@ -318,7 +319,7 @@ from `PATH`; CI installs them pinned (RCP-28).
   yet.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8, this change
+  - Since: #2, #8, #14
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -598,14 +599,14 @@ user `app` in its database, is the recipe's `tests/smoke`.
   would compare it. The `next` compile (RCP-24) runs unchanged.
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: this change
+  - Since: #14
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
   sets up, such as a query as the user the recipe creates in its database.
 
   - Test: manual: review; CI `check` job
-  - Since: this change
+  - Since: #14
 
 ## Recipes from kadet-hub/examples
 
@@ -731,7 +732,7 @@ first command.
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: this change
+  - Since: #3; designed recipes: #14
 
 ### Releasing
 
