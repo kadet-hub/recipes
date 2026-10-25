@@ -1,0 +1,41 @@
+parameters:
+  generators:
+    keycloak:
+      instances:
+        keycloak:
+          instances: 1
+          image: quay.io/keycloak/keycloak:${applications.keycloak.version}@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+          spec:
+            # With an image set, the operator starts it with --optimized,
+            # and the project's image is not built for PostgreSQL.
+            startOptimized: false
+          # The Service and the Secret of the included recipe postgresql.
+          db:
+            vendor: postgres
+            host: postgresql-cluster-rw
+            database: app
+            credentials_secret: postgresql-cluster-app
+          hostname:
+            hostname: https://${applications.keycloak.host}
+          http:
+            tls_secret: keycloak-tls
+          ingress:
+            enabled: false
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+    certmanager:
+      certs:
+        keycloak-tls:
+          spec:
+            secretName: keycloak-tls
+            # Keycloak rejected a self-signed certificate with an empty
+            # issuer DN in kadet-hub/examples.
+            commonName: ${applications.keycloak.host}
+            issuerRef: ${applications.keycloak.issuer}
+            dnsNames:
+              - ${applications.keycloak.host}
+              - keycloak-service.${namespace}.svc

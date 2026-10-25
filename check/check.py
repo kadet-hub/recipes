@@ -27,7 +27,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node
@@ -493,21 +493,21 @@ def cmd_lint(recipe, work):
     notes = fetch_generators(recipe, project, work)
     compile_recipe(project, work / "out")
     objs = objects_of(compiled_files(work / "out", recipe.name))
-    if source[0] == "compose":
-        fetch_compose(source[1])
-        return lint.lint_output(recipe.name, objs, set()) + lint.lint_compose_output(objs), notes
-    if source[0] == "design":
-        return lint.lint_output(recipe.name, objs, set()) + lint.lint_design_output(objs, source[1]), notes
-    if source[0] == "manifest":
-        manifest = fetch_manifest(source[1], work)
-        return lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in manifest}), notes
-    tgz = fetch_http_chart(source[1], work) if source[0] == "http" else fetch_chart(source[1], work)
-    chart, _ = render_chart(recipe.name, recipe, tgz, namespace)
     own, parts = owned(recipe, objs, work)
-    errors = lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart})
+    errors = []
     for other, other_objs in parts.items():
         errors += lint.lint_output(other, other_objs, {o["metadata"]["name"] for o in other_objs})
-    return errors, notes
+    if source[0] == "compose":
+        fetch_compose(source[1])
+        return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_compose_output(own), notes
+    if source[0] == "design":
+        return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_design_output(own, source[1]), notes
+    if source[0] == "manifest":
+        manifest = fetch_manifest(source[1], work)
+        return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in manifest}), notes
+    tgz = fetch_http_chart(source[1], work) if source[0] == "http" else fetch_chart(source[1], work)
+    chart, _ = render_chart(recipe.name, recipe, tgz, namespace)
+    return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart}), notes
 
 
 def cmd_check(recipe, level, work, keep):
@@ -580,24 +580,25 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
         say(f"kapitan next ({KAPITAN_NEXT}): "
             + (f"output differs in {', '.join(changed)}, not deciding" if changed else "same output as 0.36.3"))
 
+    every = objs
+    objs, parts = owned(recipe, every, work)
+    for other, other_objs in parts.items():
+        for o in other_objs:
+            say(f"included {other}: `{o['kind']}/{o['metadata']['name']}`")
+
     if kind in ("compose", "design"):
         # RCP-38, RCP-44: lint checked RBAC and selectors; one cluster, the recipe deployed for real.
         cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
         try:
-            prepare(cluster, {namespace} | {o["metadata"]["namespace"] for o in objs if o["metadata"].get("namespace")},
+            prepare(cluster, {namespace} | {o["metadata"]["namespace"] for o in every if o["metadata"].get("namespace")},
                     namespace)
-            say("smoke: " + (deploy(cluster, objs, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
+            say("smoke: " + (deploy(cluster, every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
             say("deploys: passed")
         finally:
             if not keep:
                 cluster.delete()
         return failed
 
-    every = objs
-    objs, parts = owned(recipe, every, work)
-    for other, other_objs in parts.items():
-        for o in other_objs:
-            say(f"included {other}: `{o['kind']}/{o['metadata']['name']}`")
     subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)
     rbac_ns = compare.rbac_namespaces(chart + objs, subjects, namespace)
     namespaces = {namespace} | {o["metadata"]["namespace"] for o in chart + every if o["metadata"].get("namespace")}

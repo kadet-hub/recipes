@@ -1,0 +1,28 @@
+classes:
+  - .keycloak
+  - recipes.postgresql
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/keycloak:1.0.3@sha256:0902cc8a796e2a1d1708c7f9975e41e8422d0d1edff7f873faa5ecaeced13dfd
+        output_path: lib/keycloak
+      - type: oci
+        source: ghcr.io/kadet-hub/certmanager:1.0.2@sha256:ba7632e9e06a593fbe20e9fa6774139203d7df65992adff9db94779606888ad9
+        output_path: lib/certmanager
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/keycloak
+        output_path: manifests/
+        output_type: yml
+      - input_type: kadet
+        input_paths:
+          - lib/certmanager
+        output_path: manifests/
+        output_type: yml
+  applications:
+    keycloak:
+      version: 26.8.1
+      # The target sets host, the host name Keycloak serves, and issuer, the
+      # name and kind of the cert-manager issuer of its certificate.
