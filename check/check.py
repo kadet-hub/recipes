@@ -217,8 +217,6 @@ def build_project(recipe, work):
 
 def compiled_files(out, name):
     root = out / "compiled" / name
-    if not root.is_dir():
-        raise Failed(f"{root}: no compiled output of {name}")
     return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
@@ -498,7 +496,11 @@ def cmd_lint(recipe, work, compiled=None, rendered=None):
     source, _ = lint.readme_fields(recipe)
     namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
     notes = []
-    if not compiled:
+    if compiled:
+        for name in [r.name for r in with_included(recipe)] + requirement_order(recipe):
+            if name != lint.GATEWAY_API and not (compiled / "compiled" / name).is_dir():
+                raise Failed(f"{compiled / 'compiled' / name}: no compiled output of {name} (RCP-34)")
+    else:
         project = build_project(recipe, work)
         notes = fetch_generators(recipe, project, work)
         compile_recipe(project, work / "out")
