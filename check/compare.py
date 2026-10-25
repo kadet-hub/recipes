@@ -356,6 +356,10 @@ def classify(d, chart_obj, recipe_obj, ctx):
             if sa is None or sa.get("automountServiceAccountToken") is not False:
                 return EXPLICIT_DEFAULT
 
+    # The generator renders securityContext: {} on a container that sets none.
+    if last == "securityContext" and "containers" in path and {_canon(d.chart), _canon(d.recipe)} == {_canon(MISSING), "{}"}:
+        return EXPLICIT_DEFAULT
+
     if last in ("targetPort", "port"):
         if kind == "Service" and last == "targetPort":
             for side, value, other in (("chart", d.chart, d.recipe), ("recipe", d.recipe, d.chart)):
@@ -440,9 +444,10 @@ def rbac_subjects(objs):
     return out
 
 
-def rbac_namespaces(objs, subjects):
-    """Namespaces with a RoleBinding on either side, plus each ServiceAccount's own."""
-    out = {o["metadata"]["namespace"] for o in objs if o.get("kind") == "RoleBinding"}
+def rbac_namespaces(objs, subjects, namespace):
+    """Namespaces with a RoleBinding on either side, plus each ServiceAccount's own. A RoleBinding
+    without a namespace binds in the target namespace, where it is applied (RCP-11)."""
+    out = {o["metadata"].get("namespace", namespace) for o in objs if o.get("kind") == "RoleBinding"}
     out |= {ns for kind, ns, _ in subjects if kind == "ServiceAccount"}
     return out
 

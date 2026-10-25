@@ -1,10 +1,10 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.3.0 implements renders and deploys, for compose
-        sources and designed recipes deploys (RCP-38, RCP-44); migrates
-        (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
-        implemented; RCP-15 only up to publication.
+Status: Draft. check 0.4.0 implements renders and deploys, for compose
+        sources and designed recipes deploys (RCP-38, RCP-44, RCP-58);
+        migrates (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are
+        not implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
@@ -526,8 +526,13 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   `cert-manager-controller-approve:cert-manager-io` and lists the renames
   in its README.
 
+  A RoleBinding without a namespace binds in the target namespace, where
+  RCP-8 applies it. `helm template` leaves the namespace of an object out
+  when the chart's template does, as the Keycloak Operator's chart does for
+  its RoleBinding to `view`.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2
+  - Since: #2; RoleBinding without a namespace: this change
 
 - RCP-12: After normalization the object diff MUST be empty, except for
   differences of the classes below. `check` reports each remaining
@@ -536,7 +541,7 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   | Class | Example | Why it is accepted |
   |---|---|---|
   | Selector scheme | the generator selects on `name`, the chart on `app.kubernetes.io/*` | RCP-10 proves the same selection |
-  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset | same value as the ServiceAccount's |
+  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, a container's empty `securityContext` | same value as the ServiceAccount's, or every field unset as on the other side |
   | Port by name | `targetPort: http-metrics` against `9402` | resolves to the same container port |
   | Derived name | container named after the component, webhook configuration `<ns>-<component>`, sorted container ports | names the generator derives, no change in behaviour |
 
@@ -545,14 +550,18 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
 
   `check` accepts a difference only where its class holds: a selector
   difference where RCP-10 found the same selection, `true` where the other
-  side is unset and the pod's ServiceAccount does not disable the token, a
+  side is unset and the pod's ServiceAccount does not disable the token,
+  `{}` as a container's `securityContext` where the other side has none, a
   port name that resolves to the other side's number in the selected pods
   or the same pod, a first container named after its workload, container
   ports that are the same set sorted by name, and a webhook configuration
   named `<namespace>-...` with the same webhooks.
 
+  The `kubernetes` generator renders `securityContext: {}` on a container
+  that sets no `security_context`. The Keycloak Operator's chart sets none.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2
+  - Since: #2; empty `securityContext`: this change
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
@@ -784,7 +793,7 @@ back over DNS.
   `spec.entityOperator.topicOperator.image`, do not count.
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: not implemented; `spec.<part>.image`: not implemented
+  - Since: #24; `spec.<part>.image`: not implemented
 
 ## Recipes from kadet-hub/examples
 
@@ -1967,7 +1976,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
@@ -1977,7 +1986,6 @@ feature's design (OQ-6).
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
-| `check/lint.py` | `spec.image` of a designed recipe on an operator (RCP-58) |
 
 | Value | Setting |
 |---|---|
