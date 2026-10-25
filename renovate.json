@@ -69,11 +69,17 @@
       "allowedVersions": "<10"
     },
     {
-      "description": "RCP-16: mongodb stays on MongoDB's 9.0 major release; minor releases are not patched once the next is out",
+      "description": "RCP-16: mongodb stays on MongoDB's 9.0 major release; minor releases are not patched once the next is out. Docker Hub gives no release timestamps for the image and MongoDB rebuilds the tag almost daily, so no release age and one window a week",
       "matchPackageNames": [
         "docker.io/mongodb/mongodb-community-server"
       ],
-      "allowedVersions": "/^9\\.0\\./"
+      "allowedVersions": "/^9\\.0\\./",
+      "timezone": "Europe/Berlin",
+      "schedule": [
+        "* 0-5 * * 1"
+      ],
+      "updateNotScheduled": false,
+      "minimumReleaseAge": "0 days"
     },
     {
       "description": "RCP-30: kind and the node image of its release",
