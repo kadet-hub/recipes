@@ -11,7 +11,8 @@ Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
                   #19, powerdns at deploys; #29, strimzi at deploys;
-                  #26, keycloak-operator at deploys
+                  #26, keycloak-operator at deploys;
+                  #33, external-dns-powerdns at deploys
 ```
 
 ## Problem
