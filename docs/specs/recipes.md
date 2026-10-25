@@ -8,7 +8,8 @@ Status: Draft. check 0.4.0 implements renders and deploys, for charts
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
-                  #14, mysql at deploys; #17, mongodb at deploys
+                  #14, mysql at deploys; #17, mongodb at deploys;
+                  #19, powerdns at deploys
 ```
 
 ## Problem
@@ -29,6 +30,9 @@ source has no Kubernetes objects to compare the recipe with.
 Some projects publish neither, only a container image. A recipe for such a
 project is designed in kadet-hub, with no upstream artifact to derive it
 from or to compare it with.
+
+Some operators ship as one YAML file attached to a GitHub release, which
+`kubectl apply` installs. The RabbitMQ Cluster Operator is one.
 
 A recipe is that rebuilt application, maintained and proven in one place,
 so that users include a recipe the way they would install a chart. This
@@ -91,12 +95,13 @@ behaviour: the recipe deploys and its smoke test exercises what the
 compose file sets up.
 
 DEC-9: The source type follows from the form of the README's `Source` line
-(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, another
-`https://` URL that ends in `<chart>:<version>` a chart from an HTTP
-repository, and an image reference without a scheme the image of a
-designed recipe. A separate `Source-Type:` line was considered. It would
-repeat what the line already says, and the two could contradict each
-other. Revised in this change: the HTTP repository was added.
+(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, a GitHub
+release download URL a release manifest, another `https://` URL that ends
+in `<chart>:<version>` a chart from an HTTP repository, and an image
+reference without a scheme the image of a designed recipe. A separate
+`Source-Type:` line was considered. It would repeat what the line already
+says, and the two could contradict each other. Revised in #23: the HTTP
+repository was added.
 
 DEC-10: A recipe of kadet-hub/examples moves here with the project's own
 Helm chart or Kustomize base as its source where the project ships one
@@ -145,6 +150,30 @@ a target of its own, and `check` installs it on the kind cluster before the
 proof (Included recipes). An operator included like a database would be
 rendered by every target that uses it, and two operators would reconcile
 the same objects.
+
+DEC-14: A project that runs its application through its own operator, and
+ships a chart for the operator but none for the application, gets two
+recipes (Keycloak). The operator is a chart recipe and a prerequisite
+(DEC-13). The application is a designed recipe that renders the operator's
+custom resource with the project's image as its source (DEC-11, RCP-58).
+Deploying the image with the `kubernetes` generator was considered. It
+would replace the operator, whose upgrade and configuration logic the
+project maintains, with a workload that nobody upstream maintains, and the
+project's deployment guides for Kubernetes use the operator.
+mongodb did not take this path because no kadet-hub generator renders
+MongoDB's resources (Designed recipes).
+
+DEC-15: A manifest that a project attaches to a GitHub release is a source
+like a chart, pinned by the release's tag and the file's SHA-256 (Release
+manifests). The file holds the objects as the project installs them, so
+`renders` compares the recipe with them as with a rendered chart, and helm
+does not run. The project's Kustomize base was considered as the source.
+kustomize would be one more tool in `check` and in the registry gate, and
+the RabbitMQ Cluster Operator's base does not name the operator image,
+which its release build sets. A Kapitan `https` dependency that brings the
+file into the target is ruled out by RCP-17, and it fetches without a
+checksum. An application on such an operator follows DEC-14, as `rabbitmq`
+does on the RabbitMQ Cluster Operator.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -199,12 +228,12 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   - Since: #2
 
 - RCP-3: Every object name a recipe renders MUST start with the recipe's
-  name or, from a chart source, a name the chart uses.
+  name or, from a chart or a release manifest, a name the source uses.
 
   `check lint` compiles `tests/target.yml` and renders the chart with
-  `tests/values.yaml` to compare the names. A compose file or an image
-  names no Kubernetes objects, so there every name starts with the
-  recipe's.
+  `tests/values.yaml`, or reads the release manifest, to compare the names.
+  A compose file or an image names no Kubernetes objects, so there every
+  name starts with the recipe's.
 
   Recipes share the `components` and `generators.kubernetes.rbac`
   namespaces of the inventory, so two recipes in one target must not
@@ -352,7 +381,10 @@ from `PATH`; CI installs them pinned (RCP-28).
   compose file it is
   ``Source: `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` ``
   with the full commit SHA, and `check` fetches the file at that commit
-  and fails unless its SHA-256 is `<digest>`. For a designed recipe it is
+  and fails unless its SHA-256 is `<digest>`. For a release manifest it is
+  ``Source: `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>@sha256:<digest>` ``,
+  and `check` downloads the release asset and fails unless its SHA-256 is
+  `<digest>`. For a designed recipe it is
   ``Source: `<registry>/<repository>:<tag>@sha256:<digest>` ``, the
   project's image with its registry host, and `check lint` fails unless a
   container of the compiled recipe runs exactly that image. The release
@@ -377,8 +409,9 @@ from `PATH`; CI installs them pinned (RCP-28).
   nor its compile fetches the chart. Only `check` and the registry gate
   (REC-7 there) do.
 
-  - Test: `check lint`; `check/tests/test_lint.py`, `check/tests/test_check.py`
-  - Since: #2, #8, #14; HTTP repository: #23
+  - Test: `check lint`; `check/tests/test_lint.py`; `check/tests/test_check.py`
+    for the HTTP repository (release manifest download: not written)
+  - Since: #2, #8, #14; release manifest: #22; HTTP repository: #23
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -623,6 +656,46 @@ What the table does not map is a gap, and so is each of these:
   - Test: manual: review; CI `check` job
   - Since: #8
 
+## Release manifests
+
+A release manifest is a file of Kubernetes objects attached to a GitHub
+release, the file a project's install guide applies with
+`kubectl apply -f <url>`. The recipe rebuilds those objects with kadet-hub
+generators, and its `Source` line pins the file by the release's tag and
+SHA-256 (RCP-23). At `renders` the file's objects take the place of the
+rendered chart. The file has no values and no release name, and its
+objects name their own namespaces. The recipe therefore has no
+`tests/values.yaml`, and `tests/target.yml` compiles it as the file
+installs it.
+
+A release asset can be replaced under its tag unless the release is
+immutable, so `check` fails on a file with another SHA-256. GitHub's API
+reports each asset's SHA-256 as `digest`.
+
+The RabbitMQ Cluster Operator, MPL-2.0, is the first. rabbitmq/cluster-operator
+publishes no chart, and its install guide applies `cluster-operator.yml`
+from the latest release. The only chart for the operator is Bitnami's
+`rabbitmq-cluster-operator`, a third-party chart (DEC-11). The release
+build renders the Kustomize base `config/installation` and sets the
+operator image with a ytt overlay (`generate-installation-manifest` in its
+Makefile). Release v2.23.1 of 2026-10-13 is not immutable. It attaches
+`cluster-operator.yml` and `cluster-operator-ghcr-io.yml` with the same
+SHA-256, `ae35a547751656bc64bb734026249a845d226d96aba5a73783e05c5ec3444687`,
+and `cluster-operator-quay-io.yml` with the image on quay.io. The file
+holds the CRD `rabbitmqclusters.rabbitmq.com`, the operator's Deployment
+and RBAC, a mutating and a validating webhook configuration, and two
+cert-manager Certificates with their Issuer, so the recipe
+`rabbitmq-cluster-operator` requires `cert-manager` (Prerequisites).
+
+- RCP-59: At `renders`, `check` MUST compare a recipe from a release
+  manifest with the manifest's objects as RCP-8 to RCP-12 compare a chart
+  recipe with the rendered chart.
+
+  helm does not render the file, so RCP-25 has no hooks to leave out.
+
+  - Test: `check/tests/test_check.py` (not written); CI `check` job
+  - Since: not implemented
+
 ## Designed recipes
 
 A designed recipe deploys the project's image with the `kubernetes`
@@ -667,6 +740,24 @@ recipe pins the digest of that build, the one the examples recipe ran. The
 examples recipe's check, `ping` after mongosh authenticates as `root`, is
 the recipe's `tests/smoke`.
 
+powerdns was the third, the PowerDNS part of the kadet-hub/examples recipe
+`external-dns-powerdns` (Recipes from kadet-hub/examples). PowerDNS
+publishes no chart and no Kustomize base. The compose file in PowerDNS/pdns
+builds its three services from the repository's Dockerfiles, and a `build`
+without a published `image` is a gap of Compose sources. The recipe runs
+`docker.io/powerdns/pdns-auth-51`, which PowerDNS builds, on the 5.1
+release line that the examples recipe followed. PowerDNS publishes one
+repository per release line, such as `pdns-auth-50` and `pdns-auth-51`, and
+on 2026-10-25 `pdns-auth-52` held only `5.2.0-alpha0`.
+
+As in the examples recipe, PowerDNS keeps its zones in SQLite on the claim.
+The claim hides the image's empty database, so an init container copies it
+onto an empty claim, and a second one creates the zone
+`applications.powerdns.zone` when the database lacks it. The examples
+recipe's check read an A record that external-dns wrote. Without
+external-dns, `tests/smoke` writes the record through the API and reads it
+back over DNS.
+
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
   object, every selector selecting pods, then a deploy on one fresh kind
@@ -686,6 +777,22 @@ the recipe's `tests/smoke`.
   - Test: manual: review; CI `check` job
   - Since: #14
 
+- RCP-58: A designed recipe whose image the project's operator runs MUST
+  set the image of its `Source` line as `spec.image` of the custom resource
+  it renders for that operator, and MUST require the operator's recipe
+  (RCP-54). `check lint` MUST accept a compiled object's `spec.image` as
+  the image that RCP-23 asks a container to run.
+
+  The operator creates the workload and its Services from the resource, so
+  the compiled recipe has no container to lint. The resource is no RBAC
+  object and selects no pods, so RCP-44 holds as it is. `check` waits only
+  for the rollouts of compiled workloads, so `tests/smoke` waits for the
+  resource to be ready and then reaches the Services the operator created
+  (RCP-45).
+
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
+  - Since: not implemented
+
 ## Recipes from kadet-hub/examples
 
 kadet-hub/examples carried recipes as single classes, written in kadet-hub
@@ -697,6 +804,17 @@ to the recipe here. valkey was the first: valkey-io publishes the chart
 a Deployment, a PersistentVolumeClaim and ACL authentication where the
 examples recipe had a StatefulSet and `--requirepass`. mysql and mongodb
 moved as designed recipes (Designed recipes).
+
+`external-dns-powerdns` combines two projects and moves in two steps.
+PowerDNS ships no chart and moves first, as the designed recipe `powerdns`.
+external-dns ships its chart only in the HTTP repository
+`https://kubernetes-sigs.github.io/external-dns/`, and it needs a
+ClusterRole, which a designed recipe cannot have (RCP-44). An OCI chart is
+asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
+follows as the chart recipe `external-dns-powerdns` that includes
+`powerdns`, once `check` fetches a chart from an HTTP repository (RCP-23)
+and builds included recipes (RCP-49). Until then the examples recipe stays
+in kadet-hub/examples.
 
 - RCP-41: The README of a recipe that replaces one of kadet-hub/examples
   MUST have a section `Replaces` that names that recipe and lists the
@@ -810,6 +928,12 @@ names its own prerequisites, and those of its included recipes apply too,
 so `nextcloud` names `gateway-api` and gets `cloudnative-pg` through
 `postgresql`.
 
+A prerequisite's own prerequisites apply as well. `rabbitmq` names
+`rabbitmq-cluster-operator`, whose README names `cert-manager`, so a target
+that installs the operator needs cert-manager installed first. Each
+`Requires:` line names only what its own recipe needs, so a change to the
+operator's prerequisites changes one README.
+
 `gateway-api` is the one entry that is not a recipe. `check` provides it
 with cloud-provider-kind, the kind project's cloud provider, pinned like
 the other tools (RCP-28). Version 0.12.0 installs the CRDs of the Gateway
@@ -831,20 +955,27 @@ proof that requires `gateway-api`.
   one README line ``Requires: `<entry>`[, `<entry>`]``. An entry is a
   recipe of this repository or `gateway-api`. `check lint` MUST fail on any
   other entry and on a recipe that both includes and requires the same
-  recipe.
+  recipe. It MUST also fail on a recipe that requires itself, directly or
+  through the `Requires:` lines of its prerequisites.
 
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: not implemented
 
 - RCP-55: Before the proof, `check` MUST install the prerequisites of the
-  recipe and of its included recipes on every kind cluster it creates. A
-  prerequisite recipe is compiled from its own `tests/target.yml`. At
-  `renders` only its Namespaces, CRDs, ServiceAccounts and RBAC objects are
-  applied, as RCP-26 applies the recipe's. At `deploys` all of it is
-  applied and its rollouts are waited for.
+  recipe, of its included recipes and, in turn, of those prerequisites on
+  every kind cluster it creates. Each is installed once, after the
+  prerequisites it requires. A prerequisite recipe is compiled from its
+  own `tests/target.yml`. At `renders` only its Namespaces, CRDs,
+  ServiceAccounts and RBAC objects are applied, as RCP-26 applies the
+  recipe's. At `deploys` all of it is applied and its rollouts are waited
+  for, and an apply the API server rejects is repeated for up to a minute.
 
   The chart side needs the prerequisites too: a dry run of a CloudNativePG
-  Cluster or an HTTPRoute fails without its CRD.
+  Cluster or an HTTPRoute fails without its CRD. The RabbitMQ operator's
+  Certificates need cert-manager's CRDs at `renders` and its webhook at
+  `deploys`. That webhook refused them for a few seconds after its rollout
+  had reported done in kadet-hub/examples CI (EX-6 there), which the
+  repeated apply covers.
 
   - Test: CI `check` job, report lines `requires`
   - Since: not implemented
@@ -1011,6 +1142,143 @@ templates, so RCP-42 does not apply to it. Whether the recipe is a
 derivative of the chart is reviewed before the first `nextcloud` release
 (OQ-14).
 
+## Keycloak
+
+The Keycloak project's guides deploy Keycloak on Kubernetes through the
+Keycloak Operator. The one exception is the getting-started guide, which
+applies an example manifest from the `main` branch of
+keycloak/keycloak-quickstarts. The project ships no chart, Kustomize base or
+compose file for a Keycloak server. With each release it ships the operator
+three ways: an OLM bundle, which its installation guide recommends, a
+Kustomize base in keycloak/keycloak-k8s-resources, and a Helm chart at
+`oci://quay.io/keycloak/keycloak-operator-helm`, which the guide calls
+experimental (`docs/guides/operator/installation.adoc` of keycloak/keycloak
+26.8.1). The Quarkus Helm extension generates the chart from the same
+manifests as the Kustomize base, and the chart names the Keycloak Team as
+maintainer (`operator/README.md`). quay.io lists it from 26.8.0 on. The
+`keycloak` generator 1.0.3, built for operator 26.8.1, renders Keycloak's
+resources. Keycloak therefore moves from kadet-hub/examples as two recipes
+(DEC-14):
+
+| Recipe | Source | Role |
+|---|---|---|
+| `keycloak-operator` | `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:650f7e1021def78ff799aa5ada703818a1a7d0e3cb6ee7eba6d5e1b557656a17`, from keycloak/keycloak, Apache-2.0 | prerequisite of `keycloak`: the operator, its RBAC and, as option `crds`, its four CRDs |
+| `keycloak` | `quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b` | one `Keycloak` resource and its certificate, includes `postgresql`, requires `keycloak-operator` and `cert-manager` |
+
+### The operator
+
+The chart installs the operator cluster-wide. Its four controllers watch
+every namespace (`JOSDK_ALL_NAMESPACES`) with ClusterRoles. The guide calls
+that mode a preview. In it a `Keycloak` resource cannot set its own
+ServiceAccount, and one operator supports only the Keycloak version it was
+released with. The recipe keeps the chart's default, because a
+prerequisite runs once per cluster in a target of its own (DEC-13). Its
+`tests/target.yml` installs it in the namespace `keycloak-operator`, as the
+guide does. A target narrows the watch through the four `*_NAMESPACES`
+variables.
+
+The Kustomize base was considered as the source. Its operator watches only
+its own namespace, so it would have to run in the namespace of every
+Keycloak it serves, and `check` takes no Kustomize source (RCP-23). OLM
+would have to be installed on the cluster first.
+
+The kadet-hub/examples recipe installed the operator from this chart through
+a `helm` compile entry, which RCP-17 rules out here, and restricted its
+controllers to their own namespace.
+
+The recipe rebuilds the chart's objects with the `kubernetes` generator.
+The four CRDs are vendored from keycloak/keycloak-k8s-resources at tag
+26.8.1, whose files equal the chart's and which carries the Apache-2.0
+license that RCP-35 asks for. The chart package has no license file. The
+chart passes the default Keycloak image to the operator by tag, in
+`RELATED_IMAGE_KEYCLOAK` and `kc.operator.keycloak.image`. The recipe pins
+both by digest (RCP-6), and `tests/values.yaml` sets the same values. The
+chart's Deployment, pod template, Service and ServiceAccount carry
+`app.quarkus.io/*` annotations with the build's commit and time. RCP-9
+compares them, so the recipe writes them as the chart renders them.
+
+The project rebuilds a release from the same source revision and moves the
+version tag to the new build. On 2026-10-25 the image tag `26.8.1` pointed
+to the build of 2026-10-23, also tagged `26.8.1-1`. `26.8.1-0` is the build
+of the release day, 2026-10-13. The chart's 26.8.1 was also created on
+2026-10-23, so its digest and build annotations change with a rebuild.
+
+### The Keycloak resource
+
+`keycloak` renders the `Keycloak` resource `keycloak` in the target's
+namespace. The operator creates the StatefulSet `keycloak`, the Services
+`keycloak-service` and `keycloak-discovery`, and the Secret
+`keycloak-initial-admin` with a generated password for a temporary admin.
+The resource sets the image of the `Source` line (RCP-58). With an image
+set, the operator starts Keycloak with `--optimized`, which assumes an
+image built for its configuration (`KeycloakDeploymentDependentResource.java`).
+The project's image is not built for PostgreSQL, so the recipe sets
+`startOptimized: false` and Keycloak builds at start, as in the examples
+recipe.
+
+The database is the included recipe `postgresql` (DEC-4, DEC-12). Keycloak
+connects to the Service `postgresql-cluster-rw` and the database `app`.
+CloudNativePG creates `app` with the owner `app` when the chart sets no
+`initdb`. The user and password are the keys `username` and `password` of
+the Secret `postgresql-cluster-app`, the keys the generator's
+`credentials_secret` reads. Keycloak 26.8.1 is tested against PostgreSQL 18
+(`postgresql.version` in its `pom.xml`), the version `postgresql` runs.
+
+Keycloak serves HTTPS on port 8443 with the Secret `keycloak-tls`. The
+cert-manager Certificate `keycloak-tls` issues it for the host and for
+`keycloak-service.<namespace>.svc`, from an issuer the target names. The
+certificate's common name is the host. The examples recipe set it because
+Keycloak rejected its self-signed certificate with an empty issuer DN.
+
+The operator renders an Ingress unless `ingress.enabled` is false. The
+recipe turns it off, as the examples recipe did, and leaves exposure to the
+target (OQ-16).
+
+The target sets `applications.keycloak.host` and
+`applications.keycloak.issuer`, the issuer's `name` and `kind`.
+`postgresql` requires no parameter (RCP-51).
+
+### Moving from kadet-hub/examples
+
+The examples recipe rendered the Namespace `keycloak`, the three operators
+from their charts, the CloudNativePG Cluster `keycloak-db`, the self-signed
+Issuer `keycloak-selfsigned`, the Certificate `sso-tls` and the Keycloak
+`sso`. The operators become the prerequisites `keycloak-operator`,
+`cert-manager` and `cloudnative-pg`, each in a target of its own. The old
+operator in the namespace `keycloak` has to be gone before
+`keycloak-operator` starts, or both reconcile the same resource. RCP-3
+renames `sso` to `keycloak`, and with it the objects the operator derives
+from the name.
+
+Keycloak keeps its realms, users and sessions in the database, and the
+database does not carry over by name. The data is in the Cluster
+`keycloak-db`, database `keycloak`, and the recipe connects to
+`postgresql-cluster`, database `app`. A target moving from the examples
+recipe imports the old database into the new Cluster with CloudNativePG's
+import bootstrap (`bootstrap.initdb.import` of type `microservice`) before
+Keycloak first starts on it, and the README's `Replaces` section gives the
+values. The import is not tested yet. Keeping the Cluster `keycloak-db` in
+`keycloak` was considered. It would keep the data in place, but repeat the
+Cluster that `postgresql` proves and pins, so Keycloak and Nextcloud would
+run their databases two ways.
+
+### Proof
+
+Both are at level `deploys`. `keycloak-operator`'s `tests/smoke` creates a
+`Keycloak` resource in another namespace than the operator's and waits for
+its StatefulSet, which needs the CRDs, the cluster-wide watch and the
+ClusterRoles.
+
+For `keycloak`, `check` installs `keycloak-operator`, `cert-manager` and,
+through `postgresql`, `cloudnative-pg` (RCP-55), and applies `postgresql`
+with the recipe (RCP-49). `tests/target.yml` adds the self-signed Issuer
+`keycloak-selfsigned` and sets it as the issuer. `tests/smoke` waits for the
+Cluster and the `Keycloak` to be ready. Through `keycloak-service`, with the
+host name and the CA of `keycloak-tls`, it then gets `/realms/master` and a
+token for the temporary admin of `keycloak-initial-admin`, which needs the
+database. The examples recipe checked the readiness and `/realms/master`
+over TLS.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -1128,6 +1396,21 @@ first command.
   timestamps, but a tag pushed again with each build would reach the three
   days only once MongoDB stops rebuilding it, one release late.
 
+  powerdns needs no package rule. `pdns-auth-51` holds the 5.1 releases and
+  their prereleases, whose tags carry a suffix such as `5.1.0-beta1`, and
+  Renovate's docker versioning proposes no suffixed tag for a pin without
+  one. The next release line is another repository, which a maintainer
+  moves to. Docker Hub lists the repository's 11 tags on one page, so
+  Renovate gets their release timestamps.
+
+  A package rule groups the `Source` lines of `keycloak-operator` and
+  `keycloak` into one pull request, because one operator supports only the
+  Keycloak version it was released with (Keycloak). Keycloak has no
+  long-term support line, so no rule holds the version. The rebuild tags
+  such as `26.8.1-1` carry a suffix, which Renovate's docker versioning
+  proposes for no pin without one, so a rebuild reaches the pins as a new
+  digest of `26.8.1`.
+
   For a chart from an HTTP repository Renovate's `helm` datasource reads
   the repository's `index.yaml`. It proposes a new version with the
   `digest` of its index entry, which has no `sha256:` prefix, so the
@@ -1138,9 +1421,19 @@ first command.
 
   Compose sources are not covered yet (OQ-10).
 
+  For a release manifest Renovate moves the tag and the SHA-256 of the
+  `Source` line with the datasource `github-release-attachments`, as it
+  moves the tool pins of RCP-30. It downloads the assets of the pinned
+  release until one has the pinned SHA-256, hashes the asset of the same
+  name in the new release, and waits the three days from the release's
+  date. Assets of equal size are tried in the order the API lists them, so
+  for the RabbitMQ Cluster Operator it may take `cluster-operator-ghcr-io.yml`
+  for `cluster-operator.yml` (Release manifests). Should the two differ in
+  a later release, `check` fails on the proposed SHA-256 (RCP-23).
+
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17, #20; HTTP repository:
-    #23
+  - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
+    keycloak: not implemented; release manifests: #22; HTTP repository: #23
 
 ### Releasing
 
@@ -1194,8 +1487,8 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   - Since: #6, #7
 
 - RCP-34: `check <name> --level renders` MUST accept the compiled output of
-  the recipe and the rendered chart as input, and then run neither Kapitan
-  nor helm.
+  the recipe and the rendered chart, or the release manifest, as input, and
+  then run neither Kapitan nor helm.
 
   The registry gate compiles and renders in its gVisor sandbox and gives
   `check` only the two outputs (DEC-21 there), so a chart that attacks
@@ -1450,6 +1743,12 @@ feature's design (OQ-6).
   consumer clone compiles nextcloud with the fetch inventory pinning
   nextcloud, postgresql and valkey at one commit, and the first nextcloud
   tag follows tags of postgresql and valkey whose trees it contains.
+- AC-18 (RCP-55, RCP-58): `check lint` fails on a designed recipe whose
+  `Source` image neither a container runs nor a `spec.image` sets, and
+  passes on keycloak. `check keycloak-operator --level deploys` and
+  `check keycloak --level deploys` pass in CI, and the latter's report
+  lists `postgresql` as included and `keycloak-operator`, `cert-manager`
+  and `cloudnative-pg` as installed.
 - AC-11 (RCP-41, RCP-42): valkey passes `check valkey --level deploys` in
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
@@ -1461,8 +1760,8 @@ feature's design (OQ-6).
   HTTP form and fails without `tests/values.yaml`.
 - AC-13 (RCP-23, RCP-44, RCP-45): `check lint` fails on a designed recipe
   at level `renders` and on one whose `Source` image no container runs,
-  and passes on mysql and mongodb; both pass `check <name> --level
-  deploys` in CI.
+  and passes on mysql, mongodb and powerdns; each passes `check <name>
+  --level deploys` in CI.
 - AC-12 (RCP-43): `check lint` warns on an `args` list of a component
   and of an `init_containers` entry and still passes, does not warn when
   the recipe pins the generator below 1.7.0, and passes without a warning
@@ -1473,6 +1772,15 @@ feature's design (OQ-6).
   pins, every tool and action pin and the `check` lock, and finds no
   update set to merge automatically. With mysql one patch release back, it
   proposes the next 9.7 release and no 26.x.
+- AC-19 (RCP-16, RCP-23, RCP-34, RCP-59): `check`'s tests fail the
+  download of a release manifest whose SHA-256 differs from the `Source`
+  line and pass it when it matches. `rabbitmq-cluster-operator` passes
+  `check` at its README's level in CI, and a local Renovate dry run
+  extracts its `Source` line with `github-release-attachments`.
+- AC-20 (RCP-54, RCP-55): `check lint` fails on a recipe that requires
+  itself and on two recipes that require each other. The report of
+  `check rabbitmq --level deploys` lists `cert-manager` as installed before
+  `rabbitmq-cluster-operator`.
 
 ## Open questions
 
@@ -1522,6 +1830,11 @@ feature's design (OQ-6).
   renders a derivative of the chart, and does that change how it is
   published under this repository's Apache-2.0? It copies no template
   text. To be answered before the first `nextcloud` release.
+- OQ-16: Should `keycloak` render a route to a Gateway the target names,
+  as `nextcloud` does? Keycloak serves HTTPS only, so the Gateway would
+  need a BackendTLSPolicy towards port 8443 or TLS passthrough, and
+  whether cloud-provider-kind 0.12.0 implements either is not checked.
+  Until then the target exposes `keycloak-service`.
 
 ## Implementation inventory
 
@@ -1532,7 +1845,7 @@ feature's design (OQ-6).
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-21 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
@@ -1540,6 +1853,7 @@ feature's design (OQ-6).
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
+| `check/lint.py` | `spec.image` of a designed recipe on an operator (RCP-58) |
 
 | Value | Setting |
 |---|---|
@@ -1558,3 +1872,5 @@ feature's design (OQ-6).
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cloudnative-pg`, level `deploys` |
 | cloudnative-pg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, level `deploys` |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
+| keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.0.3, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
