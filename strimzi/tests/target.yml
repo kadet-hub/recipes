@@ -1,0 +1,7 @@
+classes:
+  - recipes.strimzi
+parameters:
+  namespace: strimzi
+  kapitan:
+    vars:
+      target: strimzi

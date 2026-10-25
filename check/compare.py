@@ -21,6 +21,10 @@ DROP_LABELS = {
     "app.kubernetes.io/instance",
     "app.kubernetes.io/component",
     "app.kubernetes.io/part-of",
+    "chart",
+    "release",
+    "heritage",
+    "component",
 }
 DROP_ANNOTATIONS = {"kubectl.kubernetes.io/last-applied-configuration"}
 HELM_PREFIXES = ("helm.sh/", "meta.helm.sh/")

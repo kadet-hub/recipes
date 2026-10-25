@@ -1,5 +1,6 @@
-"""AC-1, AC-5, AC-8, AC-9, AC-10, AC-12, AC-13 and AC-21: check lint on the cert-manager, miniflux and mysql recipes and on broken copies of them."""
+"""AC-1, AC-5, AC-8, AC-9, AC-10, AC-12, AC-13, AC-19 and AC-21: check lint on the cert-manager, miniflux and mysql recipes and on broken copies of them."""
 
+import re
 import shutil
 import tempfile
 import unittest
@@ -248,6 +249,34 @@ class LintCompose(unittest.TestCase):
                 "Service/miniflux/miniflux-db: selector selects no pods (RCP-38)",
             ],
         )
+
+
+class LintManifest(unittest.TestCase):
+    """AC-19: a recipe from a release manifest needs no tests/values.yaml (RCP-23)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.recipe = self.tmp / "cert-manager"
+        shutil.copytree(RECIPE, self.recipe)
+        (self.recipe / "tests/values.yaml").unlink()
+        self.readme = self.recipe / "README.md"
+        self.line = re.search(r"^Source: .*$", self.readme.read_text(), re.M).group(0)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def source(self, url):
+        self.readme.write_text(self.readme.read_text().replace(self.line, f"Source: `{url}@{DIGEST}`"))
+        return lint.readme_fields(self.recipe)[0]
+
+    def test_release_asset(self):
+        url = "https://github.com/rabbitmq/cluster-operator/releases/download/v2.23.1/cluster-operator.yml"
+        self.assertEqual(self.source(url), ("manifest", ("rabbitmq/cluster-operator", "v2.23.1", "cluster-operator.yml", DIGEST)))
+        self.assertEqual(lint.lint_files(self.recipe), [])
+
+    def test_not_a_release_asset(self):
+        self.assertIsNone(self.source("https://github.com/rabbitmq/cluster-operator/releases/v2.23.1/cluster-operator.yml"))
+        self.assertIn("README.md has no line Source:", "\n".join(lint.lint_files(self.recipe)))
 
 
 class LintDesign(unittest.TestCase):

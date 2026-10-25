@@ -1,15 +1,15 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.5.0 implements renders and deploys, for charts
-        from OCI and HTTP repositories, and for compose sources and
-        designed recipes deploys (RCP-38, RCP-44, RCP-58); migrates
-        (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
-        implemented; RCP-15 only up to publication.
+Status: Draft. check 0.6.0 implements renders and deploys, for charts
+        from OCI and HTTP repositories and for release manifests (RCP-59),
+        and for compose sources and designed recipes deploys (RCP-38,
+        RCP-44, RCP-58); migrates (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32
+        and RCP-34 are not implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
-                  #19, powerdns at deploys
+                  #19, powerdns at deploys; #29, strimzi at deploys
 ```
 
 ## Problem
@@ -409,9 +409,9 @@ from `PATH`; CI installs them pinned (RCP-28).
   nor its compile fetches the chart. Only `check` and the registry gate
   (REC-7 there) do.
 
-  - Test: `check lint`; `check/tests/test_lint.py`; `check/tests/test_check.py`
-    for the HTTP repository (release manifest download: not written)
-  - Since: #2, #8, #14; release manifest: #22; HTTP repository: #23
+  - Test: `check lint`; `check/tests/test_lint.py`; release manifest
+    download and HTTP repository: `check/tests/test_check.py`
+  - Since: #2, #8, #14; release manifest: #22, #25; HTTP repository: #23
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -521,7 +521,7 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   would name a manager that does not manage the object.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; `chart`, `release`, `heritage`, `component`: not implemented
+  - Since: #2; `chart`, `release`, `heritage`, `component`: #29
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
@@ -712,8 +712,8 @@ cert-manager Certificates with their Issuer, so the recipe
 
   helm does not render the file, so RCP-25 has no hooks to leave out.
 
-  - Test: `check/tests/test_check.py` (not written); CI `check` job
-  - Since: not implemented
+  - Test: CI `check` job
+  - Since: #22, this change
 
 ## Designed recipes
 
@@ -1594,7 +1594,7 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
-    keycloak: not implemented; release manifests: #22; kafka: not
+    keycloak: not implemented; release manifests: #22, #25; kafka: not
     implemented; HTTP repository: #23
 
 ### Releasing
