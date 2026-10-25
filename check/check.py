@@ -18,6 +18,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -26,7 +27,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node
@@ -138,6 +139,34 @@ def fetch_chart(source, work):
     chart = yaml.safe_load(run(["helm", "show", "chart", str(tgz)]))
     if str(chart.get("version")) != version:
         raise Failed(f"oci://{repo}@{digest} is version {chart.get('version')}, the README names {version}")
+    return tgz
+
+
+def fetch_http_chart(source, work):
+    """The archive the repository's index lists for the chart and version; its SHA-256 must be the one
+    the README names, and its Chart.yaml must name the chart and version (RCP-23)."""
+    repo, name, version, digest = source
+    # charts.jetstack.io answers Python's default User-Agent with 403.
+    agent = {"User-Agent": f"check/{VERSION}"}
+    with urllib.request.urlopen(urllib.request.Request(f"{repo}/index.yaml", headers=agent), timeout=60) as r:
+        index = yaml.load(r.read(), Loader=Loader)
+    entry = next((e for e in (index.get("entries") or {}).get(name) or [] if str(e.get("version")) == version), None)
+    if not entry or not entry.get("urls"):
+        raise Failed(f"{repo}/index.yaml lists no archive of {name} {version}")
+    url = urllib.parse.urljoin(f"{repo}/", entry["urls"][0])
+    with urllib.request.urlopen(urllib.request.Request(url, headers=agent), timeout=60) as r:
+        data = r.read()
+    actual = "sha256:" + hashlib.sha256(data).hexdigest()
+    if actual != digest:
+        raise Failed(f"{url} has {actual}, the README names {digest}")
+    out = work / "chart"
+    out.mkdir()
+    tgz = out / f"{name}-{version}.tgz"
+    tgz.write_bytes(data)
+    with tarfile.open(tgz) as tar:
+        chart = yaml.safe_load(tar.extractfile(f"{name}/Chart.yaml"))
+    if (chart.get("name"), str(chart.get("version"))) != (name, version):
+        raise Failed(f"{url} is {chart.get('name')} {chart.get('version')}, the README names {name} {version}")
     return tgz
 
 
@@ -472,7 +501,8 @@ def cmd_lint(recipe, work):
     if source[0] == "manifest":
         manifest = fetch_manifest(source[1], work)
         return lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in manifest}), notes
-    chart, _ = render_chart(recipe.name, recipe, fetch_chart(source[1], work), namespace)
+    tgz = fetch_http_chart(source[1], work) if source[0] == "http" else fetch_chart(source[1], work)
+    chart, _ = render_chart(recipe.name, recipe, tgz, namespace)
     own, parts = owned(recipe, objs, work)
     errors = lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart})
     for other, other_objs in parts.items():
@@ -512,7 +542,8 @@ def cmd_check(recipe, level, work, keep):
         say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, {source[3]} verified")
         chart = load_all((work / "manifest.yaml").read_text())
     else:
-        say(f"chart: oci://{source[0]}:{source[1]}@{source[2]}, values tests/values.yaml")
+        ref = "{}/{}:{}@{}".format(*source) if kind == "http" else "oci://{}:{}@{}".format(*source)
+        say(f"chart: {ref}, values tests/values.yaml")
         chart, hooks = render_chart(recipe.name, recipe, next((work / "chart").glob("*.tgz")), namespace)
         readme = (recipe / "README.md").read_text()
         for h in hooks:

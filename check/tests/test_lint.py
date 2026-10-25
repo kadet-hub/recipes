@@ -1,4 +1,4 @@
-"""AC-1, AC-5, AC-8, AC-9, AC-10, AC-12, AC-13 and AC-19: check lint on the cert-manager, miniflux and mysql recipes and on broken copies of them."""
+"""AC-1, AC-5, AC-8, AC-9, AC-10, AC-12, AC-13, AC-19 and AC-21: check lint on the cert-manager, miniflux and mysql recipes and on broken copies of them."""
 
 import re
 import shutil
@@ -164,6 +164,17 @@ class Lint(unittest.TestCase):
         readme = self.recipe / "README.md"
         readme.write_text(readme.read_text().replace("Level: `deploys`", "Level: deploys"))
         self.assertIn("README.md has no line Level:", "\n".join(lint.lint_files(self.recipe)))
+
+    # AC-21
+
+    def test_http_repository_source(self):
+        readme = self.recipe / "README.md"
+        source = f"https://charts.jetstack.io/cert-manager:v1.21.2@{DIGEST}"
+        readme.write_text(lint.SOURCE_LINE.sub(f"Source: `{source}`", readme.read_text()))
+        self.assertEqual(lint.readme_fields(self.recipe)[0], ("http", ("https://charts.jetstack.io", "cert-manager", "v1.21.2", DIGEST)))
+        self.assertEqual(lint.lint_files(self.recipe), [])
+        (self.recipe / "tests/values.yaml").unlink()
+        self.assertIn("tests/values.yaml is missing (RCP-1)", lint.lint_files(self.recipe))
 
 
     def test_required_parameters(self):

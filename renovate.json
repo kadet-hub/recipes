@@ -37,6 +37,17 @@
       "datasourceTemplate": "docker"
     },
     {
+      "description": "RCP-16: a chart from an HTTP repository, by version and the SHA-256 of its archive in the README's Source line; the helm datasource gives the digest without its sha256: prefix",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/README\\.md$/"
+      ],
+      "matchStrings": [
+        "Source: `(?<registryUrl>https://[^`\\s]+)/(?<depName>[^/:`\\s]+):(?<currentValue>[^@`\\s]+)@sha256:(?<currentDigest>[0-9a-f]{64})`"
+      ],
+      "datasourceTemplate": "helm"
+    },
+    {
       "description": "RCP-16: the release manifest a recipe is derived from, by tag and SHA-256 in its README's Source line",
       "customType": "regex",
       "managerFilePatterns": [
