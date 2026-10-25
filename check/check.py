@@ -2,6 +2,7 @@
 
   check lint <name>
   check <name> --level renders|deploys
+  check <name> --level renders --compiled <out> --rendered <file>   (RCP-34)
 
 Run from the repository root through uv: uv run --locked --project check check/check.py ...
 Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
@@ -27,7 +28,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.8.1"
+VERSION = "0.9.0"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node
@@ -191,9 +192,10 @@ def fetch_manifest(source, work):
     return load_all(data.decode())
 
 
-def render_chart(name, recipe, tgz, namespace):
-    """The chart's objects, and the hooks left out (RCP-25)."""
-    text = run(["helm", "template", name, str(tgz), "-n", namespace, "-f", str(recipe / "tests/values.yaml"), "--include-crds"])
+def render_chart(name, recipe, tgz, namespace, rendered=None):
+    """The chart's objects, and the hooks left out (RCP-25); from helm template's output in rendered if given (RCP-34)."""
+    text = rendered.read_text() if rendered else run(
+        ["helm", "template", name, str(tgz), "-n", namespace, "-f", str(recipe / "tests/values.yaml"), "--include-crds"])
     objs, hooks = [], []
     for o in load_all(text):
         if "helm.sh/hook" in ((o.get("metadata") or {}).get("annotations") or {}):
@@ -215,6 +217,8 @@ def build_project(recipe, work):
 
 def compiled_files(out, name):
     root = out / "compiled" / name
+    if not root.is_dir():
+        raise Failed(f"{root}: no compiled output of {name}")
     return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
@@ -345,13 +349,16 @@ def requirement_order(recipe):
     return order
 
 
-def prerequisites(recipe, work):
+def prerequisites(recipe, work, compiled=None):
     """RCP-55: the recipes on the Requires lines of the recipe, its included recipes and, in turn,
     of those prerequisites, each once and after what it requires, compiled from its own tests/target.yml."""
     out = []
     for name in requirement_order(recipe):
         if name == lint.GATEWAY_API:
             out.append((name, None, []))
+            continue
+        if compiled:
+            out.append((name, objects_of(compiled_files(compiled, name)), []))
             continue
         sub = work / "requires" / name
         sub.mkdir(parents=True)
@@ -420,17 +427,18 @@ def wait_rollouts(cluster, objs):
                             "-n", meta.get("namespace", "default"), "--timeout", "300s")
 
 
-def owned(recipe, objs, work):
+def owned(recipe, objs, work, compiled=None):
     """RCP-49: the parent's objects, and those of each included recipe, which its own tests/target.yml renders."""
     included = {}
     for other in with_included(recipe)[1:]:
         sub = work / "included" / other.name
-        if not (sub / "out").is_dir():
+        if not compiled and not (sub / "out").is_dir():
             sub.mkdir(parents=True)
             project = build_project(other, sub)
             fetch_generators(other, project, sub)
             compile_recipe(project, sub / "out")
-        included[other.name] = {(o["kind"], o["metadata"].get("name")) for o in objects_of(compiled_files(sub / "out", other.name))}
+        included[other.name] = {(o["kind"], o["metadata"].get("name"))
+                                for o in objects_of(compiled_files(compiled or sub / "out", other.name))}
     return partition(objs, included)
 
 
@@ -483,17 +491,19 @@ def deploy(cluster, objs, recipe, prereqs=()):
 # Commands
 
 
-def cmd_lint(recipe, work):
+def cmd_lint(recipe, work, compiled=None, rendered=None):
     errors = lint.lint_files(recipe)
     if errors:
         return errors, []
     source, _ = lint.readme_fields(recipe)
     namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
-    project = build_project(recipe, work)
-    notes = fetch_generators(recipe, project, work)
-    compile_recipe(project, work / "out")
-    objs = objects_of(compiled_files(work / "out", recipe.name))
-    own, parts = owned(recipe, objs, work)
+    notes = []
+    if not compiled:
+        project = build_project(recipe, work)
+        notes = fetch_generators(recipe, project, work)
+        compile_recipe(project, work / "out")
+    objs = objects_of(compiled_files(compiled or work / "out", recipe.name))
+    own, parts = owned(recipe, objs, work, compiled)
     errors = []
     for other, other_objs in parts.items():
         errors += lint.lint_output(other, other_objs, {o["metadata"]["name"] for o in other_objs})
@@ -503,21 +513,23 @@ def cmd_lint(recipe, work):
     if source[0] == "design":
         return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_design_output(own, source[1]), notes
     if source[0] == "manifest":
-        manifest = fetch_manifest(source[1], work)
+        manifest = load_all(rendered.read_text()) if rendered else fetch_manifest(source[1], work)
         return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in manifest}), notes
-    tgz = fetch_http_chart(source[1], work) if source[0] == "http" else fetch_chart(source[1], work)
-    chart, _ = render_chart(recipe.name, recipe, tgz, namespace)
+    tgz = None
+    if not rendered:
+        tgz = fetch_http_chart(source[1], work) if source[0] == "http" else fetch_chart(source[1], work)
+    chart, _ = render_chart(recipe.name, recipe, tgz, namespace, rendered)
     return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart}), notes
 
 
-def cmd_check(recipe, level, work, keep):
+def cmd_check(recipe, level, work, keep, compiled=None, rendered=None):
     report, failed = [], False
 
     def say(line=""):
         report.append(line)
         print(line, flush=True)
 
-    errors, notes = cmd_lint(recipe, work)
+    errors, notes = cmd_lint(recipe, work, compiled, rendered)
     say(f"check {VERSION}: {recipe.name} at level {level}")
     for n in notes:
         say(f"generator: {n}, attestation and index verified")
@@ -539,20 +551,23 @@ def cmd_check(recipe, level, work, keep):
             return report, True
         say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
     elif kind == "manifest":
-        say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, {source[3]} verified")
-        chart = load_all((work / "manifest.yaml").read_text())
+        say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, "
+            + (f"given in {rendered}, not verified by check" if rendered else f"{source[3]} verified"))
+        chart = load_all((rendered or work / "manifest.yaml").read_text())
     else:
         ref = "{}/{}:{}@{}".format(*source) if kind == "http" else "oci://{}:{}@{}".format(*source)
-        say(f"chart: {ref}, values tests/values.yaml")
-        chart, hooks = render_chart(recipe.name, recipe, next((work / "chart").glob("*.tgz")), namespace)
+        say(f"chart: {ref}, " + (f"rendered output given in {rendered}, not verified by check" if rendered else "values tests/values.yaml"))
+        tgz = None if rendered else next((work / "chart").glob("*.tgz"))
+        chart, hooks = render_chart(recipe.name, recipe, tgz, namespace, rendered)
         readme = (recipe / "README.md").read_text()
         for h in hooks:
             listed = f"`{h}`" in readme
             failed |= not listed
             say(f"hook left out: {h}" + ("" if listed else " NOT LISTED in README.md (RCP-25)"))
-    files = compiled_files(work / "out", recipe.name)
-    objs = objects_of(files)
-    prereqs = prerequisites(recipe, work)
+    objs = objects_of(compiled_files(compiled or work / "out", recipe.name))
+    if compiled:
+        say(f"compiled: given in {compiled}, generators not verified by check")
+    prereqs = prerequisites(recipe, work, compiled)
     for name, prereq_objs, prereq_notes in prereqs:
         if prereq_objs is None:
             say(f"requires: {name}, cloud-provider-kind with the Gateway gateway/gateway, installed before the proof")
@@ -562,26 +577,26 @@ def cmd_check(recipe, level, work, keep):
             say(f"requires: {name}: generator: {n}, attestation and index verified")
     gateways = GatewayProvider(prereqs, work)
     try:
-        failed = proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed)
+        failed = proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled)
     finally:
         gateways.stop()
     return report, failed
 
 
-def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed):
-    files = compiled_files(work / "out", recipe.name)
-    project = work / "project"
-    next_error = compile_next(project, work / "next")
-    if next_error:
+def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled=None):
+    if compiled:
+        say(f"kapitan next ({KAPITAN_NEXT}): not compiled, the compiled output is given (RCP-34)")
+    elif next_error := compile_next(work / "project", work / "next"):
         say(f"kapitan next ({KAPITAN_NEXT}): compile failed, not deciding: {next_error}")
     else:
+        files = compiled_files(work / "out", recipe.name)
         other = compiled_files(work / "next", recipe.name)
         changed = sorted(p for p in set(files) | set(other) if files.get(p) != other.get(p))
         say(f"kapitan next ({KAPITAN_NEXT}): "
             + (f"output differs in {', '.join(changed)}, not deciding" if changed else "same output as 0.36.3"))
 
     every = objs
-    objs, parts = owned(recipe, every, work)
+    objs, parts = owned(recipe, every, work, compiled)
     for other, other_objs in parts.items():
         for o in other_objs:
             say(f"included {other}: `{o['kind']}/{o['metadata']['name']}`")
@@ -655,6 +670,10 @@ def main(argv=None):
     parser.add_argument("--level", choices=lint.LEVELS, default="renders")
     parser.add_argument("--report", type=Path, help="also write the report to this file")
     parser.add_argument("--keep", action="store_true", help="keep the kind clusters and the work directory")
+    parser.add_argument("--compiled", type=Path, metavar="OUT",
+                        help="Kapitan output path with compiled/<recipe>/ of the recipe, its included recipes and prerequisites (RCP-34)")
+    parser.add_argument("--rendered", type=Path, metavar="FILE",
+                        help="helm template's output of the chart, or the release manifest (RCP-34)")
     args = parser.parse_args(argv)
     if args.args[0] == "lint" and len(args.args) == 2:
         mode, name = "lint", args.args[1]
@@ -662,6 +681,8 @@ def main(argv=None):
         mode, name = "check", args.args[0]
     else:
         parser.error("usage: check lint <name> | check <name> --level <level>")
+    if (args.compiled or args.rendered) and (mode == "lint" or args.level != "renders" or not (args.compiled and args.rendered)):
+        parser.error("--compiled and --rendered go together, with check <name> --level renders (RCP-34)")
     recipe = Path(name.rstrip("/")).resolve()
     if not (recipe / "init.yml").is_file():
         parser.error(f"{name}: not a recipe directory")
@@ -675,7 +696,7 @@ def main(argv=None):
                 print(f"lint: warning: {w}")
             print(f"lint: {recipe.name}: " + ("failed" if errors else "passed"))
             return 1 if errors else 0
-        report, failed = cmd_check(recipe, args.level, work, args.keep)
+        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered)
         if args.report:
             args.report.write_text("\n".join(report) + "\n")
         return 1 if failed else 0
