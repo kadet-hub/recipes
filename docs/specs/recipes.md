@@ -34,6 +34,10 @@ so that users include a recipe the way they would install a chart. This
 repository holds the recipes, the one comparison script that proves them,
 and the CI that runs it.
 
+Some applications need other applications next to them. Nextcloud needs a
+database and a cache in its namespace, which its chart brings as subcharts,
+and the database needs an operator that runs once per cluster.
+
 ## Decisions
 
 DEC-1: This repository holds the recipe sources, the comparison script
@@ -54,9 +58,13 @@ DEC-3: Recipes are written for the omegaconf inventory backend and use its
 built-in resolvers to derive values instead of repeating them. Custom
 resolvers are not used, because a consumer would have to install them.
 
-DEC-4: A chart's subchart becomes a recipe of its own. The parent recipe
-includes it through `classes:` and overrides only what the parent chart's
-values change. A subchart that several charts share is then written once.
+DEC-4: A chart's subchart becomes a recipe of its own, and the parent recipe
+includes it through `classes:` (Included recipes). A subchart that several
+charts share is then written once. Where the parent's chart can use an
+external service in place of its subchart, as Nextcloud's chart uses an
+external PostgreSQL, the parent includes the recipe for that service.
+Revised in this change: the first version let the parent override the
+included recipe's values, which RCP-18 rules out (DEC-12).
 
 DEC-5: A recipe is proven at one of three levels, `renders`, `deploys` and
 `migrates` (Proof). Every recipe reaches `renders`. Proving every recipe on
@@ -106,6 +114,34 @@ for a compose source (DEC-8). A chart maintained by a third party was
 rejected as a source. A proof against it would carry that party's choices
 into the recipe and tie the recipe to a chart the project does not
 maintain.
+
+DEC-12: The parent leaves an included recipe as it is. It writes nothing
+below the included recipe's keys, which RCP-18 already enforces, and
+depends only on names the included recipe renders, such as its Service and
+the Secret with its credentials. What the included recipe requires, the
+target sets, and the parent's README names it. A parent and its included
+recipes come from one commit of this repository, so the commit fixes the
+combination `check` proved, and the registry resolves it to published
+versions (DEC-28 there). An included recipe includes no recipe itself,
+which keeps the fetch inventory and the registry record flat. No recipe
+needs a deeper chain yet.
+
+Letting the parent override the included recipe's values was considered.
+RCP-18 would then have to let one recipe write into another's keys, and the
+included recipe's own proof would no longer cover what the parent compiles.
+Copying the included recipe into the parent's directory was considered too.
+A target that also included it through another recipe would get the same
+keys twice. A range of versions per included recipe would let a fix in the
+included recipe reach users without a parent release, but it would publish
+combinations that no CI run compiled together.
+
+DEC-13: What a recipe needs once per cluster, such as an operator with its
+CRDs or a Gateway API implementation, is a prerequisite and not an included
+recipe. The README names it on a `Requires:` line, the user installs it in
+a target of its own, and `check` installs it on the kind cluster before the
+proof (Included recipes). An operator included like a database would be
+rendered by every target that uses it, and two operators would reconcile
+the same objects.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -650,6 +686,308 @@ moved as designed recipes (Designed recipes).
   - Test: manual: review
   - Since: #10
 
+## Included recipes
+
+A parent recipe includes another recipe of this repository with a
+`classes` entry `recipes.<other>`, or `recipes.<other>.<option>` for one of
+its options. `check lint` already resolves such an entry to the files of
+`<other>/` (RCP-36). The included recipe renders its objects in the
+target's namespace under its own names, and the parent connects to them by
+those names. Nextcloud reaches its database through the Service
+`postgresql-cluster-rw` and the Secret `postgresql-cluster-app`, and its
+cache through the Service `valkey` and the Secret `valkey-auth`. These
+names are literals in the parent. A rename in the included recipe breaks
+the parent, which CI shows (RCP-50) and which raises the included recipe's
+major version (RCP-53).
+
+Each recipe pins its own generators, so a parent and its included recipes
+can pin the same generator twice. Kapitan merges the `kapitan.dependencies`
+and `kapitan.compile` lists of all classes. Two equal pins fetch the same
+artifact into `lib/<generator>` and write the same files. Two pins of
+different versions conflict. The later fetch wins `lib/<generator>`, and
+both compile entries run that version.
+
+- RCP-47: A recipe MAY include another recipe of this repository as
+  `recipes.<other>` or `recipes.<other>.<option>`. `check lint` MUST fail
+  when the included recipe includes a recipe itself.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: not implemented
+
+- RCP-48: A parent and its included recipes MUST pin every generator they
+  share at the same source. `check lint` MUST fail on two
+  `kapitan.dependencies` entries with the same `output_path` and different
+  sources.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: not implemented
+
+- RCP-49: `check` MUST build the project from the parent and each recipe it
+  includes, at the same commit, and verify the generators of each as RCP-27
+  describes. An object belongs to the recipe whose name is the longest
+  prefix of the object's name, and RCP-3 applies to the objects of each
+  recipe. At `renders`, `check` MUST leave the objects of included recipes
+  out of the comparison and list each as
+  `` included <recipe>: `<Kind>/<name>` ``. At `deploys` it MUST apply them
+  together with the parent's.
+
+  The parent's `tests/values.yaml` switches the chart's subcharts off and
+  points the chart at the included recipes' Services and Secrets, so the
+  chart side renders the parent's objects only. Each included recipe is
+  proven by its own `check`. At `deploys` the parent's `tests/smoke`
+  exercises the whole stack.
+
+  - Test: `check/tests/` (not written); CI `check` job
+  - Since: not implemented
+
+- RCP-50: CI MUST also run `check` for every recipe that includes a recipe
+  a pull request changes, at the including recipe's level.
+
+  - Test: CI `select` job
+  - Since: not implemented
+
+- RCP-51: The section "Required parameters" of a parent MUST name the
+  parameters its included recipes require as well.
+
+  The include snippet of a parent names only the parent. A target that
+  misses `applications.valkey.password` stops with the interpolation error
+  of RCP-40, which names the key but not the recipe it belongs to.
+
+  - Test: manual: review
+  - Since: not implemented
+
+- RCP-52: A consumer MUST fetch each included recipe of a parent as RCP-15
+  fetches the parent: before publication at the parent's commit SHA,
+  afterwards by the digest that the parent's index record lists (CON-4 in
+  kadet-hub/registry).
+
+  - Test: manual: the README's "Using a recipe" steps for nextcloud on a
+    fresh clone
+  - Since: not implemented
+
+- RCP-53: A parent version MUST be tagged on a commit where the directory
+  of each included recipe, without `tests/`, equals a tagged version of
+  that recipe. An included recipe's major version MUST also rise when a
+  name or Secret key that a parent reads changes.
+
+  The registry finds the included version by that tree (REC-16 there), so a
+  parent tagged before the release of a changed included recipe fails its
+  gate. The consumer gets a new version of an included recipe only with a
+  parent release that includes it, because CON-4 pins exactly the versions
+  of the parent's record. A fix in `valkey` therefore means a `valkey`
+  release followed by a `nextcloud` release.
+
+  - Test: the registry gate (REC-16); manual: release review
+  - Since: not implemented
+
+### Prerequisites
+
+A prerequisite is named on the README's `Requires:` line (DEC-13). A parent
+names its own prerequisites, and those of its included recipes apply too,
+so `nextcloud` names `gateway-api` and gets `cloudnative-pg` through
+`postgresql`.
+
+`gateway-api` is the one entry that is not a recipe. `check` provides it
+with cloud-provider-kind, the kind project's cloud provider, pinned like
+the other tools (RCP-28). Version 0.12.0 installs the CRDs of the Gateway
+API 1.6.1 standard channel, creates the GatewayClass `cloud-provider-kind`
+and implements Gateway and HTTPRoute with one Envoy container per Gateway
+on the runner's Docker (`pkg/gateway` of kubernetes-sigs/cloud-provider-kind).
+At `deploys` `check` adds the Gateway `gateway` in the namespace `gateway`,
+with a listener `http` on port 80 that admits routes from every namespace,
+and the recipe's `tests/target.yml` attaches its route to it.
+cloud-provider-kind runs outside kind with the runner's Docker socket. A
+Gateway or LoadBalancer Service that a pull request applies at `deploys`
+therefore starts containers on the runner, which the approval for forks of
+RCP-20 covers. It does not advertise `HTTPRoutePathRedirect`, so a redirect
+that changes the path is proven at `renders` only. Envoy Gateway supports
+that feature and was considered, but it would add a chart install to every
+proof that requires `gateway-api`.
+
+- RCP-54: A recipe that needs something once per cluster MUST name it on
+  one README line ``Requires: `<entry>`[, `<entry>`]``. An entry is a
+  recipe of this repository or `gateway-api`. `check lint` MUST fail on any
+  other entry and on a recipe that both includes and requires the same
+  recipe.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: not implemented
+
+- RCP-55: Before the proof, `check` MUST install the prerequisites of the
+  recipe and of its included recipes on every kind cluster it creates. A
+  prerequisite recipe is compiled from its own `tests/target.yml`. At
+  `renders` only its Namespaces, CRDs, ServiceAccounts and RBAC objects are
+  applied, as RCP-26 applies the recipe's. At `deploys` all of it is
+  applied and its rollouts are waited for.
+
+  The chart side needs the prerequisites too: a dry run of a CloudNativePG
+  Cluster or an HTTPRoute fails without its CRD.
+
+  - Test: CI `check` job, report lines `requires`
+  - Since: not implemented
+
+- RCP-56: The `tests/smoke` of a recipe that renders a route MUST reach the
+  application through that route.
+
+  - Test: manual: review; CI `check` job
+  - Since: not implemented
+
+## Nextcloud
+
+Nextcloud is the first parent. The stack is four recipes, written in this
+order:
+
+| Recipe | Source | Role |
+|---|---|---|
+| `cloudnative-pg` | `oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg:0.29.1@sha256:3245fa051bb21d0dd9246272f57a2760b4234817a164a3167d2a1e7fb9f63fd9`, CloudNativePG 1.30.1, Apache-2.0 | prerequisite of `postgresql`: the operator, its webhooks and, as option `crds`, its CRDs |
+| `postgresql` | `oci://ghcr.io/cloudnative-pg/charts/cluster:0.9.0@sha256:c8130c6573ab59e7629390ee5c468e5bc3d8536e6ec4ca8deea1aee792c4a9e5`, Apache-2.0 | included by `nextcloud`: one CloudNativePG Cluster |
+| `valkey` | `oci://ghcr.io/valkey-io/valkey-helm/valkey:0.12.0`, on `main` since #10 | included by `nextcloud`: distributed cache and transactional file locking |
+| `nextcloud` | `oci://ghcr.io/nextcloud/helm/nextcloud:9.4.1@sha256:90ffc4c8dd014e25343ecd37de7262f04d1c2cacb47a48315316d7798e7b35cb`, AGPL-3.0 | the parent: Nextcloud 35.0.2, its route and its background jobs |
+
+The three new charts are published on ghcr.io by the projects' own GitHub
+organizations, as RCP-23 requires. The nextcloud organization describes
+its chart as community maintained. The chart's OCI package has
+the SHA-256 of the GitHub release asset `nextcloud-9.4.1.tgz`,
+`e3d768864800bcc23eb66e6f65cbf5f0545b1506cf8c65f55a91d21af3bad4bf`.
+Nextcloud 35.0.2, released on 2026-10-15, is the newest stable release and
+the chart's `appVersion`.
+
+`postgresql` replaces the kadet-hub/examples recipe of the same name
+(RCP-41). That recipe rendered the Cluster `app-db` in the namespace
+`databases` and installed the operator from its chart through a `helm`
+compile entry, which RCP-17 rules out here. The operator becomes the
+recipe `cloudnative-pg`, and the Cluster comes from CloudNativePG's own
+`cluster` chart (DEC-10), rendered by the `cloudnative-pg` generator 1.0.1,
+whose `spec` key passes the fields it has no flat key for. With the release
+name `postgresql` the chart names the Cluster `postgresql-cluster`. The
+operator then writes the Secret `postgresql-cluster-app` with the keys
+`username`, `password`, `host` and `dbname` (`pkg/specs/secrets.go` of
+CloudNativePG v1.30.1), and the read-write Service is
+`postgresql-cluster-rw`. The operator generates the database password, so
+no target sets one. The chart's Helm test Job
+`postgresql-cluster-ping-test` is left out (RCP-25). The recipe runs
+PostgreSQL 18, which Nextcloud 35's system requirements recommend, as
+`ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie`.
+
+Nextcloud's admin manual for version 35 lists Valkey as a Redis-compatible
+backend for the distributed cache and for transactional file locking
+(`caching_configuration.rst` of nextcloud/documentation `stable35`). Formal
+tests run against Redis with the `redis` PHP extension and against Valkey
+with Nextcloud's own `KeyValueCache`, added in 34.0.2. For that cache the
+manual supports Valkey 9 except numbered databases in cluster mode. The
+image configures the `redis` extension from `REDIS_HOST`, so Valkey 9.1.2
+of `valkey` in standalone mode runs on a combination that the manual
+expects to work but does not test. Nextcloud server uses no RabbitMQ. The
+manual names it only for the Euro-Office document server.
+
+The chart runs `docker.io/library/nextcloud:35.0.2-apache`, the Docker
+official image built from nextcloud/docker, which the recipe pins as
+`35.0.2-apache@sha256:89af7ee7a96ff5e9668280566209268ae6b2d02327f6ef6d56f6d68228cf9431`.
+Apache starts as root and serves as `www-data`, UID 33, so the target's
+namespace needs the Pod Security level `baseline`. With an external
+database the chart renders no init container that waits for it. The
+image's entrypoint retries `occ maintenance:install` up to ten times
+(`docker-entrypoint.sh` of nextcloud/docker), which has to outlast the
+Cluster's start on kind. That is not measured yet.
+
+### Exposure
+
+The chart renders an HTTPRoute that attaches to a Gateway the cluster
+already runs (`httpRoute.parentRefs`). It has the host names, two
+`RequestRedirect` rules from `/.well-known/carddav` and
+`/.well-known/caldav` to `/remote.php/dav`, and one rule to the Service
+`nextcloud` on port 8080. The recipe keeps that route. TLS, the certificate
+and the listener belong to the Gateway, and the listener must admit routes
+from the target's namespace. The target names the Gateway, optionally its
+listener, and the host.
+
+Behind the Gateway Nextcloud receives plain HTTP. The chart's
+`phpClientHttpsFix` sets `OVERWRITEPROTOCOL=https`, so Nextcloud builds
+`https://` links, and `nextcloud.host` and `trustedDomains` take the host.
+The image writes `NEXTCLOUD_TRUSTED_DOMAINS` into `config.php` when it
+installs Nextcloud (nextcloud/docker README), so a later change of the host
+needs `occ config:system:set trusted_domains`. `TRUSTED_PROXIES` depends on
+the addresses of the Gateway implementation's proxies and has no default.
+Without it Nextcloud takes the proxy's address for the client's.
+
+Gateway API's standard channel has no request body limit. A limit is a
+policy of the Gateway implementation and is set on the Gateway's side. The
+image caps PHP uploads at `PHP_UPLOAD_LIMIT`, 512M by default, which a
+target raises in `components.nextcloud.env`. The route sets no timeouts,
+as the chart's default values set none.
+
+Two generator changes come first. Each is a generator request to
+kadet-hub/registry, as RCP-7 asks:
+
+- The `kubernetes` generator 1.7.0 renders a route only below a Gateway it
+  renders itself (`gateways.<gateway>.routes`), and a redirect only with
+  scheme, port and status code. The chart's route needs `parentRefs` to a
+  Gateway outside the inventory and a redirect `path` of type
+  `ReplaceFullPath`.
+- The same generator fails the compile on a webhook with
+  `failurePolicy: Fail` and no CA (`webhooks.py`). The CloudNativePG
+  operator writes the CA into its webhook configurations itself, so its
+  chart renders none, and `cloudnative-pg` does not compile until the
+  inventory can declare that.
+
+RCP-48 then moves `valkey` and `postgresql` to the `kubernetes` version
+that `nextcloud` pins.
+
+### First version
+
+The first version is one Nextcloud replica with what it needs to hold real
+files. The rest waits for later recipes or options (OQ-12):
+
+| Part | First version | Why |
+|---|---|---|
+| Database | `postgresql` | Nextcloud's chart supports an external PostgreSQL with credentials from a Secret (`externalDatabase.existingSecret`) |
+| Cache, file locking | `valkey` | `externalRedis.existingSecret` reads the password from `valkey-auth` |
+| Background jobs | chart `cronjob`, `type: sidecar` | `/cron.sh` runs next to Apache in the same pod. The `cronjob` type runs a Kubernetes CronJob that needs the same ReadWriteOnce claim on the same node, which the chart leaves to a pod affinity the user writes. |
+| Storage | chart `persistence` and `nextcloudData` | one claim for `/var/www/html`, one for the data directory, so the data can use another storage class and be backed up on its own; 8Gi each and the storage class are settings |
+| Admin account | Secret `nextcloud`, as the chart renders it | the password is a ref the target sets (RCP-19) |
+| Host and proxy | `phpClientHttpsFix`, `nextcloud.host`, `trustedDomains` | Exposure; `TRUSTED_PROXIES` is a setting |
+| Upload size | on the Gateway's side | Exposure |
+| SMTP | not rendered | the admin settings write the mail server into `config.php` on the claim; the chart's `nextcloud.mail` can become an option |
+| notify_push | not rendered | the chart has no support; the Client Push app needs its own daemon (nextcloud/notify_push) behind a path of the route |
+| Office | not rendered | Collabora publishes `oci://ghcr.io/collaboraonline/charts/collabora-online`; ONLYOFFICE-based servers such as Euro-Office also need RabbitMQ |
+| imaginary | not rendered | the chart's `imaginary.enabled` can become an option; previews work without it |
+| Metrics | not rendered | the chart's `metrics.enabled` can become an option |
+| Backups | not rendered | a second step after the first version (OQ-11) |
+| More replicas | not rendered | the chart's `Recreate` strategy and ReadWriteOnce claims allow one pod |
+
+The target sets `applications.nextcloud.host`,
+`applications.nextcloud.gateway.name` and
+`applications.nextcloud.gateway.namespace`, and as refs
+`applications.nextcloud.admin.password` and `applications.valkey.password`
+(RCP-51). `applications.nextcloud.gateway.section`, the listener's
+`sectionName`, is optional.
+
+### Proof
+
+All four are at level `deploys`. `nextcloud`'s `tests/values.yaml` switches
+off the chart's internal SQLite database and its subcharts. It sets
+`externalDatabase` to type `postgresql` with the Secret
+`postgresql-cluster-app` and `externalRedis` to the Service `valkey` with
+the Secret `valkey-auth`, and enables `httpRoute` towards the Gateway of
+`check`, `persistence`, `nextcloudData`, `cronjob` and `phpClientHttpsFix`.
+`tests/target.yml` sets the matching recipe values and the Valkey
+password.
+
+`tests/smoke` waits for the Cluster to be ready. Through the Gateway, with
+the route's host name, `status.php` reports `"installed":true` and a file
+written over WebDAV as the admin reads back, which needs the database, the
+file locking and the data claim. In the pod,
+`occ config:system:get memcache.locking` names the Redis backend. The two
+well-known redirects are proven at `renders` only. cloud-provider-kind
+0.12.0 translates a `RequestRedirect` with its host name and status code
+and drops its `path` (`pkg/gateway/httproute.go`), so on kind the redirect
+would keep the path.
+
+The chart is AGPL-3.0. The first version copies no text from its
+templates, so RCP-42 does not apply to it. Whether the recipe is a
+derivative of the chart is reviewed before the first `nextcloud` release
+(OQ-14).
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -1054,6 +1392,23 @@ feature's design (OQ-6).
   commit SHA, and on a fixture with a RoleBinding or a Service whose
   selector matches no pods; miniflux passes `check miniflux --level
   deploys` in CI.
+- AC-14 (RCP-47, RCP-48, RCP-54): `check lint` fails on a parent whose
+  included recipe includes a recipe, on a parent and an included recipe
+  that pin `lib/kubernetes` at different sources, on a `Requires:` entry
+  that is neither a recipe nor `gateway-api`, and on a recipe that includes
+  and requires the same recipe, and passes on nextcloud.
+- AC-15 (RCP-49, RCP-55, RCP-56): `check nextcloud --level deploys` passes
+  in CI, its report lists the objects of `postgresql` and `valkey` as
+  included and `cloudnative-pg` and `gateway-api` as installed, and its
+  smoke test reads `status.php` through the Gateway. `check postgresql
+  --level deploys` passes with `cloudnative-pg` installed.
+- AC-16 (RCP-50): a pull request that changes only `valkey/` runs `check`
+  for `valkey` and `nextcloud`.
+- AC-17 (RCP-51, RCP-52, RCP-53): nextcloud's README names
+  `applications.valkey.password` under "Required parameters", a fresh
+  consumer clone compiles nextcloud with the fetch inventory pinning
+  nextcloud, postgresql and valkey at one commit, and the first nextcloud
+  tag follows tags of postgresql and valkey whose trees it contains.
 - AC-11 (RCP-41, RCP-42): valkey passes `check valkey --level deploys` in
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
@@ -1107,6 +1462,20 @@ feature's design (OQ-6).
 - OQ-10: Should Renovate propose the newest commit of a compose source's
   repository, so the SHA-256 check of RCP-23 shows when the file changed?
   RCP-16 covers charts only.
+- OQ-11: How are the database and Nextcloud's data backed up, in the
+  second step after the first version? The `cloudnative-pg` generator
+  renders backups through the Barman Cloud Plugin to an object store, which
+  adds the plugin as a prerequisite and the object store as Required
+  parameters. The data
+  claim needs volume snapshots or a file-level backup such as Velero, and
+  Nextcloud's backup guide puts the instance into maintenance mode first.
+- OQ-12: Do notify_push, an office server and imaginary become recipes
+  that `nextcloud` includes, options of `nextcloud`, or recipes of their
+  own that the target combines with it?
+- OQ-14: Is a recipe that rebuilds what the AGPL-3.0 nextcloud chart
+  renders a derivative of the chart, and does that change how it is
+  published under this repository's Apache-2.0? It copies no template
+  text. To be answered before the first `nextcloud` release.
 - OQ-15: How should Renovate follow the mongodb image, whose updates stay
   pending without a release timestamp (RCP-16)? With
   `timestamp-optional` for the image, as for registries without
@@ -1131,8 +1500,9 @@ feature's design (OQ-6).
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
 | `.github/ruleset-tags.json` | RCP-31, applied with `gh api` |
-| `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh |
+| `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
+| `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
 
 | Value | Setting |
 |---|---|
@@ -1147,3 +1517,7 @@ feature's design (OQ-6).
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
+| First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
+| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cloudnative-pg`, level `deploys` |
+| cloudnative-pg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, level `deploys` |
+| `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
