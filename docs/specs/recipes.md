@@ -1150,6 +1150,10 @@ version tag to the new build. On 2026-10-25 the image tag `26.8.1` pointed
 to the build of 2026-10-23, also tagged `26.8.1-1`. `26.8.1-0` is the build
 of the release day, 2026-10-13. The chart's 26.8.1 was also created on
 2026-10-23, so its digest and build annotations change with a rebuild.
+quay.io answered the chart's previous digest with `manifest unknown` after
+that rebuild (EX-5a in kadet-hub/examples), so `check` fails on the old pin
+until Renovate moves it. Keycloak signs neither the chart nor the images, so
+a new digest is checked by hand against the commit in the build annotations.
 
 ### The Keycloak resource
 
