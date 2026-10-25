@@ -1866,9 +1866,9 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
 
   Two tag rulesets, the same as kadet-hub/generators has, enforce who
   creates, moves and deletes tags. `tag creation` restricts creating any
-  tag, with the admin role as its only bypass. `release tags` forbids deleting, updating and
-  force-pushing `refs/tags/*-v*`, without bypass, which also covers
-  `check-vX.Y.Z` (RCP-22).
+  tag, with the admin role as its only bypass. `release tags` forbids
+  deleting, updating and force-pushing `refs/tags/*-v*`, without bypass,
+  which also covers `check-vX.Y.Z` (RCP-22).
 
   - Test: manual: `gh api repos/kadet-hub/recipes/rulesets`
   - Since: #41; the rulesets exist since the repository was set up
