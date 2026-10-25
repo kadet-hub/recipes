@@ -15,7 +15,8 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #33, external-dns-powerdns at deploys;
                   #34, kafka at deploys; #35, postgresql at deploys;
                   #36, rabbitmq-cluster-operator and rabbitmq at deploys;
-                  #38, keycloak at deploys
+                  #38, keycloak at deploys;
+                  #39, nextcloud and valkey at deploys
 ```
 
 ## Problem
@@ -975,7 +976,7 @@ both compile entries run that version.
   of RCP-40, which names the key but not the recipe it belongs to.
 
   - Test: manual: review
-  - Since: not implemented
+  - Since: #15; implemented: #39
 
 - RCP-52: A consumer MUST fetch each included recipe of a parent as RCP-15
   fetches the parent: before publication at the parent's commit SHA,
@@ -1068,7 +1069,7 @@ proof that requires `gateway-api`.
   application through that route.
 
   - Test: manual: review; CI `check` job
-  - Since: not implemented
+  - Since: #15; implemented: #39
 
 ## Nextcloud
 
@@ -1162,6 +1163,14 @@ image's entrypoint retries `occ maintenance:install` up to ten times
 (`docker-entrypoint.sh` of nextcloud/docker), which has to outlast the
 Cluster's start on kind. That is not measured yet.
 
+The entrypoint installs only on the first start. It copies `version.php`
+onto the claim before the install, and a later start that finds the file
+skips the install, so a container restarted during the install never
+installs. The chart's liveness probe restarts a container that has not
+answered on `/status.php` after about 30 seconds. The recipe therefore
+enables the chart's `startupProbe`, which holds the liveness probe back
+for up to 330 seconds.
+
 ### Exposure
 
 The chart renders an HTTPRoute that attaches to a Gateway the cluster
@@ -1250,7 +1259,8 @@ off the chart's internal SQLite database and its subcharts. It sets
 `externalDatabase` to type `postgresql` with the Secret
 `postgresql-cluster-app` and `externalRedis` to the Service `valkey` with
 the Secret `valkey-auth`, and enables `httpRoute` towards the Gateway of
-`check`, `persistence`, `nextcloudData`, `cronjob` and `phpClientHttpsFix`.
+`check`, `persistence`, `nextcloudData`, `cronjob`, `phpClientHttpsFix` and
+`startupProbe`.
 `tests/target.yml` sets the matching recipe values and the Valkey
 password.
 
