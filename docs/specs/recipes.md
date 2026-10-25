@@ -201,6 +201,27 @@ belong in the recipe.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #2
 
+- RCP-43: A recipe on the `kubernetes` generator 1.7.0 or later MUST
+  write `args` as a mapping, in a component and in its
+  `additional_containers` and `init_containers`. `check lint` MUST warn
+  on an `args` list and MUST NOT fail on it.
+
+  The keys name the arguments and do not render. A list value gives
+  several arguments, such as `[--leader-election-namespace, kube-system]`,
+  and `~` drops one. The values render in the mapping's order (K8S-4 of the
+  generator's spec). A target changes or drops one argument the recipe
+  sets by its key, as in `components.cert-manager.args.verbosity: --v=4`.
+  With a list it cannot, because reclass appends to a list a class sets
+  and omegaconf replaces it, so the target has to repeat every argument.
+  cert-manager switched to the mapping in #4.
+
+  A list is still valid input for the generator and renders the same
+  objects (K8S-3), so a recipe with a list compiles and is proven like any
+  other. The warning asks for the mapping without stopping a proof.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: this change
+
 - RCP-5: A value that is derivable from another inventory value MUST be
   written as an interpolation or with a built-in resolver, such as
   `${namespace}`, `${parentkey:}` or `${merge:...}`.
@@ -453,7 +474,7 @@ and the README lists the renames.
 |---|---|---|
 | `services.<service>` | a component: a Deployment, or a StatefulSet if it mounts a named volume | |
 | `image` | `image` as `tag@sha256:<digest>` | `latest` or a missing tag is pinned to the most specific version tag with the same digest at migration, which the README names. |
-| `entrypoint`, `command` | `command`, `args` | Compose overrides ENTRYPOINT and CMD the same way. A string is split as `docker compose` splits it. |
+| `entrypoint`, `command` | `command`, `args` | Compose overrides ENTRYPOINT and CMD the same way. A string is split as `docker compose` splits it. `args` is a mapping (RCP-43). |
 | `environment`, `env_file` | `env` | A credential, or a value that contains one such as a database URL, becomes a key of the component's `secrets`, referenced with `secretKeyRef`. Its value is a parameter under `applications.<name>` that the recipe leaves unset, so the compile fails until the target sets it (RCP-19). |
 | `ports` | a port with `container_port` and `service_port`, `service.type: ClusterIP` | The published port becomes the Service port. A host IP is dropped, and exposing the Service outside the cluster is left to the target. |
 | `expose`, and ports other services connect to | a port with `service_port` | Services on a compose network reach every port, so a port the others use is declared even without `expose`. |
@@ -915,6 +936,10 @@ feature's design (OQ-6).
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
   `valkey.yml.LICENSE`.
+- AC-12 (RCP-43): `check lint` warns on an `args` list of a component
+  and of an `init_containers` entry and still passes, does not warn when
+  the recipe pins the generator below 1.7.0, and passes without a warning
+  on cert-manager and valkey.
 - AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
   repository extracts the chart of every recipe, the `next` pin, the kind
   node image, the generator pins, every tool and action pin and the
@@ -962,7 +987,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
