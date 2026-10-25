@@ -1,0 +1,19 @@
+classes:
+  - recipes.keycloak
+parameters:
+  namespace: keycloak
+  kapitan:
+    vars:
+      target: keycloak
+  applications:
+    keycloak:
+      host: keycloak.example.org
+      issuer:
+        name: keycloak-selfsigned
+        kind: Issuer
+  generators:
+    certmanager:
+      issuers:
+        keycloak-selfsigned:
+          spec:
+            selfSigned: {}

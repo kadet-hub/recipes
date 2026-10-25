@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# RCP-45, RCP-58: once the database and the Keycloak resource are ready,
+# Keycloak serves the master realm with the certificate of keycloak-tls for
+# its host, and its temporary admin gets a token, which needs the database.
+# The management port answers through the same Service.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+kubectl wait keycloaks.k8s.keycloak.org/keycloak --for=condition=Ready --timeout=600s >/dev/null
+host=$(kubectl get keycloaks.k8s.keycloak.org keycloak -o jsonpath='{.spec.hostname.hostname}')
+host=${host#https://}
+work=$(mktemp -d)
+kubectl get secret keycloak-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$work/ca.crt"
+kubectl port-forward service/keycloak-service 18443:8443 19000:9000 >/dev/null &
+trap 'kill $!; rm -rf "$work"' EXIT
+curl_tls() { curl -fsS --cacert "$work/ca.crt" --resolve "$host:18443:127.0.0.1" "$@"; }
+for _ in $(seq 30); do
+  curl_tls -o /dev/null "https://$host:18443/realms/master" 2>/dev/null && break
+  sleep 2
+done
+curl_tls -o /dev/null "https://$host:18443/realms/master"
+user=$(kubectl get secret keycloak-initial-admin -o jsonpath='{.data.username}' | base64 -d)
+password=$(kubectl get secret keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d)
+curl_tls "https://$host:18443/realms/master/protocol/openid-connect/token" \
+  -d grant_type=password -d client_id=admin-cli \
+  --data-urlencode "username=$user" --data-urlencode "password=$password" | grep -q '"access_token"'
+curl -fsSk -o /dev/null https://127.0.0.1:19000/health/ready
+echo "/realms/master over TLS as $host, a token for $user, and /health/ready through keycloak-service"
