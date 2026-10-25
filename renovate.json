@@ -112,6 +112,14 @@
       "groupName": "keycloak"
     },
     {
+      "description": "RCP-16: Strimzi's chart and its Kafka image move in one pull request; Strimzi builds its Kafka images per release, and the tag's -kafka-<version> suffix keeps the Kafka version",
+      "matchPackageNames": [
+        "quay.io/strimzi-helm/strimzi-kafka-operator",
+        "quay.io/strimzi/kafka"
+      ],
+      "groupName": "strimzi"
+    },
+    {
       "description": "RCP-30: kind and the node image of its release",
       "matchDepNames": [
         "kubernetes-sigs/kind",

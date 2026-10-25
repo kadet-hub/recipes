@@ -333,6 +333,16 @@ class LintDesign(unittest.TestCase):
             [f"no container runs the Source image quay.io/keycloak/keycloak:26.8.1@{DIGEST} (RCP-23)"],
         )
 
+    def test_output_on_an_operator_per_part(self):
+        """AC-22: a Strimzi Kafka names its image as spec.kafka.image; deeper parts do not count (RCP-58)."""
+        source = ("quay.io/strimzi/kafka", "1.3.0-kafka-4.3.1", DIGEST)
+        image = f"quay.io/strimzi/kafka:1.3.0-kafka-4.3.1@{DIGEST}"
+        resource = {"apiVersion": "kafka.strimzi.io/v1", "kind": "Kafka", "metadata": {"name": "kafka", "namespace": "kafka"},
+                    "spec": {"kafka": {"image": image}}}
+        self.assertEqual(lint.lint_design_output([resource], source), [])
+        resource["spec"] = {"kafka": {}, "entityOperator": {"topicOperator": {"image": image}}}
+        self.assertEqual(lint.lint_design_output([resource], source), [f"no container runs the Source image {image} (RCP-23)"])
+
 
 class LintIncludesAndRequires(unittest.TestCase):
     """AC-14: RCP-47, RCP-48 and RCP-54 on a parent built from copies of valkey and cert-manager."""

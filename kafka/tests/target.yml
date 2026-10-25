@@ -1,0 +1,25 @@
+classes:
+  - recipes.kafka
+parameters:
+  namespace: kafka
+  kapitan:
+    vars:
+      target: kafka
+  generators:
+    strimzi:
+      topics:
+        kafka-orders:
+          topic_name: orders
+          partitions: 3
+      users:
+        kafka-orders-app:
+          authentication: tls
+          acls:
+            - topic: orders
+              operations:
+                - Describe
+                - Read
+                - Write
+            - group: orders-app
+              operations:
+                - Read

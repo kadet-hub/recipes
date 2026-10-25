@@ -1,0 +1,18 @@
+classes:
+  - .kafka
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/strimzi:1.1.0@sha256:375ec870554a3d645f6b05abbeb8d16e6bdcbfbe1d7741a699308e45d1ef92d7
+        output_path: lib/strimzi
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/strimzi
+        output_path: manifests/
+        output_type: yml
+  applications:
+    kafka:
+      version: 4.3.1
+      strimzi_version: 1.3.0

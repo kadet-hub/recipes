@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# The kadet-hub/examples recipe's check (RCP-45): the Kafka, the topic and
+# the user are Ready, and a client with the user's certificate writes a
+# message to the topic and reads it back over mutual TLS, through the
+# bootstrap Service.
+set -euo pipefail
+kubectl wait kafka/kafka --for=condition=Ready --timeout=480s
+kubectl wait kafkatopic/kafka-orders kafkauser/kafka-orders-app --for=condition=Ready --timeout=120s
+image=$(kubectl get kafka kafka -o jsonpath='{.spec.kafka.image}')
+kubectl apply -f - <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kafka-smoke
+spec:
+  restartPolicy: Never
+  containers:
+    - name: client
+      image: $image
+      env:
+        - name: CA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-cluster-ca-cert
+              key: ca.password
+        - name: USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-orders-app
+              key: user.password
+      command:
+        - bash
+        - -ec
+        - |
+          cat >/tmp/client.properties <<EOF
+          security.protocol=SSL
+          ssl.truststore.type=PKCS12
+          ssl.truststore.location=/ca/ca.p12
+          ssl.truststore.password=\$CA_PASSWORD
+          ssl.keystore.type=PKCS12
+          ssl.keystore.location=/user/user.p12
+          ssl.keystore.password=\$USER_PASSWORD
+          EOF
+          b=kafka-kafka-bootstrap:9093
+          echo recipe-check | bin/kafka-console-producer.sh --bootstrap-server \$b --topic orders \
+            --producer.config /tmp/client.properties
+          bin/kafka-console-consumer.sh --bootstrap-server \$b --topic orders --group orders-app \
+            --from-beginning --max-messages 1 --timeout-ms 60000 --consumer.config /tmp/client.properties
+      volumeMounts:
+        - name: ca
+          mountPath: /ca
+        - name: user
+          mountPath: /user
+  volumes:
+    - name: ca
+      secret:
+        secretName: kafka-cluster-ca-cert
+    - name: user
+      secret:
+        secretName: kafka-orders-app
+YAML
+kubectl wait pod/kafka-smoke --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s
+kubectl logs kafka-smoke | grep -qx recipe-check
+echo "kafka-orders-app wrote recipe-check to the topic orders and read it back over mutual TLS"
