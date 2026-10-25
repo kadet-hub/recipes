@@ -943,7 +943,7 @@ both compile entries run that version.
 
 A prerequisite is named on the README's `Requires:` line (DEC-13). A parent
 names its own prerequisites, and those of its included recipes apply too,
-so `nextcloud` names `gateway-api` and gets `cloudnative-pg` through
+so `nextcloud` names `gateway-api` and gets `cnpg` through
 `postgresql`.
 
 A prerequisite's own prerequisites apply as well. `rabbitmq` names
@@ -1015,7 +1015,7 @@ order:
 
 | Recipe | Source | Role |
 |---|---|---|
-| `cloudnative-pg` | `oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg:0.29.1@sha256:3245fa051bb21d0dd9246272f57a2760b4234817a164a3167d2a1e7fb9f63fd9`, CloudNativePG 1.30.1, Apache-2.0 | prerequisite of `postgresql`: the operator, its webhooks and, as option `crds`, its CRDs |
+| `cnpg` | `oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg:0.29.1@sha256:3245fa051bb21d0dd9246272f57a2760b4234817a164a3167d2a1e7fb9f63fd9`, CloudNativePG 1.30.1, Apache-2.0 | prerequisite of `postgresql`: the operator, its webhooks and, as option `crds`, its CRDs |
 | `postgresql` | `oci://ghcr.io/cloudnative-pg/charts/cluster:0.9.0@sha256:c8130c6573ab59e7629390ee5c468e5bc3d8536e6ec4ca8deea1aee792c4a9e5`, Apache-2.0 | included by `nextcloud`: one CloudNativePG Cluster |
 | `valkey` | `oci://ghcr.io/valkey-io/valkey-helm/valkey:0.12.0`, on `main` since #10 | included by `nextcloud`: distributed cache and transactional file locking |
 | `nextcloud` | `oci://ghcr.io/nextcloud/helm/nextcloud:9.4.1@sha256:90ffc4c8dd014e25343ecd37de7262f04d1c2cacb47a48315316d7798e7b35cb`, AGPL-3.0 | the parent: Nextcloud 35.0.2, its route and its background jobs |
@@ -1028,11 +1028,23 @@ the SHA-256 of the GitHub release asset `nextcloud-9.4.1.tgz`,
 Nextcloud 35.0.2, released on 2026-10-15, is the newest stable release and
 the chart's `appVersion`.
 
+The operator's recipe is named `cnpg`, after the release name it renders
+the chart with (RCP-23). Then every object starts with `cnpg`: the
+Deployment, ServiceAccount and ClusterRoles `cnpg-cloudnative-pg`, and the
+webhook Service, the two ConfigMaps and the two webhook configurations,
+which the chart names `cnpg-*` whatever the release. A recipe named
+`cloudnative-pg` could not write keys for those objects (RCP-18). The
+operator finds its own Deployment by the label
+`app.kubernetes.io/name: cloudnative-pg` to own its webhook certificates,
+so the recipe sets that label, which RCP-9 leaves out of the comparison.
+The chart passes the operator image by tag in `OPERATOR_IMAGE_NAME`, which
+the operator gives to the instance pods, and the recipe keeps the tag.
+
 `postgresql` replaces the kadet-hub/examples recipe of the same name
 (RCP-41). That recipe rendered the Cluster `app-db` in the namespace
 `databases` and installed the operator from its chart through a `helm`
 compile entry, which RCP-17 rules out here. The operator becomes the
-recipe `cloudnative-pg`, and the Cluster comes from CloudNativePG's own
+recipe `cnpg`, and the Cluster comes from CloudNativePG's own
 `cluster` chart (DEC-10), rendered by the `cloudnative-pg` generator 1.0.1,
 whose `spec` key passes the fields it has no flat key for. With the release
 name `postgresql` the chart names the Cluster `postgresql-cluster`. The
@@ -1092,8 +1104,8 @@ image caps PHP uploads at `PHP_UPLOAD_LIMIT`, 512M by default, which a
 target raises in `components.nextcloud.env`. The route sets no timeouts,
 as the chart's default values set none.
 
-Two generator changes come first. Each is a generator request to
-kadet-hub/registry, as RCP-7 asks:
+Four generator changes came first, in the `kubernetes` generator 1.8.0
+(kadet-hub/generators#107) and 1.9.0 (#109):
 
 - The `kubernetes` generator 1.7.0 renders a route only below a Gateway it
   renders itself (`gateways.<gateway>.routes`), and a redirect only with
@@ -1103,8 +1115,17 @@ kadet-hub/registry, as RCP-7 asks:
 - The same generator fails the compile on a webhook with
   `failurePolicy: Fail` and no CA (`webhooks.py`). The CloudNativePG
   operator writes the CA into its webhook configurations itself, so its
-  chart renders none, and `cloudnative-pg` does not compile until the
-  inventory can declare that.
+  chart renders none, and `cnpg` does not compile until the inventory
+  can declare that.
+- The operator writes that CA only into the webhook configurations
+  `cnpg-mutating-webhook-configuration` and
+  `cnpg-validating-webhook-configuration` (`internal/configuration` of
+  CloudNativePG 1.30.1), and the generator named both
+  `<namespace>-<component>`. The operator crash-looped on kind until the
+  names could be set.
+- A container mounts each volume once, because `volume_mounts` is keyed by
+  volume name. Nextcloud's chart mounts its claim `nextcloud-main` at six
+  paths.
 
 RCP-48 then moves `valkey` and `postgresql` to the `kubernetes` version
 that `nextcloud` pins.
@@ -1266,7 +1287,7 @@ The examples recipe rendered the Namespace `keycloak`, the three operators
 from their charts, the CloudNativePG Cluster `keycloak-db`, the self-signed
 Issuer `keycloak-selfsigned`, the Certificate `sso-tls` and the Keycloak
 `sso`. The operators become the prerequisites `keycloak-operator`,
-`cert-manager` and `cloudnative-pg`, each in a target of its own. The old
+`cert-manager` and `cnpg`, each in a target of its own. The old
 operator in the namespace `keycloak` has to be gone before
 `keycloak-operator` starts, or both reconcile the same resource. RCP-3
 renames `sso` to `keycloak`, and with it the objects the operator derives
@@ -1292,7 +1313,7 @@ its StatefulSet, which needs the CRDs, the cluster-wide watch and the
 ClusterRoles.
 
 For `keycloak`, `check` installs `keycloak-operator`, `cert-manager` and,
-through `postgresql`, `cloudnative-pg` (RCP-55), and applies `postgresql`
+through `postgresql`, `cnpg` (RCP-55), and applies `postgresql`
 with the recipe (RCP-49). `tests/target.yml` adds the self-signed Issuer
 `keycloak-selfsigned` and sets it as the issuer. `tests/smoke` waits for the
 Cluster and the `Keycloak` to be ready. Through `keycloak-service`, with the
@@ -1885,9 +1906,9 @@ feature's design (OQ-6).
   and requires the same recipe, and passes on nextcloud.
 - AC-15 (RCP-49, RCP-55, RCP-56): `check nextcloud --level deploys` passes
   in CI, its report lists the objects of `postgresql` and `valkey` as
-  included and `cloudnative-pg` and `gateway-api` as installed, and its
+  included and `cnpg` and `gateway-api` as installed, and its
   smoke test reads `status.php` through the Gateway. `check postgresql
-  --level deploys` passes with `cloudnative-pg` installed.
+  --level deploys` passes with `cnpg` installed.
 - AC-16 (RCP-50): a pull request that changes only `valkey/` runs `check`
   for `valkey` and `nextcloud`.
 - AC-17 (RCP-51, RCP-52, RCP-53): nextcloud's README names
@@ -1900,7 +1921,7 @@ feature's design (OQ-6).
   passes on keycloak. `check keycloak-operator --level deploys` and
   `check keycloak --level deploys` pass in CI, and the latter's report
   lists `postgresql` as included and `keycloak-operator`, `cert-manager`
-  and `cloudnative-pg` as installed.
+  and `cnpg` as installed.
 - AC-11 (RCP-41, RCP-42): valkey passes `check valkey --level deploys` in
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
@@ -2022,8 +2043,8 @@ feature's design (OQ-6).
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
-| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cloudnative-pg`, level `deploys` |
-| cloudnative-pg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, level `deploys` |
+| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
+| cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.0.3, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
