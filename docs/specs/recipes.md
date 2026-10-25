@@ -748,7 +748,10 @@ first command.
   numbers the Innovation releases by calendar, so the rule allows versions
   below 10. For mongodb it is MongoDB's 9.0 major release. MongoDB supports
   a major release for five years and stops patching a minor release once
-  the next one is out, so the rule allows versions below 9.1.
+  the next one is out, so the rule allows only tags that start with `9.0.`.
+  It is the regex `/^9\.0\./`, because Renovate falls back to npm semver
+  for a range such as `<9.1`, reads `9.0.4-ubi9-slim` as a prerelease and
+  then allows no tag at all.
 
   Renovate gets no release timestamp for the mongodb image. Docker Hub
   refuses anonymous requests for tag list pages after the tenth, and the
