@@ -198,6 +198,17 @@ only HTTP and HTTPS listeners, so `check` could not prove a route in either
 mode. A target that needs TLS up to Keycloak leaves the option out and
 exposes `<name>-service` on port 8443 itself.
 
+DEC-18: `nextcloud` renders no backup, formerly OQ-11. Its README says in
+a section "Backups" what a target backs up and how (RCP-64). Every part of
+a backup needs something the cluster provides. The database needs an object
+store with credentials and the Barman Cloud Plugin, which no recipe
+installs. The claims need a CSI driver with a VolumeSnapshotClass or a
+file-level tool such as Velero. `check` has none of these, so a backup the
+recipe rendered could not be proven at `deploys`. Rendering the database
+backup as an option of `postgresql` was considered. It would add the plugin
+as a prerequisite (DEC-13) and the object store as Required parameters
+(RCP-40) for a part that no check exercises.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -1258,7 +1269,7 @@ files. The rest waits for later recipes or options (OQ-12):
 | Office | not rendered | Collabora publishes `oci://ghcr.io/collaboraonline/charts/collabora-online`; ONLYOFFICE-based servers such as Euro-Office also need RabbitMQ |
 | imaginary | not rendered | the chart's `imaginary.enabled` can become an option; previews work without it |
 | Metrics | not rendered | the chart's `metrics.enabled` can become an option |
-| Backups | not rendered | a second step after the first version (OQ-11) |
+| Backups | not rendered | the object store, the snapshot class and the backup tool belong to the cluster; the README says how (DEC-18, RCP-64) |
 | More replicas | not rendered | the chart's `Recreate` strategy and ReadWriteOnce claims allow one pod |
 
 The target sets `applications.nextcloud.host`,
@@ -1267,6 +1278,46 @@ The target sets `applications.nextcloud.host`,
 `applications.nextcloud.admin.password` and `applications.valkey.password`
 (RCP-51). `applications.nextcloud.gateway.section`, the listener's
 `sectionName`, is optional.
+
+### Backups
+
+The recipe renders no backup (DEC-18). The admin manual's backup guide for
+version 35 lists what to retain: the config, custom apps, theme and data
+folders and the database (`admin_manual/maintenance/backup.rst` of
+nextcloud/documentation `stable35`). In this recipe the config, custom apps
+and themes are sub paths of the claim `nextcloud-nextcloud`, and the data
+directory is the claim `nextcloud-nextcloud-data`.
+
+The guide puts the instance into maintenance mode first, so that the
+database and the files describe the same state. The Barman Cloud Plugin
+archives WAL continuously, so the Cluster can be restored to a time inside
+the maintenance window.
+
+The `cloudnative-pg` generator 1.1.0 renders the database backup. A target
+adds `object_stores`, `scheduled_backups` and
+`clusters.postgresql.backup.object_store` to `generators.cloudnative-pg`.
+The plugin and the Secret with the object store credentials are the
+target's. The README's snippet compiles with `tests/target.yml` and renders
+the ObjectStore, the ScheduledBackup and the plugin entry in the Cluster's
+`plugins`.
+
+Valkey needs no backup. The image configures it from `REDIS_HOST` as
+`memcache.distributed` and `memcache.locking` and as the PHP session store
+(`redis.config.php` and `entrypoint.sh` of nextcloud/docker `35/apache`).
+Losing it empties the cache, drops the file locks and logs users out. The
+recipe's claim and `appendonly yes` only carry that state across a restart.
+
+- RCP-64: The README of `nextcloud` MUST have a section "Backups" that
+  names what a target backs up and how: the database through the Barman
+  Cloud Plugin, the two claims, and maintenance mode around the backup. It
+  MUST say that Valkey needs no backup.
+
+  The recipe renders none of it (DEC-18), so the README is the only place
+  that tells a target which objects hold state.
+
+  - Test: manual: review; compile of the README's snippet with
+    `tests/target.yml`
+  - Since: #43
 
 ### Proof
 
@@ -2346,13 +2397,6 @@ feature's design (OQ-6).
 - OQ-10: Should Renovate propose the newest commit of a compose source's
   repository, so the SHA-256 check of RCP-23 shows when the file changed?
   RCP-16 covers charts only.
-- OQ-11: How are the database and Nextcloud's data backed up, in the
-  second step after the first version? The `cloudnative-pg` generator
-  renders backups through the Barman Cloud Plugin to an object store, which
-  adds the plugin as a prerequisite and the object store as Required
-  parameters. The data
-  claim needs volume snapshots or a file-level backup such as Velero, and
-  Nextcloud's backup guide puts the instance into maintenance mode first.
 - OQ-12: Do notify_push, an office server and imaginary become recipes
   that `nextcloud` includes, options of `nextcloud`, or recipes of their
   own that the target combines with it?
