@@ -1108,7 +1108,7 @@ first command.
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17, this change
+  - Since: #3; designed recipes: #14; mongodb: #17, #20
 
 ### Releasing
 
