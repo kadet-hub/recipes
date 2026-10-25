@@ -96,7 +96,11 @@ class Compare(unittest.TestCase):
         self.recipe = [o for o in self.recipe if o["kind"] != "RoleBinding"]
         subjects = compare.rbac_subjects(self.chart) | compare.rbac_subjects(self.recipe)
         self.assertEqual(subjects, {("Group", "", "demo-readers")})
-        self.assertEqual(compare.rbac_namespaces(self.chart + self.recipe, subjects), {"demo"})
+        self.assertEqual(compare.rbac_namespaces(self.chart + self.recipe, subjects, "other"), {"demo"})
+        # helm template leaves out a namespace the chart's template does not set.
+        for o in self.chart:
+            o["metadata"].pop("namespace", None)
+        self.assertEqual(compare.rbac_namespaces(self.chart, subjects, "demo"), {"demo"})
         self.assertEqual(
             compare.impersonation(("Group", "", "demo-readers")),
             ["--as", "check-group-member", "--as-group", "demo-readers"],

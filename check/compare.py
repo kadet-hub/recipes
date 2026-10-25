@@ -440,9 +440,10 @@ def rbac_subjects(objs):
     return out
 
 
-def rbac_namespaces(objs, subjects):
-    """Namespaces with a RoleBinding on either side, plus each ServiceAccount's own."""
-    out = {o["metadata"]["namespace"] for o in objs if o.get("kind") == "RoleBinding"}
+def rbac_namespaces(objs, subjects, namespace):
+    """Namespaces with a RoleBinding on either side, plus each ServiceAccount's own. A RoleBinding
+    without a namespace binds in the target namespace, where it is applied (RCP-11)."""
+    out = {o["metadata"].get("namespace", namespace) for o in objs if o.get("kind") == "RoleBinding"}
     out |= {ns for kind, ns, _ in subjects if kind == "ServiceAccount"}
     return out
 

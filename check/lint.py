@@ -315,10 +315,12 @@ def lint_compose_output(objects):
 
 
 def lint_design_output(objects, source):
-    """RCP-44: a designed recipe is linted as a compose one (RCP-38); RCP-23: it runs its Source image."""
+    """RCP-44: a designed recipe is linted as a compose one (RCP-38); RCP-23: it runs its Source image,
+    in a container or, through an operator, as spec.image of a custom resource (RCP-58)."""
     image = "{}:{}@{}".format(*source)
     errors = lint_compose_output(objects)
     images = {c.get("image") for o in objects for _, t in compare.pod_templates(o) for c in (t.get("spec") or {}).get("containers") or []}
+    images |= {(o.get("spec") or {}).get("image") for o in objects}
     if image not in images:
         errors.append(f"no container runs the Source image {image} (RCP-23)")
     return errors
