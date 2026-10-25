@@ -323,5 +323,66 @@ class LintDesign(unittest.TestCase):
         )
 
 
+class LintIncludesAndRequires(unittest.TestCase):
+    """AC-14: RCP-47, RCP-48 and RCP-54 on a parent built from copies of valkey and cert-manager."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        for name in ("valkey", "cert-manager", "miniflux"):
+            shutil.copytree(RECIPE.parent / name, self.tmp / name)
+        # The parent: valkey's own files under another name, which includes valkey.
+        self.parent = self.tmp / "valkeyparent"
+        shutil.copytree(RECIPE.parent / "valkey", self.parent)
+        (self.parent / "valkey.yml").unlink()
+        init = (self.parent / "init.yml").read_text().replace("  - .valkey\n", "  - recipes.valkey\n")
+        (self.parent / "init.yml").write_text(init.replace("    valkey:\n", "    valkeyparent:\n"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def errors(self, recipe=None):
+        return "\n".join(lint.lint_files(recipe or self.parent))
+
+    def requires(self, recipe, line):
+        readme = recipe / "README.md"
+        readme.write_text(readme.read_text().replace("Level: `deploys`", f"Level: `deploys`\n\n{line}"))
+
+    def test_parent_with_same_pins_passes(self):
+        errors = self.errors()
+        self.assertNotIn("RCP-47", errors)
+        self.assertNotIn("RCP-48", errors)
+        self.assertNotIn("RCP-54", errors)
+
+    def test_included_recipe_that_includes_fails(self):
+        init = self.tmp / "valkey" / "init.yml"
+        init.write_text(init.read_text().replace("  - .valkey\n", "  - .valkey\n  - recipes.cert-manager\n"))
+        self.assertIn("includes valkey, which includes cert-manager itself (RCP-47)", self.errors())
+
+    def test_different_pins_fail(self):
+        init = self.parent / "init.yml"
+        init.write_text(init.read_text().replace("kubernetes:1.7.0@sha256:7ef7", "kubernetes:1.6.0@sha256:7ef7"))
+        self.assertIn("lib/kubernetes is pinned at different sources", self.errors())
+
+    def test_requires_entries(self):
+        self.requires(self.parent, "Requires: `cert-manager`, `gateway-api`")
+        self.assertNotIn("RCP-54", self.errors())
+        self.requires(self.parent, "Requires: `nosuchrecipe`")
+        self.assertIn("Requires nosuchrecipe, which is neither another recipe of this repository nor gateway-api (RCP-54)", self.errors())
+
+    def test_requires_what_it_includes_fails(self):
+        self.requires(self.parent, "Requires: `valkey`")
+        self.assertIn("Requires valkey, which the recipe also includes (RCP-54)", self.errors())
+
+    def test_malformed_requires_line_fails(self):
+        self.requires(self.parent, "Requires: cert-manager")
+        self.assertIn("the Requires line is not", self.errors())
+
+    def test_cycle_through_prerequisites_fails(self):
+        self.requires(self.parent, "Requires: `cert-manager`")
+        self.requires(self.tmp / "cert-manager", "Requires: `miniflux`")
+        self.requires(self.tmp / "miniflux", "Requires: `valkeyparent`")
+        self.assertIn("requires itself through valkeyparent -> cert-manager -> miniflux -> valkeyparent (RCP-54)", self.errors())
+
+
 if __name__ == "__main__":
     unittest.main()

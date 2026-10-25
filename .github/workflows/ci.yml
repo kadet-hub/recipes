@@ -60,7 +60,9 @@ jobs:
           if [[ $EVENT != pull_request ]] || grep -qE '^(check|\.github)/' <<<"$changed"; then all=1; fi
           for init in */init.yml; do
             name=${init%/init.yml}
-            if [[ $all ]] || grep -q "^$name/" <<<"$changed"; then
+            # A recipe is also checked when a recipe it includes changes (RCP-50).
+            included=$(grep -hoE '^ *- recipes\.[a-z0-9-]+' "$name"/*.yml | sed 's/.*recipes\.//' | grep -vx "$name" | sort -u | paste -sd'|' || true)
+            if [[ $all ]] || grep -q "^$name/" <<<"$changed" || { [[ $included ]] && grep -qE "^($included)/" <<<"$changed"; }; then
               level=$(sed -n 's/^Level: .\(.*\).$/\1/p' "$name/README.md")
               jq -nc --arg name "$name" --arg level "$level" '{name: $name, level: $level}'
             fi

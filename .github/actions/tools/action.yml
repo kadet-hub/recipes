@@ -24,6 +24,10 @@ runs:
         # renovate: datasource=github-release-attachments depName=cli/cli
         GH_VERSION: v2.103.1
         GH_SHA256: 57500f347b5e84efb6578c9b644eeb3b4e54046762635a939dd0ee2cca1c1add
+        # gateway-api of check (RCP-55).
+        # renovate: datasource=github-release-attachments depName=kubernetes-sigs/cloud-provider-kind
+        CLOUD_PROVIDER_KIND_VERSION: v0.12.0
+        CLOUD_PROVIDER_KIND_SHA256: 5716aca8f01a85172c12f3b6329c70f151bec02c91b6f600c9f230845ee138e6
       run: |
         set -euo pipefail
         bin=$RUNNER_TEMP/bin
@@ -39,5 +43,7 @@ runs:
         gh=gh_${GH_VERSION#v}_linux_amd64
         get "https://github.com/cli/cli/releases/download/$GH_VERSION/$gh.tar.gz" gh.tgz "$GH_SHA256"
         tar -xzf gh.tgz -C "$bin" --strip-components=2 "$gh/bin/gh"
+        get "https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/$CLOUD_PROVIDER_KIND_VERSION/cloud-provider-kind_${CLOUD_PROVIDER_KIND_VERSION#v}_linux_amd64.tar.gz" cpk.tgz "$CLOUD_PROVIDER_KIND_SHA256"
+        tar -xzf cpk.tgz -C "$bin" cloud-provider-kind
         chmod +x "$bin"/*
         echo "$bin" >> "$GITHUB_PATH"
