@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# RCP-45: through the Service powerdns, the API writes an A record into the
+# zone the recipe creates, with the key the Secret holds, and DNS answers it
+# over UDP and TCP on port 53.
+set -euo pipefail
+ip=$(kubectl get service powerdns -o jsonpath='{.spec.clusterIP}')
+# The container has the key as PDNS_AUTH_API_KEY, from the Secret powerdns.
+kubectl exec statefulset/powerdns -c powerdns -- python3 -c '
+import json, os, urllib.request
+body = {"rrsets": [{"name": "smoke.example.internal.", "type": "A", "ttl": 60, "changetype": "REPLACE",
+                    "records": [{"content": "192.0.2.10", "disabled": False}]}]}
+urllib.request.urlopen(urllib.request.Request(
+    "http://powerdns:8081/api/v1/servers/localhost/zones/example.internal.", json.dumps(body).encode(),
+    {"X-API-Key": os.environ["PDNS_AUTH_API_KEY"], "Content-Type": "application/json"}, method="PATCH"), timeout=10)
+'
+# sdig asks over UDP, and over TCP with the argument tcp.
+for tcp in "" tcp; do
+  out=$(kubectl exec statefulset/powerdns -c powerdns -- sdig "$ip" 53 smoke.example.internal A $tcp)
+  grep -qE 'smoke\.example\.internal\.\s+60\s+IN\s+A\s+192\.0\.2\.10' <<<"$out" || { echo "$out" >&2; exit 1; }
+done
+echo "A record written through the API, answered over UDP and TCP through the Service powerdns"

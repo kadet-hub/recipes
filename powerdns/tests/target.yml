@@ -1,0 +1,10 @@
+classes:
+  - recipes.powerdns
+parameters:
+  namespace: dns
+  kapitan:
+    vars:
+      target: powerdns
+  applications:
+    powerdns:
+      api_key: smoke-api-key

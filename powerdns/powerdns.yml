@@ -1,0 +1,94 @@
+parameters:
+  components:
+    powerdns:
+      application: powerdns
+      type: statefulset
+      image: docker.io/powerdns/pdns-auth-51:${applications.powerdns.version}@sha256:77ff4efdbb9ec30e9309c8a1cbed6121a67fa3be25c848bbbfa756fc75bf9a27
+      security_profile: restricted
+      # The image runs as the user pdns, UID 953 in its /etc/passwd. The
+      # sysctl lets it bind port 53 without NET_BIND_SERVICE.
+      workload_security_context:
+        runAsUser: 953
+        runAsGroup: 953
+        fsGroup: 953
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      # The entrypoint turns on the webserver and the API with this key.
+      env:
+        PDNS_AUTH_API_KEY:
+          secretKeyRef:
+            key: api-key
+      secrets:
+        api:
+          string_data:
+            api-key:
+              value: ${applications.powerdns.api_key}
+      init_containers:
+        # The claim hides the image's empty database in /var/lib/powerdns.
+        seed:
+          image: ${components.powerdns.image}
+          command:
+            - sh
+            - -ec
+            - "[ -f /data/pdns.sqlite3 ] || cp /var/lib/powerdns/pdns.sqlite3 /data/"
+          volume_mounts:
+            data:
+              mount_path: /data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+        zone:
+          image: ${components.powerdns.image}
+          command:
+            - sh
+            - -ec
+            - >-
+              pdnsutil zone list ${applications.powerdns.zone} >/dev/null 2>&1 ||
+              pdnsutil zone create ${applications.powerdns.zone} ns1.${applications.powerdns.zone}
+          volume_mounts:
+            data:
+              mount_path: /var/lib/powerdns
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      ports:
+        dns-udp:
+          container_port: 53
+          service_port: 53
+          protocol: UDP
+        dns-tcp:
+          container_port: 53
+          service_port: 53
+        api:
+          container_port: 8081
+          service_port: 8081
+      healthcheck:
+        readiness:
+          type: tcp
+          port: dns-tcp
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+      volume_mounts:
+        data:
+          mount_path: /var/lib/powerdns
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+      service:
+        type: ClusterIP
