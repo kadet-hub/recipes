@@ -16,7 +16,7 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #33, external-dns-powerdns at deploys;
                   #34, kafka at deploys; #35, postgresql at deploys;
                   #36, rabbitmq-cluster-operator and rabbitmq at deploys;
-                  #38, keycloak at deploys;
+                  #38 and #42, keycloak at deploys;
                   #39, nextcloud and valkey at deploys
 ```
 
@@ -182,6 +182,21 @@ which its release build sets. A Kapitan `https` dependency that brings the
 file into the target is ruled out by RCP-17, and it fetches without a
 checksum. An application on such an operator follows DEC-14, as `rabbitmq`
 does on the RabbitMQ Cluster Operator.
+
+DEC-17: `keycloak` renders a route to a Gateway the target names,
+formerly OQ-16, only as its option `route`. The Gateway terminates TLS and
+forwards plain HTTP to Keycloak's port 8080 (Keycloak). Keycloak's reverse
+proxy guide calls this edge termination generally less secure than
+re-encrypt (`docs/guides/server/reverseproxy.adoc` of keycloak/keycloak
+26.8.1). Re-encrypt needs a BackendTLSPolicy towards port 8443, and
+passthrough a TLSRoute on a `TLS` listener. cloud-provider-kind 0.12.0,
+which provides `gateway-api` to `check`, installs both CRDs and implements
+neither. It watches no BackendTLSPolicy or TLSRoute
+(`pkg/gateway/controller.go`), builds every backend without TLS
+(`translateBackendRefToCluster` in `pkg/gateway/gateway.go`) and accepts
+only HTTP and HTTPS listeners, so `check` could not prove a route in either
+mode. A target that needs TLS up to Keycloak leaves the option out and
+exposes `<name>-service` on port 8443 itself.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -1301,7 +1316,7 @@ resources. Keycloak therefore moves from kadet-hub/examples as two recipes
 | Recipe | Source | Role |
 |---|---|---|
 | `keycloak-operator` | `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:650f7e1021def78ff799aa5ada703818a1a7d0e3cb6ee7eba6d5e1b557656a17`, from keycloak/keycloak, Apache-2.0 | prerequisite of `keycloak`: the operator, its RBAC and, as option `crds`, its four CRDs |
-| `keycloak` | `quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b` | one `Keycloak` resource and its certificate, includes `postgresql`, requires `keycloak-operator` and `cert-manager` |
+| `keycloak` | `quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b` | one `Keycloak` resource and its certificate and, as option `route`, an HTTPRoute; includes `postgresql`, requires `keycloak-operator`, `cert-manager` and `gateway-api` |
 
 ### The operator
 
@@ -1372,8 +1387,8 @@ certificate's common name is the host. The examples recipe set it because
 Keycloak rejected its self-signed certificate with an empty issuer DN.
 
 The operator renders an Ingress unless `ingress.enabled` is false. The
-recipe turns it off, as the examples recipe did, and leaves exposure to the
-target (OQ-16).
+recipe turns it off, as the examples recipe did. A route to a Gateway is
+the option `route` (The route).
 
 The target sets `applications.keycloak.host` and
 `applications.keycloak.issuer`, the issuer's `name` and `kind`.
@@ -1391,6 +1406,57 @@ The target sets `applications.keycloak.host` and
   - Test: `check keycloak`; manual: compile of the README's `Replaces`
     snippet
   - Since: #38
+
+### The route
+
+The option `route`, which a target includes as `recipes.keycloak.route`,
+renders the HTTPRoute `keycloak` for the host, with one rule to
+`<name>-service` on port 8080 (DEC-17). The `kubernetes` generator 1.9.0
+renders it, which the option pins at the source `postgresql` pins
+(RCP-48). As for Nextcloud, TLS, the certificate and the listener belong to
+the Gateway, and the listener must admit routes from the target's
+namespace. The target names the Gateway in
+`applications.keycloak.gateway.name` and `.namespace`, and optionally the
+listener in `.section`, the route's `sectionName`.
+
+The option sets `spec.http.httpEnabled`, on which the operator adds port
+8080 to `<name>-service` (`KeycloakServiceDependentResource.java` of the
+operator 26.8.1). HTTPS on port 8443 stays. It also sets
+`spec.proxy.headers` to `xforwarded`, so Keycloak takes the client's
+address from the `X-Forwarded-For` header that the Gateway sets. Keycloak
+builds its links from `hostname`, which stays `https://<host>`.
+
+Keycloak accepts these headers from every client that reaches port 8080.
+Its reverse proxy guide limits them to the proxy's addresses with the
+option `proxy-trusted-addresses`. Those addresses depend on the Gateway
+implementation, as for Nextcloud's `TRUSTED_PROXIES`, so the recipe sets
+none.
+
+`check` installs a prerequisite only from the `Requires:` line (RCP-55),
+and `tests/target.yml` includes the option, so keycloak's README names
+`gateway-api`. A target without the option needs no Gateway API.
+
+- RCP-62: With the option `route`, `keycloak` MUST render an HTTPRoute for
+  `applications.keycloak.host` to port 8080 of `<name>-service`, attached
+  to the Gateway `applications.keycloak.gateway.name` in
+  `applications.keycloak.gateway.namespace`, and to the listener
+  `applications.keycloak.gateway.section` when it is set. It MUST enable
+  Keycloak's HTTP listener with the proxy headers `xforwarded`.
+
+  - Test: `check keycloak`; CI `check` job, `tests/smoke` through the
+    Gateway
+  - Since: #42
+
+- RCP-63: Without the option `route`, `keycloak` MUST compile to the same
+  files as before the option existed.
+
+  A target that leaves the option out keeps a Keycloak that serves HTTPS
+  only, and its `Keycloak` resource does not change, so the operator does
+  not restart Keycloak.
+
+  - Test: manual: compile of `tests/target.yml` without the option,
+    compared with its compile at #41
+  - Since: #42
 
 ### Moving from kadet-hub/examples
 
@@ -1431,14 +1497,17 @@ Both are at level `deploys`. `keycloak-operator`'s `tests/smoke` creates a
 its StatefulSet, which needs the CRDs, the cluster-wide watch and the
 ClusterRoles.
 
-For `keycloak`, `check` installs `keycloak-operator`, `cert-manager` and,
-through `postgresql`, `cnpg` (RCP-55), and applies `postgresql`
-with the recipe (RCP-49). `tests/target.yml` adds the self-signed Issuer
-`keycloak-selfsigned` and sets it as the issuer. `tests/smoke` waits for the
-Cluster and the `Keycloak` to be ready. Through `keycloak-service`, with the
-host name and the CA of `keycloak-tls`, it then gets `/realms/master` and a
-token for the temporary admin of `keycloak-initial-admin`, which needs the
-database. The examples recipe checked the readiness and `/realms/master`
+For `keycloak`, `check` installs `keycloak-operator`, `cert-manager`,
+`gateway-api` and, through `postgresql`, `cnpg` (RCP-55), and applies
+`postgresql` with the recipe (RCP-49). `tests/target.yml` adds the
+self-signed Issuer `keycloak-selfsigned` and sets it as the issuer, and it
+includes the option `route` towards the Gateway of `check`. `tests/smoke`
+waits for the Cluster and the `Keycloak` to be ready. Through
+`keycloak-service`, with the host name and the CA of `keycloak-tls`, it
+then gets `/realms/master` and a token for the temporary admin of
+`keycloak-initial-admin`, which needs the database. Through the Gateway,
+with the route's host name, it gets `/realms/master` and a token again
+(RCP-56). The examples recipe checked the readiness and `/realms/master`
 over TLS.
 
 ## Kafka
@@ -2237,6 +2306,11 @@ feature's design (OQ-6).
   deploys` and `check kafka --level deploys` pass in CI, and the report of
   the latter lists `strimzi` as installed. A local Renovate dry run puts
   both `Source` lines into one update.
+- AC-23 (RCP-56, RCP-62, RCP-63): `check keycloak --level deploys` passes
+  in CI, its report lists `gateway-api` as installed, and its smoke test
+  gets `/realms/master` and a token through the Gateway of `check` with
+  the route's host name. keycloak's `tests/target.yml` without the option
+  `route` compiles to the same files as at #41.
 
 ## Open questions
 
@@ -2286,11 +2360,6 @@ feature's design (OQ-6).
   renders a derivative of the chart, and does that change how it is
   published under this repository's Apache-2.0? It copies no template
   text. To be answered before the first `nextcloud` release.
-- OQ-16: Should `keycloak` render a route to a Gateway the target names,
-  as `nextcloud` does? Keycloak serves HTTPS only, so the Gateway would
-  need a BackendTLSPolicy towards port 8443 or TLS passthrough, and
-  whether cloud-provider-kind 0.12.0 implements either is not checked.
-  Until then the target exposes `keycloak-service`.
 
 ## Implementation inventory
 
@@ -2329,6 +2398,7 @@ feature's design (OQ-6).
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
-| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
+| keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.9.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
