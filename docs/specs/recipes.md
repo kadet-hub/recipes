@@ -131,7 +131,9 @@ RCP-18 would then have to let one recipe write into another's keys, and the
 included recipe's own proof would no longer cover what the parent compiles.
 Copying the included recipe into the parent's directory was considered too.
 A target that also included it through another recipe would get the same
-keys twice.
+keys twice. A range of versions per included recipe would let a fix in the
+included recipe reach users without a parent release, but it would publish
+combinations that no CI run compiled together.
 
 DEC-13: What a recipe needs once per cluster, such as an operator with its
 CRDs or a Gateway API implementation, is a prerequisite and not an included
@@ -778,7 +780,10 @@ and the recipe's `tests/target.yml` attaches its route to it.
 cloud-provider-kind runs outside kind with the runner's Docker socket. A
 Gateway or LoadBalancer Service that a pull request applies at `deploys`
 therefore starts containers on the runner, which the approval for forks of
-RCP-20 covers.
+RCP-20 covers. It does not advertise `HTTPRoutePathRedirect`, so a redirect
+that changes the path is proven at `renders` only. Envoy Gateway supports
+that feature and was considered, but it would add a chart install to every
+proof that requires `gateway-api`.
 
 - RCP-54: A recipe that needs something once per cluster MUST name it on
   one README line ``Requires: `<entry>`[, `<entry>`]``. An entry is a
@@ -928,7 +933,7 @@ files. The rest waits for later recipes or options (OQ-12):
 | Office | not rendered | Collabora publishes `oci://ghcr.io/collaboraonline/charts/collabora-online`; ONLYOFFICE-based servers such as Euro-Office also need RabbitMQ |
 | imaginary | not rendered | the chart's `imaginary.enabled` can become an option; previews work without it |
 | Metrics | not rendered | the chart's `metrics.enabled` can become an option |
-| Backups | not rendered | OQ-11 |
+| Backups | not rendered | a second step after the first version (OQ-11) |
 | More replicas | not rendered | the chart's `Recreate` strategy and ReadWriteOnce claims allow one pod |
 
 The target sets `applications.nextcloud.host`,
@@ -957,10 +962,12 @@ file locking and the data claim. In the pod,
 well-known redirects are proven at `renders` only. cloud-provider-kind
 0.12.0 translates a `RequestRedirect` with its host name and status code
 and drops its `path` (`pkg/gateway/httproute.go`), so on kind the redirect
-would keep the path (OQ-13).
+would keep the path.
 
 The chart is AGPL-3.0. The first version copies no text from its
-templates, so RCP-42 does not apply to it (OQ-14).
+templates, so RCP-42 does not apply to it. Whether the recipe is a
+derivative of the chart is reviewed before the first `nextcloud` release
+(OQ-14).
 
 ## Migration
 
@@ -1425,22 +1432,20 @@ feature's design (OQ-6).
 - OQ-10: Should Renovate propose the newest commit of a compose source's
   repository, so the SHA-256 check of RCP-23 shows when the file changed?
   RCP-16 covers charts only.
-- OQ-11: How are the database and Nextcloud's data backed up before the
-  stack holds real files? The `cloudnative-pg` generator renders backups
-  through the Barman Cloud Plugin to an object store, which adds the plugin
-  as a prerequisite and the object store as Required parameters. The data
+- OQ-11: How are the database and Nextcloud's data backed up, in the
+  second step after the first version? The `cloudnative-pg` generator
+  renders backups through the Barman Cloud Plugin to an object store, which
+  adds the plugin as a prerequisite and the object store as Required
+  parameters. The data
   claim needs volume snapshots or a file-level backup such as Velero, and
   Nextcloud's backup guide puts the instance into maintenance mode first.
 - OQ-12: Do notify_push, an office server and imaginary become recipes
   that `nextcloud` includes, options of `nextcloud`, or recipes of their
   own that the target combines with it?
-- OQ-13: Should `check` run a Gateway implementation that supports
-  `HTTPRoutePathRedirect`, such as Envoy Gateway, so that the well-known
-  redirects are proven at `deploys`? cloud-provider-kind 0.12.0 does not
-  advertise that feature.
 - OQ-14: Is a recipe that rebuilds what the AGPL-3.0 nextcloud chart
   renders a derivative of the chart, and does that change how it is
-  published under this repository's Apache-2.0? It copies no template text.
+  published under this repository's Apache-2.0? It copies no template
+  text. To be answered before the first `nextcloud` release.
 
 ## Implementation inventory
 
