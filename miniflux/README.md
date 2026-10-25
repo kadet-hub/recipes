@@ -28,7 +28,9 @@ parameters:
 
 ## Required parameters
 
-Both passwords must be set, as refs with the backend of your choice.
+`applications.miniflux.database.password` and
+`applications.miniflux.admin.password` must be set, as refs with the
+backend of your choice.
 Without them the compile stops with
 `Interpolation key 'applications.miniflux.database.password' not found`.
 The database password is written into `DATABASE_URL` as it is, so it must
