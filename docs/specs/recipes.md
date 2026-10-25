@@ -1,8 +1,9 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.3.0 implements renders and deploys, for compose
-        sources and designed recipes deploys (RCP-38, RCP-44); migrates
+Status: Draft. check 0.4.0 implements renders and deploys, for charts
+        from OCI and HTTP repositories, and for compose sources and
+        designed recipes deploys (RCP-38, RCP-44); migrates
         (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
@@ -90,10 +91,12 @@ behaviour: the recipe deploys and its smoke test exercises what the
 compose file sets up.
 
 DEC-9: The source type follows from the form of the README's `Source` line
-(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, and an
-image reference without a scheme the image of a designed recipe. A separate
-`Source-Type:` line was considered. It would repeat what the line already
-says, and the two could contradict each other.
+(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, another
+`https://` URL that ends in `<chart>:<version>` a chart from an HTTP
+repository, and an image reference without a scheme the image of a
+designed recipe. A separate `Source-Type:` line was considered. It would
+repeat what the line already says, and the two could contradict each
+other. Revised in this change: the HTTP repository was added.
 
 DEC-10: A recipe of kadet-hub/examples moves here with the project's own
 Helm chart or Kustomize base as its source where the project ships one
@@ -339,7 +342,14 @@ from `PATH`; CI installs them pinned (RCP-28).
   one `Source` line. For a chart it is
   ``Source: `oci://<chart>:<version>@sha256:<digest>` ``, and `check`
   pulls the chart by that digest and fails unless the chart's version is
-  `<version>`. For a compose file it is
+  `<version>`. For a chart from an HTTP repository it is
+  ``Source: `https://<repository>/<chart>:<version>@sha256:<digest>` ``,
+  where `https://<repository>` is the URL `helm repo add` takes and
+  `<digest>` the SHA-256 of the chart's archive. `check` reads the
+  repository's `index.yaml`, downloads the archive its entry for `<chart>`
+  and `<version>` names, and fails unless the archive's SHA-256 is
+  `<digest>` and its `Chart.yaml` names `<chart>` and `<version>`. For a
+  compose file it is
   ``Source: `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` ``
   with the full commit SHA, and `check` fetches the file at that commit
   and fails unless its SHA-256 is `<digest>`. For a designed recipe it is
@@ -350,12 +360,25 @@ from `PATH`; CI installs them pinned (RCP-28).
   of `tests/target.yml`.
 
   `tests/target.yml` is the recipe's side of `tests/values.yaml`: it
-  includes the recipe and the options those values switch on. Charts from
-  an HTTP repository and compose files outside GitHub are not supported
-  yet.
+  includes the recipe and the options those values switch on. Compose
+  files outside GitHub are not supported yet.
 
-  - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8, #14
+  An HTTP repository has no digest that a client checks. Its `index.yaml`
+  maps a version to an archive URL, and the repository's owner can change
+  both. helm 4.3.1 keys its download cache by the entry's `digest` but
+  does not compare it with the archive (`pkg/downloader/chart_downloader.go`).
+  It checks only a provenance file, with `--verify`, and external-dns
+  publishes none. Kapitan 0.36.3's `helm` dependency takes `source`,
+  `chart_name` and `version`, runs `helm pull --untar --repo`, keeps no
+  archive and checks no digest (`dependency_manager/base.py`). `check`
+  therefore downloads the archive itself and compares its SHA-256, which
+  is also the `digest` that helm writes into the index entry. A recipe has
+  no `helm` dependency (RCP-17), so neither a consumer's fetch inventory
+  nor its compile fetches the chart. Only `check` and the registry gate
+  (REC-7 there) do.
+
+  - Test: `check lint`; `check/tests/test_lint.py`, `check/tests/test_check.py`
+  - Since: #2, #8, #14; HTTP repository: this change
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -1105,10 +1128,19 @@ first command.
   timestamps, but a tag pushed again with each build would reach the three
   days only once MongoDB stops rebuilding it, one release late.
 
+  For a chart from an HTTP repository Renovate's `helm` datasource reads
+  the repository's `index.yaml`. It proposes a new version with the
+  `digest` of its index entry, which has no `sha256:` prefix, so the
+  manager captures only the hex digits after `sha256:`. The entry's
+  `created` is the release timestamp, so the three days apply. With the
+  external-dns chart at 1.22.0, a dry run proposed 1.23.0 with the digest
+  of its archive.
+
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17, #20
+  - Since: #3; designed recipes: #14; mongodb: #17, #20; HTTP repository:
+    this change
 
 ### Releasing
 
@@ -1422,6 +1454,11 @@ feature's design (OQ-6).
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
   `valkey.yml.LICENSE`.
+- AC-18 (RCP-23): `check`'s tests serve a chart repository on localhost.
+  `check` takes the archive whose SHA-256 the `Source` line names, and
+  fails on an archive with another SHA-256, on a `Chart.yaml` with another
+  version and on a version the index does not list. `check lint` reads the
+  HTTP form and fails without `tests/values.yaml`.
 - AC-13 (RCP-23, RCP-44, RCP-45): `check lint` fails on a designed recipe
   at level `renders` and on one whose `Source` image no container runs,
   and passes on mysql and mongodb; both pass `check <name> --level
@@ -1495,7 +1532,7 @@ feature's design (OQ-6).
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-18 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
