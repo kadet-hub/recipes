@@ -1,0 +1,19 @@
+parameters:
+  generators:
+    strimzi:
+      kafkas:
+        kafka:
+          version: ${applications.kafka.version}
+          metadata_version: 4.3-IV0
+          node_pools:
+            kafka-dual:
+              roles:
+                - controller
+                - broker
+              replicas: 3
+              storage: 10Gi
+          spec:
+            kafka:
+              # Strimzi runs this image in place of the one its version map
+              # names, so it moves together with the strimzi recipe.
+              image: quay.io/strimzi/kafka:${applications.kafka.strimzi_version}-kafka-${applications.kafka.version}@sha256:1f189b1f0f32684302d8b018b1d21b411e2469a9c465fbdc18fa3599cb5bbdad

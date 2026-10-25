@@ -1,0 +1,24 @@
+classes:
+  - recipes.kafka
+parameters:
+  namespace: kafka
+  kapitan:
+    vars:
+      target: kafka
+  generators:
+    strimzi:
+      topics:
+        kafka-smoke:
+          partitions: 1
+      users:
+        kafka-smoke:
+          authentication: tls
+          acls:
+            - topic: kafka-smoke
+              operations:
+                - Describe
+                - Read
+                - Write
+            - group: kafka-smoke
+              operations:
+                - Read
