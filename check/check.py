@@ -1,4 +1,4 @@
-"""check: lint a recipe, or prove it against the chart it replaces or deploy it (compose source).
+"""check: lint a recipe, or prove it against the chart it replaces or deploy it (compose source, designed recipe).
 
   check lint <name>
   check <name> --level renders|deploys
@@ -26,7 +26,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node
@@ -290,6 +290,8 @@ def cmd_lint(recipe, work):
     if source[0] == "compose":
         fetch_compose(source[1])
         return lint.lint_output(recipe.name, objs, set()) + lint.lint_compose_output(objs), notes
+    if source[0] == "design":
+        return lint.lint_output(recipe.name, objs, set()) + lint.lint_design_output(objs, source[1]), notes
     chart, _ = render_chart(recipe.name, recipe, fetch_chart(source[1], work), namespace)
     errors = lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in chart})
     return errors, notes
@@ -317,6 +319,11 @@ def cmd_check(recipe, level, work, keep):
             say(f"{level}: a compose source is proven at level deploys only (RCP-38)")
             return report, True
         say(f"compose: https://github.com/{source[0]}/blob/{source[1]}/{source[2]}, {source[3]} verified")
+    elif kind == "design":
+        if level != "deploys":
+            say(f"{level}: a designed recipe is proven at level deploys only (RCP-44)")
+            return report, True
+        say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
     else:
         say(f"chart: oci://{source[0]}:{source[1]}@{source[2]}, values tests/values.yaml")
         chart, hooks = render_chart(recipe.name, recipe, next((work / "chart").glob("*.tgz")), namespace)
@@ -338,8 +345,8 @@ def cmd_check(recipe, level, work, keep):
         say(f"kapitan next ({KAPITAN_NEXT}): "
             + (f"output differs in {', '.join(changed)}, not deciding" if changed else "same output as 0.36.3"))
 
-    if kind == "compose":
-        # RCP-38: lint checked RBAC and selectors; one cluster, the recipe deployed for real.
+    if kind in ("compose", "design"):
+        # RCP-38, RCP-44: lint checked RBAC and selectors; one cluster, the recipe deployed for real.
         cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
         try:
             prepare(cluster, {namespace} | {o["metadata"]["namespace"] for o in objs if o["metadata"].get("namespace")},

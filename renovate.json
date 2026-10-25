@@ -25,13 +25,14 @@
       ]
     },
     {
-      "description": "RCP-16: the chart a recipe is derived from, by version and digest in its README's Source line",
+      "description": "RCP-16: the chart a recipe is derived from, or a designed recipe's image, by version and digest in its README's Source line",
       "customType": "regex",
       "managerFilePatterns": [
         "/^[^/]+/README\\.md$/"
       ],
       "matchStrings": [
-        "Source: `oci://(?<depName>[^:`\\s]+):(?<currentValue>[^@`\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})`"
+        "Source: `oci://(?<depName>[^:`\\s]+):(?<currentValue>[^@`\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})`",
+        "Source: `(?<depName>[a-z0-9.-]+\\.[a-z]+/[^:`\\s]+):(?<currentValue>[^@`\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})`"
       ],
       "datasourceTemplate": "docker"
     },

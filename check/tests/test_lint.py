@@ -1,4 +1,4 @@
-"""AC-1, AC-5, AC-8, AC-9, AC-10 and AC-12: check lint on the cert-manager and miniflux recipes and on broken copies of them."""
+"""AC-1, AC-5, AC-8, AC-9, AC-10, AC-12 and AC-13: check lint on the cert-manager, miniflux and mysql recipes and on broken copies of them."""
 
 import shutil
 import tempfile
@@ -9,6 +9,7 @@ import lint
 
 RECIPE = Path(__file__).resolve().parents[2] / "cert-manager"
 COMPOSE_RECIPE = RECIPE.parent / "miniflux"
+DESIGN_RECIPE = RECIPE.parent / "mysql"
 DIGEST = "sha256:" + "0" * 64
 
 
@@ -232,8 +233,51 @@ class LintCompose(unittest.TestCase):
         self.assertEqual(
             lint.lint_compose_output([deployment, service, stray, binding]),
             [
-                "RoleBinding.rbac.authorization.k8s.io/miniflux/miniflux: RBAC object, a compose file grants no API access (RCP-38)",
+                "RoleBinding.rbac.authorization.k8s.io/miniflux/miniflux: RBAC object, the source grants no API access (RCP-38)",
                 "Service/miniflux/miniflux-db: selector selects no pods (RCP-38)",
+            ],
+        )
+
+
+class LintDesign(unittest.TestCase):
+    """AC-13: a recipe designed on the project's image."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.recipe = self.tmp / "mysql"
+        shutil.copytree(DESIGN_RECIPE, self.recipe)
+        self.readme = self.recipe / "README.md"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_mysql_passes_without_values_yaml(self):
+        self.assertFalse((self.recipe / "tests/values.yaml").exists())
+        self.assertEqual(lint.lint_files(self.recipe), [])
+        self.assertEqual(lint.readme_fields(self.recipe)[0][0], "design")
+
+    def test_level_renders(self):
+        self.readme.write_text(self.readme.read_text().replace("Level: `deploys`", "Level: `renders`"))
+        self.assertIn("a designed recipe is proven at level deploys, not renders (RCP-44)", lint.lint_files(self.recipe))
+
+    def test_output(self):
+        source = ("container-registry.oracle.com/mysql/community-server", "9.7.4", DIGEST)
+        image = f"container-registry.oracle.com/mysql/community-server:9.7.4@{DIGEST}"
+        container = {"name": "mysql", "image": image}
+        pod = {"metadata": {"labels": {"name": "mysql"}}, "spec": {"containers": [container]}}
+        statefulset = {"apiVersion": "apps/v1", "kind": "StatefulSet", "metadata": {"name": "mysql", "namespace": "mysql"},
+                       "spec": {"selector": {"matchLabels": {"name": "mysql"}}, "template": pod}}
+        service = {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "mysql", "namespace": "mysql"},
+                   "spec": {"selector": {"name": "mysql"}}}
+        self.assertEqual(lint.lint_design_output([statefulset, service], source), [])
+        container["image"] = image.replace(":9.7.4@", ":9.7.3@")
+        binding = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+                   "metadata": {"name": "mysql", "namespace": "mysql"}}
+        self.assertEqual(
+            lint.lint_design_output([statefulset, service, binding], source),
+            [
+                "RoleBinding.rbac.authorization.k8s.io/mysql/mysql: RBAC object, the source grants no API access (RCP-38)",
+                f"no container runs the Source image {image} (RCP-23)",
             ],
         )
 

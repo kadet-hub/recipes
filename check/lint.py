@@ -14,6 +14,7 @@ SOURCE_LINE = re.compile(r"^Source: `oci://(\S+?):(\S+?)@(sha256:[0-9a-f]{64})`$
 COMPOSE_LINE = re.compile(
     r"^Source: `https://github\.com/([\w.-]+/[\w.-]+)/blob/([0-9a-f]{40})/(\S+?)@(sha256:[0-9a-f]{64})`$", re.M
 )
+IMAGE_LINE = re.compile(r"^Source: `([a-z0-9.-]+\.[a-z]+/[\w./-]+):([\w.-]+)@(sha256:[0-9a-f]{64})`$", re.M)
 LEVEL_LINE = re.compile(r"^Level: `(\w+)`$", re.M)
 DEPENDENCY = re.compile(r"^ghcr\.io/kadet-hub/([a-z0-9][a-z0-9._-]*)(:[\w.-]+)?@sha256:[0-9a-f]{64}$")
 PINNED = re.compile(r"@sha256:[0-9a-f]{64}$")
@@ -68,11 +69,13 @@ def resolve_class(recipe, f, cls):
 
 def readme_fields(recipe):
     """Source and Level lines of the README (RCP-23). The source is ("chart", (repo, version, digest)),
-    ("compose", (repo, commit, path, digest)) or None."""
+    ("compose", (repo, commit, path, digest)), ("design", (image, tag, digest)) or None."""
     text = (Path(recipe) / "README.md").read_text()
-    chart, compose, level = SOURCE_LINE.search(text), COMPOSE_LINE.search(text), LEVEL_LINE.search(text)
+    chart, compose, image = SOURCE_LINE.search(text), COMPOSE_LINE.search(text), IMAGE_LINE.search(text)
+    level = LEVEL_LINE.search(text)
     return (
-        ("chart", chart.groups()) if chart else ("compose", compose.groups()) if compose else None,
+        ("chart", chart.groups()) if chart else ("compose", compose.groups()) if compose
+        else ("design", image.groups()) if image else None,
         level.group(1) if level else None,
     )
 
@@ -195,13 +198,16 @@ def lint_files(recipe):
     source, level = readme_fields(recipe)
     if not source:
         errors.append(
-            "README.md has no line Source: `oci://<chart>:<version>@sha256:<digest>`"
-            " or `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` (RCP-23)"
+            "README.md has no line Source: `oci://<chart>:<version>@sha256:<digest>`,"
+            " `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>`"
+            " or `<registry>/<repository>:<tag>@sha256:<digest>` (RCP-23)"
         )
     elif source[0] == "chart" and not (recipe / "tests/values.yaml").is_file():
         errors.append("tests/values.yaml is missing (RCP-1)")
     elif source[0] == "compose" and level != "deploys":
         errors.append(f"a compose source is proven at level deploys, not {level} (RCP-38)")
+    elif source[0] == "design" and level != "deploys":
+        errors.append(f"a designed recipe is proven at level deploys, not {level} (RCP-44)")
     sections = [section.partition("\n") for section in re.split(r"^## ", (recipe / "README.md").read_text(), flags=re.M)[1:]]
     headings = [heading.strip() for heading, _, _ in sections]
     after = headings.index("Include") + 1 if "Include" in headings else len(headings)
@@ -299,10 +305,20 @@ def lint_output(name, objects, chart_names):
 def lint_compose_output(objects):
     """RCP-38: what a compose recipe proves without a reference to compare with."""
     errors = [
-        f"{compare.ident(o)}: RBAC object, a compose file grants no API access (RCP-38)"
+        f"{compare.ident(o)}: RBAC object, the source grants no API access (RCP-38)"
         for o in objects if o.get("kind") in compare.RBAC_KINDS
     ]
     selected, own = compare.selections(objects)
     errors += [f"{e} (RCP-38)" for e in own]
     errors += [f"{i}: selector selects no pods (RCP-38)" for i, s in sorted(selected.items()) if not s]
+    return errors
+
+
+def lint_design_output(objects, source):
+    """RCP-44: a designed recipe is linted as a compose one (RCP-38); RCP-23: it runs its Source image."""
+    image = "{}:{}@{}".format(*source)
+    errors = lint_compose_output(objects)
+    images = {c.get("image") for o in objects for _, t in compare.pod_templates(o) for c in (t.get("spec") or {}).get("containers") or []}
+    if image not in images:
+        errors.append(f"no container runs the Source image {image} (RCP-23)")
     return errors

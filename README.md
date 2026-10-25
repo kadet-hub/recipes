@@ -1,8 +1,9 @@
 # kadet-hub recipes
 
 Third-party Kubernetes applications rebuilt from their Helm charts or Docker
-Compose files as Kapitan inventory classes for the kadet-hub generators, each
-proven by `check` against its chart or, for a compose file, by deploying it.
+Compose files, or designed on the project's image where it ships neither, as
+Kapitan inventory classes for the kadet-hub generators. `check` proves each
+against its chart or, for a compose file or an image, by deploying it.
 The design is in [docs/specs/recipes.md](docs/specs/recipes.md).
 
 ## Using a recipe
