@@ -1,10 +1,10 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.2.0 implements renders and deploys, for compose
-        sources deploys (RCP-38); migrates (RCP-14), RCP-21, RCP-22,
-        RCP-31, RCP-32 and RCP-34 are not implemented; RCP-15 only up
-        to publication.
+Status: Draft. check 0.3.0 implements renders and deploys, for compose
+        sources and designed recipes deploys (RCP-38, RCP-44); migrates
+        (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not
+        implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys
 ```
@@ -23,6 +23,10 @@ its own comparison and that the result is only as good as that comparison.
 Many self-hosted applications ship no chart, only a Docker Compose file in
 their repository. Migrating one is the same mapping to generators, but the
 source has no Kubernetes objects to compare the recipe with.
+
+Some projects publish neither, only a container image. A recipe for such a
+project is designed in kadet-hub, with no upstream artifact to derive it
+from or to compare it with.
 
 A recipe is that rebuilt application, maintained and proven in one place,
 so that users include a recipe the way they would install a chart. This
@@ -77,7 +81,8 @@ behaviour: the recipe deploys and its smoke test exercises what the
 compose file sets up.
 
 DEC-9: The source type follows from the form of the README's `Source` line
-(RCP-23): `oci://` is a chart, a GitHub file URL a compose file. A separate
+(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, and an
+image reference without a scheme the image of a designed recipe. A separate
 `Source-Type:` line was considered. It would repeat what the line already
 says, and the two could contradict each other.
 
@@ -88,8 +93,18 @@ and the examples recipe's behaviour becomes `tests/values.yaml` and its
 check `tests/smoke`. Moving the examples recipe as it is was considered. It
 has no upstream artifact to compare with, and users of the project's chart
 could not move to it with a proof. A recipe designed in kadet-hub for a
-project that ships no chart, base or compose file needs a source type of
-its own. It is specified with the first recipe that needs one.
+project that ships no chart, base or compose file has the project's image
+as its source (DEC-11).
+
+DEC-11: A project that ships no chart, Kustomize base or compose file gets
+a recipe designed in kadet-hub, with the project's container image as its
+source, proven at `deploys` only (Designed recipes). The image is the one
+artifact such a project maintains, so the recipe pins it and Renovate
+follows it. With no objects to compare with, the proof is behaviour, as
+for a compose source (DEC-8). A chart maintained by a third party was
+rejected as a source. A proof against it would carry that party's choices
+into the recipe and tie the recipe to a chart the project does not
+maintain.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -147,15 +162,16 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   name or, from a chart source, a name the chart uses.
 
   `check lint` compiles `tests/target.yml` and renders the chart with
-  `tests/values.yaml` to compare the names. A compose file names no
-  Kubernetes objects, so there every name starts with the recipe's.
+  `tests/values.yaml` to compare the names. A compose file or an image
+  names no Kubernetes objects, so there every name starts with the
+  recipe's.
 
   Recipes share the `components` and `generators.kubernetes.rbac`
   namespaces of the inventory, so two recipes in one target must not
   collide.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8
+  - Since: #2, #8, this change
 
 ## Writing a recipe
 
@@ -289,9 +305,12 @@ from `PATH`; CI installs them pinned (RCP-28).
   `<version>`. For a compose file it is
   ``Source: `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` ``
   with the full commit SHA, and `check` fetches the file at that commit
-  and fails unless its SHA-256 is `<digest>`. The release name is the
-  recipe's name, and the namespace is `parameters.namespace` of
-  `tests/target.yml`.
+  and fails unless its SHA-256 is `<digest>`. For a designed recipe it is
+  ``Source: `<registry>/<repository>:<tag>@sha256:<digest>` ``, the
+  project's image with its registry host, and `check lint` fails unless a
+  container of the compiled recipe runs exactly that image. The release
+  name is the recipe's name, and the namespace is `parameters.namespace`
+  of `tests/target.yml`.
 
   `tests/target.yml` is the recipe's side of `tests/values.yaml`: it
   includes the recipe and the options those values switch on. Charts from
@@ -299,7 +318,7 @@ from `PATH`; CI installs them pinned (RCP-28).
   yet.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8
+  - Since: #2, #8, this change
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -367,8 +386,8 @@ from `PATH`; CI installs them pinned (RCP-28).
 | `deploys` | `renders`, and a fresh install becomes ready and passes `tests/smoke` | kind |
 | `migrates` | `deploys`, and a running Helm release is replaced by the recipe while `tests/smoke` keeps passing | kind |
 
-For a compose source, `deploys` proves the recipe side of `renders` only
-(RCP-38) and has no `migrates` level.
+For a compose source and a designed recipe, `deploys` proves the recipe
+side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
 
 - RCP-8: Each side MUST be compared on its own fresh kind cluster. Every
   namespace either side names MUST exist before the dry run, and the
@@ -544,6 +563,50 @@ What the table does not map is a gap, and so is each of these:
   - Test: manual: review; CI `check` job
   - Since: #8
 
+## Designed recipes
+
+A designed recipe deploys the project's image with the `kubernetes`
+generator 1.7.0 or later, configured as the image's documentation
+describes: the environment variables its entrypoint reads, the ports it
+opens, the user it runs as and the paths it writes. The image of the
+`Source` line is the one the recipe runs (RCP-23). Credentials are
+parameters under `applications.<name>` that the recipe leaves unset
+(RCP-19), as for a compose source. What a chart would offer as values,
+such as the volume size, the README lists under Settings. Once the project
+ships a chart, a Kustomize base or a compose file, the recipe moves to that
+source (DEC-10).
+
+mysql was the first. Oracle publishes the charts `mysql-operator` and
+`mysql-innodbcluster`, UPL-1.0, in the HTTP repository
+`https://mysql.github.io/mysql-operator/`. They install the MySQL Operator
+and an InnoDB Cluster it manages, and on 2026-10-25 the repository's index
+listed only version 2.3.1 of each, for MySQL 26.10.0, an Innovation
+release. The recipe runs `container-registry.oracle.com/mysql/community-server`,
+which the MySQL team builds, on the 9.7 LTS line that the kadet-hub/examples
+recipe followed. Oracle builds that image for linux/amd64 only. The arm64
+build has its own tag, `<version>-aarch64`, so the digest the recipe pins
+is that of the amd64 image. The examples recipe's check, `select 1` as the
+user `app` in its database, is the recipe's `tests/smoke`.
+
+- RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
+  `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
+  object, every selector selecting pods, then a deploy on one fresh kind
+  cluster and `tests/smoke`.
+
+  An image grants no Kubernetes API access, so a Role or binding in its
+  recipe would grant something no upstream artifact asks for, and nothing
+  would compare it. The `next` compile (RCP-24) runs unchanged.
+
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
+  - Since: this change
+
+- RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
+  port through its Service and make one request that needs what the recipe
+  sets up, such as a query as the user the recipe creates in its database.
+
+  - Test: manual: review; CI `check` job
+  - Since: this change
+
 ## Recipes from kadet-hub/examples
 
 kadet-hub/examples carried recipes as single classes, written in kadet-hub
@@ -553,7 +616,8 @@ to the recipe here. valkey was the first: valkey-io publishes the chart
 `valkey` in valkey-io/valkey-helm, BSD-3-Clause, at
 `oci://ghcr.io/valkey-io/valkey-helm/valkey`, whose standalone mode renders
 a Deployment, a PersistentVolumeClaim and ACL authentication where the
-examples recipe had a StatefulSet and `--requirepass`.
+examples recipe had a StatefulSet and `--requirepass`. mysql moved as a
+designed recipe (Designed recipes).
 
 - RCP-41: The README of a recipe that replaces one of kadet-hub/examples
   MUST have a section `Replaces` that names that recipe and lists the
@@ -657,10 +721,17 @@ first command.
   `applications.<name>.version`, which Renovate cannot read, so it does
   not update them on its own.
 
+  For a designed recipe Renovate moves the image of the `Source` line in
+  the same way, and `check lint` fails until the recipe runs the new image
+  (RCP-23). A package rule keeps the image on the release line the README
+  names. For mysql that is MySQL's 9.7 LTS line: from 26.7 on, Oracle
+  numbers the Innovation releases by calendar, so the rule allows versions
+  below 10.
+
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3
+  - Since: #3; designed recipes: this change
 
 ### Releasing
 
@@ -941,14 +1012,19 @@ feature's design (OQ-6).
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
   `valkey.yml.LICENSE`.
+- AC-13 (RCP-23, RCP-44, RCP-45): `check lint` fails on a designed recipe
+  at level `renders` and on one whose `Source` image no container runs,
+  and passes on mysql; mysql passes `check mysql --level deploys` in CI.
 - AC-12 (RCP-43): `check lint` warns on an `args` list of a component
   and of an `init_containers` entry and still passes, does not warn when
   the recipe pins the generator below 1.7.0, and passes without a warning
   on cert-manager and valkey.
 - AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
-  repository extracts the chart of every recipe, the `next` pin, the kind
-  node image, the generator pins, every tool and action pin and the
-  `check` lock, and finds no update set to merge automatically.
+  repository extracts the chart of every chart recipe, the image of every
+  designed recipe, the `next` pin, the kind node image, the generator
+  pins, every tool and action pin and the `check` lock, and finds no
+  update set to merge automatically. With mysql one patch release back, it
+  proposes the next 9.7 release and no 26.x.
 
 ## Open questions
 
@@ -992,9 +1068,9 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/ruleset-tags.json` | RCP-31, applied with `gh api` |
@@ -1011,5 +1087,6 @@ feature's design (OQ-6).
 | First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
 | First recipe from kadet-hub/examples | valkey, chart `valkey` 0.12.0 of valkey-io/valkey-helm, level `deploys` |
 | First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
+| First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
