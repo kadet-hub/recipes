@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.7.0 implements renders and deploys, for charts
+Status: Draft. check 0.8.0 implements renders and deploys, for charts
         from OCI and HTTP repositories and for release manifests (RCP-59),
         for compose sources and designed recipes deploys (RCP-38, RCP-44,
         RCP-58), included recipes and prerequisites (RCP-47 to RCP-50,
@@ -12,7 +12,8 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
                   #19, powerdns at deploys; #29, strimzi at deploys;
                   #26, keycloak-operator at deploys;
-                  #33, external-dns-powerdns at deploys
+                  #33, external-dns-powerdns at deploys;
+                  #34, kafka at deploys
 ```
 
 ## Problem
@@ -836,7 +837,7 @@ back over DNS.
   `spec.entityOperator.topicOperator.image`, do not count.
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: #24; `spec.<part>.image`: not implemented
+  - Since: #24; `spec.<part>.image`: #34
 
 ## Recipes from kadet-hub/examples
 
@@ -1371,7 +1372,7 @@ resources in `examples/kafka/`, which show features such as a plain
 listener without authentication. Strimzi 1.3.0 of 2026-10-12 is the newest
 release. It supports Kubernetes 1.32 and later and Kafka 4.2.0 to 4.3.1,
 with 4.3.1 as the default (`kafka-versions.yaml`). The `strimzi` generator
-1.0.1, built for Strimzi 1.3.0, renders Kafka, KafkaNodePool, KafkaTopic and
+1.1.0, built for Strimzi 1.3.0, renders Kafka, KafkaNodePool, KafkaTopic and
 KafkaUser resources. Kafka therefore moves from kadet-hub/examples as two
 recipes (DEC-14):
 
@@ -1444,33 +1445,40 @@ builds its Kafka images per release, `kafka` moves together with `strimzi`
 
 The recipe renders no KafkaTopic and no KafkaUser. A target sets its own
 under `generators.strimzi.topics` and `users`, and the generator assigns
-them to the only Kafka. `tests/target.yml` adds the topic and the user
-`kafka-smoke`.
+them to the only Kafka. `tests/target.yml` adds the examples class's topic
+`orders` as the KafkaTopic `kafka-orders` and its user as
+`kafka-orders-app`, because RCP-3 holds for the test target's objects too.
 
 ### Moving from kadet-hub/examples
 
 The examples class rendered the Namespace `kafka`, the operator from its
 chart in the namespace `strimzi`, the Kafka `events` with the node pool
 `dual`, the topic `orders` and the user `orders-app`. The recipe renders no
-Namespace, and the target sets `namespace`. The operator becomes the
-prerequisite `strimzi` in a target of its own. Its Deployment
-`strimzi-cluster-operator` selects on `name` only, so the examples
-Deployment is deleted first, and the bindings the README lists are deleted
-by their chart names.
+Namespace, and the target sets `namespace`. The Namespace `kafka` has to
+outlive the examples class, because deleting it deletes the claims. The
+operator becomes the prerequisite `strimzi` in a target of its own. Its
+Deployment `strimzi-cluster-operator` selects on `name` only, so the
+examples Deployment is deleted first, and the bindings the README lists are
+deleted by their chart names.
 
-RCP-3 renames `events` to `kafka` and `dual` to `kafka-dual`, and with them
-the objects Strimzi derives from the names: the Service
-`kafka-kafka-bootstrap`, the Secret `kafka-cluster-ca-cert` and the claims
-`data-0-kafka-kafka-dual-<n>`. The claims of `events` do not carry over, so
-the new cluster starts empty. Keeping `events` and `dual` was considered.
-It would need an exception to RCP-3 and RCP-18 for names of a replaced
-examples recipe, which `check lint` and the registry gate check for every
-recipe, and Keycloak's `sso` was renamed the same way. A target that needs
-its messages copies them with a KafkaMirrorMaker2 from `events` before it
-removes the examples class. That is not tested. The topic `orders` and the
-user `orders-app` become entries the target sets, and their clients connect
-to `kafka-kafka-bootstrap:9093` with the CA of `kafka-cluster-ca-cert` and
-the user's new certificate.
+The recipe keeps the keys `kafka` and `kafka-dual` (RCP-3, RCP-18). A
+target that moves from the examples class sets `name: events` on the Kafka
+and `name: dual` on its node pool. The `strimzi` generator then names the
+resources as the examples class did, and Strimzi derives the same objects
+from them: the Service `events-kafka-bootstrap`, the Secret
+`events-cluster-ca-cert` and the claims `data-0-events-dual-<n>`. The
+Kafka keeps its claims and with them its messages. The topic `orders` and
+the user `orders-app` become entries the target sets, so their clients
+keep the bootstrap address, the CA and their certificates. The move is not
+tested (RCP-14).
+
+Renaming `events` to `kafka` and `dual` to `kafka-dual` was considered. The
+new cluster would start empty, because the claims of `events` would not
+carry over, and only a KafkaMirrorMaker2 from `events` would keep the
+messages. An exception to RCP-3 and RCP-18 for the names of a replaced
+examples recipe was considered too. `check lint` and the registry gate
+check the names of every recipe, and `name` keeps the old names without
+one.
 
 ### Proof
 
@@ -1647,7 +1655,7 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
-    keycloak: #26; release manifests: #22, #25; kafka: not implemented; HTTP
+    keycloak: #26; release manifests: #22, #25; kafka: #34; HTTP
     repository: #23
 
 ### Releasing
@@ -2100,4 +2108,4 @@ feature's design (OQ-6).
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.0.3, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
-| kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.0.1, requires `strimzi`, level `deploys` |
+| kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
