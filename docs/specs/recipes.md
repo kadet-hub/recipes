@@ -378,7 +378,7 @@ from `PATH`; CI installs them pinned (RCP-28).
   (REC-7 there) do.
 
   - Test: `check lint`; `check/tests/test_lint.py`, `check/tests/test_check.py`
-  - Since: #2, #8, #14; HTTP repository: this change
+  - Since: #2, #8, #14; HTTP repository: #23
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -1140,7 +1140,7 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; HTTP repository:
-    this change
+    #23
 
 ### Releasing
 
@@ -1454,7 +1454,7 @@ feature's design (OQ-6).
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
   `valkey.yml.LICENSE`.
-- AC-18 (RCP-23): `check`'s tests serve a chart repository on localhost.
+- AC-21 (RCP-23): `check`'s tests serve a chart repository on localhost.
   `check` takes the archive whose SHA-256 the `Source` line names, and
   fails on an archive with another SHA-256, on a `Chart.yaml` with another
   version and on a version the index does not list. `check lint` reads the
@@ -1532,7 +1532,7 @@ feature's design (OQ-6).
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-18 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-21 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
