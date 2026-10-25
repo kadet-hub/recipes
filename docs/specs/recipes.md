@@ -30,6 +30,9 @@ Some projects publish neither, only a container image. A recipe for such a
 project is designed in kadet-hub, with no upstream artifact to derive it
 from or to compare it with.
 
+Some operators ship as one YAML file attached to a GitHub release, which
+`kubectl apply` installs. The RabbitMQ Cluster Operator is one.
+
 A recipe is that rebuilt application, maintained and proven in one place,
 so that users include a recipe the way they would install a chart. This
 repository holds the recipes, the one comparison script that proves them,
@@ -91,8 +94,9 @@ behaviour: the recipe deploys and its smoke test exercises what the
 compose file sets up.
 
 DEC-9: The source type follows from the form of the README's `Source` line
-(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, and an
-image reference without a scheme the image of a designed recipe. A separate
+(RCP-23): `oci://` is a chart, a GitHub file URL a compose file, a GitHub
+release download URL a release manifest, and an image reference without a
+scheme the image of a designed recipe. A separate
 `Source-Type:` line was considered. It would repeat what the line already
 says, and the two could contradict each other.
 
@@ -156,6 +160,18 @@ project's deployment guides for Kubernetes use the operator.
 mongodb did not take this path because no kadet-hub generator renders
 MongoDB's resources (Designed recipes).
 
+DEC-15: A manifest that a project attaches to a GitHub release is a source
+like a chart, pinned by the release's tag and the file's SHA-256 (Release
+manifests). The file holds the objects as the project installs them, so
+`renders` compares the recipe with them as with a rendered chart, and helm
+does not run. The project's Kustomize base was considered as the source.
+kustomize would be one more tool in `check` and in the registry gate, and
+the RabbitMQ Cluster Operator's base does not name the operator image,
+which its release build sets. A Kapitan `https` dependency that brings the
+file into the target is ruled out by RCP-17, and it fetches without a
+checksum. An application on such an operator follows DEC-14, as `rabbitmq`
+does on the RabbitMQ Cluster Operator.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -209,12 +225,12 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
   - Since: #2
 
 - RCP-3: Every object name a recipe renders MUST start with the recipe's
-  name or, from a chart source, a name the chart uses.
+  name or, from a chart or a release manifest, a name the source uses.
 
   `check lint` compiles `tests/target.yml` and renders the chart with
-  `tests/values.yaml` to compare the names. A compose file or an image
-  names no Kubernetes objects, so there every name starts with the
-  recipe's.
+  `tests/values.yaml`, or reads the release manifest, to compare the names.
+  A compose file or an image names no Kubernetes objects, so there every
+  name starts with the recipe's.
 
   Recipes share the `components` and `generators.kubernetes.rbac`
   namespaces of the inventory, so two recipes in one target must not
@@ -355,7 +371,10 @@ from `PATH`; CI installs them pinned (RCP-28).
   `<version>`. For a compose file it is
   ``Source: `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` ``
   with the full commit SHA, and `check` fetches the file at that commit
-  and fails unless its SHA-256 is `<digest>`. For a designed recipe it is
+  and fails unless its SHA-256 is `<digest>`. For a release manifest it is
+  ``Source: `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>@sha256:<digest>` ``,
+  and `check` downloads the release asset and fails unless its SHA-256 is
+  `<digest>`. For a designed recipe it is
   ``Source: `<registry>/<repository>:<tag>@sha256:<digest>` ``, the
   project's image with its registry host, and `check lint` fails unless a
   container of the compiled recipe runs exactly that image. The release
@@ -367,8 +386,9 @@ from `PATH`; CI installs them pinned (RCP-28).
   an HTTP repository and compose files outside GitHub are not supported
   yet.
 
-  - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8, #14
+  - Test: `check lint`; `check/tests/test_lint.py`; release manifest
+    download: `check/tests/test_check.py` (not written)
+  - Since: #2, #8, #14; release manifest: this change
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -613,6 +633,46 @@ What the table does not map is a gap, and so is each of these:
   - Test: manual: review; CI `check` job
   - Since: #8
 
+## Release manifests
+
+A release manifest is a file of Kubernetes objects attached to a GitHub
+release, the file a project's install guide applies with
+`kubectl apply -f <url>`. The recipe rebuilds those objects with kadet-hub
+generators, and its `Source` line pins the file by the release's tag and
+SHA-256 (RCP-23). At `renders` the file's objects take the place of the
+rendered chart. The file has no values and no release name, and its
+objects name their own namespaces. The recipe therefore has no
+`tests/values.yaml`, and `tests/target.yml` compiles it as the file
+installs it.
+
+A release asset can be replaced under its tag unless the release is
+immutable, so `check` fails on a file with another SHA-256. GitHub's API
+reports each asset's SHA-256 as `digest`.
+
+The RabbitMQ Cluster Operator, MPL-2.0, is the first. rabbitmq/cluster-operator
+publishes no chart, and its install guide applies `cluster-operator.yml`
+from the latest release. The only chart for the operator is Bitnami's
+`rabbitmq-cluster-operator`, a third-party chart (DEC-11). The release
+build renders the Kustomize base `config/installation` and sets the
+operator image with a ytt overlay (`generate-installation-manifest` in its
+Makefile). Release v2.23.1 of 2026-10-13 is not immutable. It attaches
+`cluster-operator.yml` and `cluster-operator-ghcr-io.yml` with the same
+SHA-256, `ae35a547751656bc64bb734026249a845d226d96aba5a73783e05c5ec3444687`,
+and `cluster-operator-quay-io.yml` with the image on quay.io. The file
+holds the CRD `rabbitmqclusters.rabbitmq.com`, the operator's Deployment
+and RBAC, a mutating and a validating webhook configuration, and two
+cert-manager Certificates with their Issuer, so the recipe
+`rabbitmq-cluster-operator` requires `cert-manager` (Prerequisites).
+
+- RCP-59: At `renders`, `check` MUST compare a recipe from a release
+  manifest with the manifest's objects as RCP-8 to RCP-12 compare a chart
+  recipe with the rendered chart.
+
+  helm does not render the file, so RCP-25 has no hooks to leave out.
+
+  - Test: `check/tests/test_check.py` (not written); CI `check` job
+  - Since: not implemented
+
 ## Designed recipes
 
 A designed recipe deploys the project's image with the `kubernetes`
@@ -845,6 +905,12 @@ names its own prerequisites, and those of its included recipes apply too,
 so `nextcloud` names `gateway-api` and gets `cloudnative-pg` through
 `postgresql`.
 
+A prerequisite's own prerequisites apply as well. `rabbitmq` names
+`rabbitmq-cluster-operator`, whose README names `cert-manager`, so a target
+that installs the operator needs cert-manager installed first. Each
+`Requires:` line names only what its own recipe needs, so a change to the
+operator's prerequisites changes one README.
+
 `gateway-api` is the one entry that is not a recipe. `check` provides it
 with cloud-provider-kind, the kind project's cloud provider, pinned like
 the other tools (RCP-28). Version 0.12.0 installs the CRDs of the Gateway
@@ -866,20 +932,27 @@ proof that requires `gateway-api`.
   one README line ``Requires: `<entry>`[, `<entry>`]``. An entry is a
   recipe of this repository or `gateway-api`. `check lint` MUST fail on any
   other entry and on a recipe that both includes and requires the same
-  recipe.
+  recipe. It MUST also fail on a recipe that requires itself, directly or
+  through the `Requires:` lines of its prerequisites.
 
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: not implemented
 
 - RCP-55: Before the proof, `check` MUST install the prerequisites of the
-  recipe and of its included recipes on every kind cluster it creates. A
-  prerequisite recipe is compiled from its own `tests/target.yml`. At
-  `renders` only its Namespaces, CRDs, ServiceAccounts and RBAC objects are
-  applied, as RCP-26 applies the recipe's. At `deploys` all of it is
-  applied and its rollouts are waited for.
+  recipe, of its included recipes and, in turn, of those prerequisites on
+  every kind cluster it creates. Each is installed once, after the
+  prerequisites it requires. A prerequisite recipe is compiled from its
+  own `tests/target.yml`. At `renders` only its Namespaces, CRDs,
+  ServiceAccounts and RBAC objects are applied, as RCP-26 applies the
+  recipe's. At `deploys` all of it is applied and its rollouts are waited
+  for, and an apply the API server rejects is repeated for up to a minute.
 
   The chart side needs the prerequisites too: a dry run of a CloudNativePG
-  Cluster or an HTTPRoute fails without its CRD.
+  Cluster or an HTTPRoute fails without its CRD. The RabbitMQ operator's
+  Certificates need cert-manager's CRDs at `renders` and its webhook at
+  `deploys`. That webhook refused them for a few seconds after its rollout
+  had reported done in kadet-hub/examples CI (EX-6 there), which the
+  repeated apply covers.
 
   - Test: CI `check` job, report lines `requires`
   - Since: not implemented
@@ -1317,9 +1390,19 @@ first command.
 
   Compose sources are not covered yet (OQ-10).
 
+  For a release manifest Renovate moves the tag and the SHA-256 of the
+  `Source` line with the datasource `github-release-attachments`, as it
+  moves the tool pins of RCP-30. It downloads the assets of the pinned
+  release until one has the pinned SHA-256, hashes the asset of the same
+  name in the new release, and waits the three days from the release's
+  date. Assets of equal size are tried in the order the API lists them, so
+  for the RabbitMQ Cluster Operator it may take `cluster-operator-ghcr-io.yml`
+  for `cluster-operator.yml` (Release manifests). Should the two differ in
+  a later release, `check` fails on the proposed SHA-256 (RCP-23).
+
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
-    keycloak: not implemented
+    keycloak: not implemented; release manifests: #22
 
 ### Releasing
 
@@ -1373,8 +1456,8 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   - Since: #6, #7
 
 - RCP-34: `check <name> --level renders` MUST accept the compiled output of
-  the recipe and the rendered chart as input, and then run neither Kapitan
-  nor helm.
+  the recipe and the rendered chart, or the release manifest, as input, and
+  then run neither Kapitan nor helm.
 
   The registry gate compiles and renders in its gVisor sandbox and gives
   `check` only the two outputs (DEC-21 there), so a chart that attacks
@@ -1653,6 +1736,15 @@ feature's design (OQ-6).
   pins, every tool and action pin and the `check` lock, and finds no
   update set to merge automatically. With mysql one patch release back, it
   proposes the next 9.7 release and no 26.x.
+- AC-19 (RCP-16, RCP-23, RCP-34, RCP-59): `check`'s tests fail the
+  download of a release manifest whose SHA-256 differs from the `Source`
+  line and pass it when it matches. `rabbitmq-cluster-operator` passes
+  `check` at its README's level in CI, and a local Renovate dry run
+  extracts its `Source` line with `github-release-attachments`.
+- AC-20 (RCP-54, RCP-55): `check lint` fails on a recipe that requires
+  itself and on two recipes that require each other. The report of
+  `check rabbitmq --level deploys` lists `cert-manager` as installed before
+  `rabbitmq-cluster-operator`.
 
 ## Open questions
 
@@ -1717,7 +1809,7 @@ feature's design (OQ-6).
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/CODEOWNERS` | `@neat-bot` for every path (RCP-44) |
