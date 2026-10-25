@@ -84,6 +84,17 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "RCP-16: Source lines of recipe READMEs move once a week",
+      "matchFileNames": [
+        "*/README.md"
+      ],
+      "timezone": "Europe/Berlin",
+      "schedule": [
+        "* 0-5 * * 1"
+      ],
+      "updateNotScheduled": false
+    },
+    {
       "description": "RCP-16: mysql stays on MySQL's 9.7 LTS line; from 26.7 the Innovation releases use calendar versions",
       "matchPackageNames": [
         "container-registry.oracle.com/mysql/community-server"
@@ -91,20 +102,15 @@
       "allowedVersions": "<10"
     },
     {
-      "description": "RCP-16: mongodb stays on MongoDB's 9.0 major release; minor releases are not patched once the next is out. Docker Hub gives no release timestamps for the image and MongoDB rebuilds the tag almost daily, so no release age and one window a week",
+      "description": "RCP-16: mongodb stays on MongoDB's 9.0 major release; minor releases are not patched once the next is out. Docker Hub gives no release timestamps for the image, so no release age; the weekly window holds its almost daily rebuilds",
       "matchPackageNames": [
         "docker.io/mongodb/mongodb-community-server"
       ],
       "allowedVersions": "/^9\\.0\\./",
-      "timezone": "Europe/Berlin",
-      "schedule": [
-        "* 0-5 * * 1"
-      ],
-      "updateNotScheduled": false,
       "minimumReleaseAge": "0 days"
     },
     {
-      "description": "RCP-16: Docker Hub gives no release timestamps for the rabbitmq image, which has more than 1000 tags. docker-library rebuilds it at most about twice a week, not daily, so no schedule window",
+      "description": "RCP-16: Docker Hub gives no release timestamps for the rabbitmq image, which has more than 1000 tags, so the timestamp is optional; the weekly window bundles its rebuilds",
       "matchPackageNames": [
         "docker.io/library/rabbitmq"
       ],
