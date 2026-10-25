@@ -97,8 +97,79 @@ The chart's liveness probe restarts a container that is still installing,
 and the image installs only on its first start. The recipe therefore runs
 the chart's startup probe, which waits up to 330 seconds.
 
-SMTP, notify_push, an office server, imaginary, metrics, backups and more
-than one replica are not part of this version.
+SMTP, notify_push, an office server, imaginary, metrics and more than one
+replica are not part of this version.
+
+## Backups
+
+The recipe renders no backup. A target backs up the database and the two
+claims with Nextcloud in maintenance mode, as Nextcloud's
+[backup guide](https://docs.nextcloud.com/server/35/admin_manual/maintenance/backup.html)
+describes.
+
+The database is the CloudNativePG Cluster of the included recipe
+`postgresql`. Back it up to an object store through the
+[Barman Cloud Plugin](https://cloudnative-pg.io/plugin-barman-cloud/docs/usage/).
+No recipe installs the plugin. It needs cert-manager and
+[runs in the namespace of the operator](https://cloudnative-pg.io/plugin-barman-cloud/docs/installation/),
+`cnpg-system` for the recipe `cnpg`. The `cloudnative-pg` generator renders
+the rest from these keys of the target, together with a Secret of your
+choice that holds the object store's credentials:
+
+```yaml
+parameters:
+  generators:
+    cloudnative-pg:
+      object_stores:
+        postgresql-store:
+          configuration:
+            destinationPath: s3://<bucket>/postgresql
+            endpointURL: <endpoint>
+            s3Credentials:
+              accessKeyId:
+                name: <secret>
+                key: ACCESS_KEY_ID
+              secretAccessKey:
+                name: <secret>
+                key: ACCESS_SECRET_KEY
+          retention_policy: 30d
+      clusters:
+        postgresql:
+          backup:
+            object_store: postgresql-store
+      scheduled_backups:
+        postgresql-daily:
+          cluster: ${applications.postgresql.cluster}
+          schedule: 0 3 * * *
+```
+
+This renders an ObjectStore, the plugin entry in the Cluster's `plugins`,
+which archives WAL to the store, and a ScheduledBackup that takes a base
+backup daily at 03:00. Without `retention_policy` the store keeps backups
+until you delete them.
+
+The files are on two claims. `nextcloud-nextcloud` holds the config, the
+custom apps and the themes, and `nextcloud-nextcloud-data` holds the data.
+Back both up with CSI
+[volume snapshots](https://kubernetes.io/docs/concepts/storage/volume-snapshots/)
+or with a file-level backup such as Velero's
+[file system backup](https://velero.io/docs/v1.18/file-system-backup/).
+
+Put Nextcloud into maintenance mode before the backup and out of it
+afterwards, with `--on` and `--off`:
+
+```sh
+kubectl exec -n <namespace> deployment/nextcloud -c nextcloud -- su -s /bin/sh -c "php /var/www/html/occ maintenance:mode --on" www-data
+```
+
+The WAL archive lets you
+[restore the Cluster to a point in time](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.1/docs/src/recovery.md#point-in-time-recovery-pitr).
+Restore it to a time inside the maintenance window and use the claims from
+the same window.
+
+Valkey needs no backup. The image configures it from `REDIS_HOST` for the
+distributed cache, file locking and PHP sessions. Losing it empties the
+cache, drops the locks and logs users out.
 
 ## Proof
 
