@@ -1,0 +1,30 @@
+classes:
+  - .cluster
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/cloudnative-pg:1.1.0@sha256:99320e83917d99190c45efa8f8e1dc4e732c65619ebf9c70151a0d96b4f5dca9
+        output_path: lib/cloudnative-pg
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/cloudnative-pg
+        output_path: manifests/
+        output_type: yml
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    postgresql:
+      version: 18.6
+      cluster: postgresql-cluster
+      database: app
+      owner: app
+      storage: 8Gi
+      instances: 3
