@@ -1,0 +1,10 @@
+parameters:
+  kapitan:
+    compile:
+      - input_type: copy
+        input_paths:
+          # SHA-256 d35964ebdb5ff843ce12ff84c673f838537d11ec1e8ac0dab65498e37ed835b3
+          # from https://github.com/cloudnative-pg/charts/blob/cloudnative-pg-v0.29.1/charts/cloudnative-pg/templates/crds/crds.yaml
+          # without its first and last line, the condition on crds.create
+          - inventory/classes/recipes/cnpg/vendor/cnpg.crds.yaml
+        output_path: manifests/
