@@ -478,16 +478,26 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   `app.kubernetes.io/managed-by` and `app.kubernetes.io/version`, the labels
   that only identify an object (`app`, `name`, `app.kubernetes.io/name`,
   `app.kubernetes.io/instance`, `app.kubernetes.io/component`,
-  `app.kubernetes.io/part-of`), and image digests on the recipe side. Secrets
-  the chart generates are compared by key.
+  `app.kubernetes.io/part-of`, `chart`, `release`, `heritage`, `component`),
+  and image digests on the recipe side. Secrets the chart generates are
+  compared by key.
 
   Keeping the identifying labels would force a recipe to copy the chart's
   label scheme. What selects on them is checked by RCP-10 instead. Every
   other label and annotation stays, because ingress controllers, meshes
   and monitoring read them.
 
+  Strimzi's chart puts `chart`, `release` and `heritage` on every object,
+  set from the chart's name and version, the release name and `Helm`, as
+  charts scaffolded by older versions of `helm create` do. Its
+  `component` label names the template, such as `deployment` or
+  `service-account`, like `app.kubernetes.io/component`. The `kubernetes`
+  generator renders only the `name` label on ServiceAccounts and
+  ConfigMaps, so a recipe cannot carry these labels, and `heritage: Helm`
+  would name a manager that does not manage the object.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2
+  - Since: #2; `chart`, `release`, `heritage`, `component`: not implemented
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
@@ -737,9 +747,10 @@ the recipe's `tests/smoke`.
 
 - RCP-58: A designed recipe whose image the project's operator runs MUST
   set the image of its `Source` line as `spec.image` of the custom resource
-  it renders for that operator, and MUST require the operator's recipe
-  (RCP-54). `check lint` MUST accept a compiled object's `spec.image` as
-  the image that RCP-23 asks a container to run.
+  it renders for that operator, or as `spec.<part>.image` where the
+  resource names an image per part, and MUST require the operator's recipe
+  (RCP-54). `check lint` MUST accept a compiled object's `spec.image` or
+  `spec.<part>.image` as the image that RCP-23 asks a container to run.
 
   The operator creates the workload and its Services from the resource, so
   the compiled recipe has no container to lint. The resource is no RBAC
@@ -748,8 +759,13 @@ the recipe's `tests/smoke`.
   resource to be ready and then reaches the Services the operator created
   (RCP-45).
 
+  A Strimzi Kafka names the image of its brokers and controllers as
+  `spec.kafka.image` (Kafka). `spec.<part>.image` is one level below
+  `spec`, so the images of deeper parts, such as the Topic Operator's
+  `spec.entityOperator.topicOperator.image`, do not count.
+
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: not implemented
+  - Since: not implemented; `spec.<part>.image`: not implemented
 
 ## Recipes from kadet-hub/examples
 
@@ -761,7 +777,9 @@ to the recipe here. valkey was the first: valkey-io publishes the chart
 `oci://ghcr.io/valkey-io/valkey-helm/valkey`, whose standalone mode renders
 a Deployment, a PersistentVolumeClaim and ACL authentication where the
 examples recipe had a StatefulSet and `--requirepass`. mysql and mongodb
-moved as designed recipes (Designed recipes).
+moved as designed recipes (Designed recipes). kafka moves as a designed
+recipe on Strimzi's operator, which becomes the chart recipe `strimzi`
+(Kafka).
 
 - RCP-41: The README of a recipe that replaces one of kadet-hub/examples
   MUST have a section `Replaces` that names that recipe and lists the
@@ -1226,6 +1244,131 @@ token for the temporary admin of `keycloak-initial-admin`, which needs the
 database. The examples recipe checked the readiness and `/realms/master`
 over TLS.
 
+## Kafka
+
+Strimzi runs Apache Kafka on Kubernetes through its Cluster Operator. It
+publishes the operator's chart `strimzi-kafka-operator`, Apache-2.0, at
+`oci://quay.io/strimzi-helm/strimzi-kafka-operator`. The package of 1.3.0
+is the release asset `strimzi-kafka-operator-helm-3-chart-1.3.0.tgz`, SHA-256
+`42677cec73d2122f4a395d9891bbccfae18ec16b3582174d49ca04695f351192`. For a
+Kafka cluster Strimzi ships no chart. Its release archives carry example
+resources in `examples/kafka/`, which show features such as a plain
+listener without authentication. Strimzi 1.3.0 of 2026-10-12 is the newest
+release. It supports Kubernetes 1.32 and later and Kafka 4.2.0 to 4.3.1,
+with 4.3.1 as the default (`kafka-versions.yaml`). The `strimzi` generator
+1.0.1, built for Strimzi 1.3.0, renders Kafka, KafkaNodePool, KafkaTopic and
+KafkaUser resources. Kafka therefore moves from kadet-hub/examples as two
+recipes (DEC-14):
+
+| Recipe | Source | Role |
+|---|---|---|
+| `strimzi` | `oci://quay.io/strimzi-helm/strimzi-kafka-operator:1.3.0@sha256:08852fb5aca9782750ec1698616cad0efe15d5eef1a366d124373129ff9c29ea`, Apache-2.0 | prerequisite of `kafka`: the Cluster Operator, its RBAC and the CRDs |
+| `kafka` | `quay.io/strimzi/kafka:1.3.0-kafka-4.3.1@sha256:1f189b1f0f32684302d8b018b1d21b411e2469a9c465fbdc18fa3599cb5bbdad` | one Kafka cluster with its node pool, requires `strimzi` |
+
+The example resources were considered as the source of `kafka`. They would
+need a source form of their own, and `check` would compare the recipe with
+an example that it deviates from on purpose, such as the plain listener.
+
+### The operator
+
+`tests/values.yaml` sets `watchAnyNamespace: true`, as the examples class
+did. The operator then watches every namespace and binds its ClusterRoles
+with ClusterRoleBindings, so one installation serves a Kafka in any
+namespace (DEC-13). The chart's default watches only the release
+namespace. `tests/target.yml` installs the operator in the namespace
+`strimzi`.
+
+The chart keeps its CRDs in `crds/`, which helm installs with the first
+release and never upgrades. The recipe copies the release asset
+`strimzi-crds-1.3.0.yaml`, SHA-256
+`09f6db7000e27d6121e02334e666a55f06f8d62a9124e66adee6c84ec010bf41`, with
+Strimzi's LICENSE. strimzi/strimzi-kafka-operator has no NOTICE (RCP-35).
+The asset holds the chart's ten CRDs without the chart's `component` label
+(RCP-9). The chart has no value that leaves them out, so they belong to the
+recipe and are no option (DEC-2).
+
+The operator binds the ClusterRoles `strimzi-kafka-broker`,
+`strimzi-entity-operator` and `strimzi-kafka-client` by name to the pods it
+starts. Kubernetes lets it grant only what it holds, so the chart binds the
+three to the operator as well. The recipe keeps their names. Its bindings
+take the names of its `rbac` entries, which the README lists (RCP-11).
+
+The Deployment passes the images the operator starts in environment
+variables. The recipe pins the operator image by digest in the container
+and in the three variables that run it as the Topic Operator, the User
+Operator and the Kafka init container, as the examples class did.
+`tests/values.yaml` sets the same references as the tags of those three, so
+the chart renders them alike. The chart appends the Kafka version to the
+tag of each Kafka image and drops it when the values set a tag. The
+version maps `STRIMZI_KAFKA_IMAGES`, `STRIMZI_KAFKA_CONNECT_IMAGES` and
+`STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES` therefore stay as the chart renders
+them, by tag, and `kafka` names its image itself. The images of Kafka
+Bridge, Kafka Exporter, Cruise Control, Buildah and the Maven builder stay
+by tag too, because no recipe here starts them.
+
+The ConfigMap `strimzi-cluster-operator` holds the chart's log
+configuration, text of its templates (RCP-42).
+
+### The Kafka cluster
+
+`kafka` renders the Kafka `kafka` and the KafkaNodePool `kafka-dual` in the
+target's namespace. The pool has three nodes with the roles controller and
+broker and a 10Gi claim each, the sizes of the examples class. Kafka is
+4.3.1 with the metadata version `4.3-IV0`. The `strimzi` generator adds one
+internal listener `tls` on port 9093 with mutual TLS, simple authorization
+and the Entity Operator, and derives the replication settings from the
+three brokers.
+
+The Kafka sets the image of the `Source` line as `spec.kafka.image`
+(RCP-58). Strimzi then runs that image in place of the one its version map
+names. The Topic and User Operator images come from the operator. The
+Kafka init container runs only for rack awareness or a node port listener
+(`KafkaCluster.java`), which the recipe does not render. Because Strimzi
+builds its Kafka images per release, `kafka` moves together with `strimzi`
+(RCP-16).
+
+The recipe renders no KafkaTopic and no KafkaUser. A target sets its own
+under `generators.strimzi.topics` and `users`, and the generator assigns
+them to the only Kafka. `tests/target.yml` adds the topic and the user
+`kafka-smoke`.
+
+### Moving from kadet-hub/examples
+
+The examples class rendered the Namespace `kafka`, the operator from its
+chart in the namespace `strimzi`, the Kafka `events` with the node pool
+`dual`, the topic `orders` and the user `orders-app`. The recipe renders no
+Namespace, and the target sets `namespace`. The operator becomes the
+prerequisite `strimzi` in a target of its own. Its Deployment
+`strimzi-cluster-operator` selects on `name` only, so the examples
+Deployment is deleted first, and the bindings the README lists are deleted
+by their chart names.
+
+RCP-3 renames `events` to `kafka` and `dual` to `kafka-dual`, and with them
+the objects Strimzi derives from the names: the Service
+`kafka-kafka-bootstrap`, the Secret `kafka-cluster-ca-cert` and the claims
+`data-0-kafka-kafka-dual-<n>`. The claims of `events` do not carry over, so
+the new cluster starts empty. Keeping `events` and `dual` was considered.
+It would need an exception to RCP-3 and RCP-18 for names of a replaced
+examples recipe, which `check lint` and the registry gate check for every
+recipe, and Keycloak's `sso` was renamed the same way. A target that needs
+its messages copies them with a KafkaMirrorMaker2 from `events` before it
+removes the examples class. That is not tested. The topic `orders` and the
+user `orders-app` become entries the target sets, and their clients connect
+to `kafka-kafka-bootstrap:9093` with the CA of `kafka-cluster-ca-cert` and
+the user's new certificate.
+
+### Proof
+
+Both are at level `deploys`. `strimzi`'s `tests/smoke` creates a single-node
+Kafka on ephemeral storage in another namespace than the operator's and
+waits until it is Ready, which needs the CRDs, the cluster-wide watch and
+the ClusterRoles.
+
+For `kafka`, `check` installs `strimzi` first (RCP-55). `tests/smoke` is
+the examples check: the Kafka, the topic and the user are Ready, and a
+client with the user's certificate writes a message to the topic and reads
+it back over mutual TLS through the bootstrap Service.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -1351,6 +1494,15 @@ first command.
   proposes for no pin without one, so a rebuild reaches the pins as a new
   digest of `26.8.1`.
 
+  A package rule groups the `Source` lines of `strimzi` and `kafka` into
+  one pull request, because Strimzi builds its Kafka images per release
+  and runs the image a Kafka names (Kafka). The image's tags have the form
+  `<strimzi>-kafka-<kafka>`. Renovate's docker versioning reads
+  `kafka-4.3.1` as a compatibility suffix and proposes only tags with the
+  same suffix, so the image moves to a newer Strimzi release of the same
+  Kafka version. A move to another Kafka version is a maintainer's change,
+  together with the Kafka's `version` and `metadata_version`.
+
   Compose sources are not covered yet (OQ-10).
 
   For a release manifest Renovate moves the tag and the SHA-256 of the
@@ -1365,7 +1517,7 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; keycloak: not
-    implemented; release manifests: this change
+    implemented; release manifests: this change; kafka: not implemented
 
 ### Releasing
 
@@ -1708,6 +1860,13 @@ feature's design (OQ-6).
   itself and on two recipes that require each other. The report of
   `check rabbitmq --level deploys` lists `cert-manager` as installed before
   `rabbitmq-cluster-operator`.
+- AC-22 (RCP-9, RCP-16, RCP-55, RCP-58): `check`'s tests drop the labels
+  `chart`, `release`, `heritage` and `component`. `check lint` accepts a
+  Kafka whose `spec.kafka.image` is the `Source` image and fails on one
+  that names it only as the Topic Operator's image. `check strimzi --level
+  deploys` and `check kafka --level deploys` pass in CI, and the report of
+  the latter lists `strimzi` as installed. A local Renovate dry run puts
+  both `Source` lines into one update.
 
 ## Open questions
 
@@ -1801,3 +1960,5 @@ feature's design (OQ-6).
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.0.3, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
+| strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
+| kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.0.1, requires `strimzi`, level `deploys` |
