@@ -73,7 +73,7 @@ parameters:
       pod_annotations:
         nextcloud-config-hash: 2c620d6eac4314c9a69fdfb299af32077aa552fd06db46dbb6c56d93803f75f6
         php-config-hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
-        hooks-hash: 9525c2748a6c7cd0e28ec740623d0b3fa5a75c83b51ccfd136bc89c76737b204
+        hooks-hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
       volume_mounts:
         root:
           volume: nextcloud-main
