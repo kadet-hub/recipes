@@ -1094,12 +1094,21 @@ first command.
   Renovate gets no release timestamp for the mongodb image. Docker Hub
   refuses anonymous requests for tag list pages after the tenth, and the
   image has more than 1000 tags. With `minimumReleaseAgeBehaviour:
-  timestamp-required`, every update of it stays pending (OQ-15).
+  timestamp-required`, the repository's three days would hold every update
+  of it, so the image has no minimum release age, as the `next` pin of
+  RCP-29 has none. MongoDB pushes the newest patch tag again with almost
+  every daily build. Renovate therefore opens and updates the image's pull
+  request only on Mondays from 00:00 to 06:00 Europe/Berlin, so the digest
+  moves at most once a week. `updateNotScheduled: false` keeps Renovate
+  from pushing a new digest to the open pull request outside that window.
+  Docker Hub credentials for Renovate were considered. They would give
+  timestamps, but a tag pushed again with each build would reach the three
+  days only once MongoDB stops rebuilding it, one release late.
 
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17
+  - Since: #3; designed recipes: #14; mongodb: #17, this change
 
 ### Releasing
 
@@ -1476,15 +1485,6 @@ feature's design (OQ-6).
   renders a derivative of the chart, and does that change how it is
   published under this repository's Apache-2.0? It copies no template
   text. To be answered before the first `nextcloud` release.
-- OQ-15: How should Renovate follow the mongodb image, whose updates stay
-  pending without a release timestamp (RCP-16)? With
-  `timestamp-optional` for the image, as for registries without
-  timestamps, or with no release age and a schedule window as in RCP-29,
-  Renovate proposes each new build at once, a new digest almost every day.
-  Docker Hub credentials for Renovate would give timestamps, but the
-  newest patch tag is pushed again with each build, so it would reach the
-  three days only once MongoDB stops rebuilding it. Until this is decided,
-  a maintainer moves the pin.
 
 ## Implementation inventory
 
