@@ -1,0 +1,15 @@
+parameters:
+  kapitan:
+    compile:
+      - input_type: copy
+        input_paths:
+          # From https://github.com/keycloak/keycloak-k8s-resources/tree/26.8.1/kubernetes:
+          # SHA-256 20c51247cb6cbc6158098caabeaf6b429dc8c016e35829f5ddd9c468b7582667
+          - inventory/classes/recipes/keycloak-operator/vendor/keycloaks.k8s.keycloak.org-v1.yml
+          # SHA-256 8d552e1864d78117a07e535479ddb36e16a42b2695726c875f44828e1323edd4
+          - inventory/classes/recipes/keycloak-operator/vendor/keycloakrealmimports.k8s.keycloak.org-v1.yml
+          # SHA-256 15d9199822d1918438bd1d093eee3ec8406e7f9d0837c4527fd6da99c63b058a
+          - inventory/classes/recipes/keycloak-operator/vendor/keycloakoidcclients.k8s.keycloak.org-v1.yml
+          # SHA-256 7c69d146f610f3c40acf4466518e89615b6fce7ee2a03d75cd93b7a9a7bf259e
+          - inventory/classes/recipes/keycloak-operator/vendor/keycloaksamlclients.k8s.keycloak.org-v1.yml
+        output_path: manifests/
