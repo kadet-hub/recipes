@@ -571,7 +571,7 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   cert-manager 1.18 or later with that gate on, and its README says so.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: this change
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
