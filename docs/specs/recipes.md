@@ -7,7 +7,7 @@ Status: Draft. check 0.3.0 implements renders and deploys, for compose
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
-                  #14, mysql at deploys
+                  #14, mysql at deploys; this change, mongodb at deploys
 ```
 
 ## Problem
@@ -589,6 +589,25 @@ build has its own tag, `<version>-aarch64`, so the digest the recipe pins
 is that of the amd64 image. The examples recipe's check, `select 1` as the
 user `app` in its database, is the recipe's `tests/smoke`.
 
+mongodb was the second. The charts of mongodb/helm-charts, Apache-2.0,
+install MongoDB's operators or resources those operators manage. One of
+them, `enterprise-database`, renders a `MongoDB` resource for the
+Enterprise Operator and needs Ops Manager or Cloud Manager. The chart of
+MongoDB Controllers for Kubernetes, `mongodb-kubernetes`, is also published
+at `oci://quay.io/mongodb/helm-charts/mongodb-kubernetes`. None of them
+deploys a server on its own, and a recipe on the operator would need an
+operator recipe and a generator for its resources (RCP-7). The recipe runs
+`docker.io/mongodb/mongodb-community-server`, which MongoDB builds, on the
+9.0 major release that the kadet-hub/examples recipe followed. The Docker
+Official Image `mongo` is built by docker-library.
+
+MongoDB rebuilds a release under the same tag: Docker Hub listed 14 builds
+of `9.0.4-ubi9-slim` between 2026-10-14 and 2026-10-25, each also tagged
+with its build time, such as `9.0.4-ubi9-slim-20261020T065348Z`. The
+recipe pins the digest of that build, the one the examples recipe ran. The
+examples recipe's check, `ping` after mongosh authenticates as `root`, is
+the recipe's `tests/smoke`.
+
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
   object, every selector selecting pods, then a deploy on one fresh kind
@@ -617,8 +636,8 @@ to the recipe here. valkey was the first: valkey-io publishes the chart
 `valkey` in valkey-io/valkey-helm, BSD-3-Clause, at
 `oci://ghcr.io/valkey-io/valkey-helm/valkey`, whose standalone mode renders
 a Deployment, a PersistentVolumeClaim and ACL authentication where the
-examples recipe had a StatefulSet and `--requirepass`. mysql moved as a
-designed recipe (Designed recipes).
+examples recipe had a StatefulSet and `--requirepass`. mysql and mongodb
+moved as designed recipes (Designed recipes).
 
 - RCP-41: The README of a recipe that replaces one of kadet-hub/examples
   MUST have a section `Replaces` that names that recipe and lists the
@@ -727,12 +746,19 @@ first command.
   (RCP-23). A package rule keeps the image on the release line the README
   names. For mysql that is MySQL's 9.7 LTS line: from 26.7 on, Oracle
   numbers the Innovation releases by calendar, so the rule allows versions
-  below 10.
+  below 10. For mongodb it is MongoDB's 9.0 major release. MongoDB supports
+  a major release for five years and stops patching a minor release once
+  the next one is out, so the rule allows versions below 9.1.
+
+  Renovate gets no release timestamp for the mongodb image. Docker Hub
+  refuses anonymous requests for tag list pages after the tenth, and the
+  image has more than 1000 tags. With `minimumReleaseAgeBehaviour:
+  timestamp-required`, every update of it stays pending (OQ-15).
 
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14
+  - Since: #3; designed recipes: #14; mongodb: this change
 
 ### Releasing
 
@@ -1031,7 +1057,8 @@ feature's design (OQ-6).
   `valkey.yml.LICENSE`.
 - AC-13 (RCP-23, RCP-44, RCP-45): `check lint` fails on a designed recipe
   at level `renders` and on one whose `Source` image no container runs,
-  and passes on mysql; mysql passes `check mysql --level deploys` in CI.
+  and passes on mysql and mongodb; both pass `check <name> --level
+  deploys` in CI.
 - AC-12 (RCP-43): `check lint` warns on an `args` list of a component
   and of an `init_containers` entry and still passes, does not warn when
   the recipe pins the generator below 1.7.0, and passes without a warning
@@ -1077,6 +1104,15 @@ feature's design (OQ-6).
 - OQ-10: Should Renovate propose the newest commit of a compose source's
   repository, so the SHA-256 check of RCP-23 shows when the file changed?
   RCP-16 covers charts only.
+- OQ-15: How should Renovate follow the mongodb image, whose updates stay
+  pending without a release timestamp (RCP-16)? With
+  `timestamp-optional` for the image, as for registries without
+  timestamps, or with no release age and a schedule window as in RCP-29,
+  Renovate proposes each new build at once, a new digest almost every day.
+  Docker Hub credentials for Renovate would give timestamps, but the
+  newest patch tag is pushed again with each build, so it would reach the
+  three days only once MongoDB stops rebuilding it. Until this is decided,
+  a maintainer moves the pin.
 
 ## Implementation inventory
 
