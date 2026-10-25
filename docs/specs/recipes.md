@@ -1366,7 +1366,7 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; keycloak: not
-    implemented; release manifests: #22
+    implemented; release manifests: #22, this change
 
 ### Releasing
 
