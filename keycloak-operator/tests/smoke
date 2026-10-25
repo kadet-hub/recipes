@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# The operator, watching every namespace, turns a Keycloak resource in
+# default into its StatefulSet, with the default image pinned by digest.
+set -euo pipefail
+want=$(kubectl get deployment keycloak-operator \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="RELATED_IMAGE_KEYCLOAK")].value}')
+kubectl -n default apply -f - <<'YAML'
+apiVersion: k8s.keycloak.org/v2beta1
+kind: Keycloak
+metadata:
+  name: smoke
+spec:
+  instances: 1
+  db:
+    vendor: postgres
+    host: smoke-db
+  http:
+    httpEnabled: true
+  hostname:
+    strict: false
+  ingress:
+    enabled: false
+YAML
+trap 'kubectl -n default delete keycloak smoke --ignore-not-found --wait=false >/dev/null' EXIT
+kubectl -n default wait --for=create statefulset/smoke --timeout=120s >/dev/null
+image=$(kubectl -n default get statefulset smoke -o jsonpath='{.spec.template.spec.containers[0].image}')
+[[ $image == "$want" ]] || { echo "StatefulSet smoke runs $image, not $want" >&2; exit 1; }
+echo "the operator created StatefulSet default/smoke from a Keycloak resource, image $image"

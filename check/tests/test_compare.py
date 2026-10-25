@@ -90,6 +90,22 @@ class Compare(unittest.TestCase):
         container["securityContext"] = {"runAsNonRoot": True}
         self.assertIn("containers[0].securityContext", " ".join(self.unaccepted(self.run_compare())))
 
+    def test_certificate_rotation_policy_always_is_an_explicit_default(self):
+        cert = {"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "demo", "namespace": "demo"},
+                "spec": {"secretName": "demo-tls", "issuerRef": {"kind": "Issuer", "name": "demo"}}}
+        recipe = copy.deepcopy(cert)
+        recipe["spec"]["privateKey"] = {"rotationPolicy": "Always"}
+        self.chart.append(cert)
+        self.recipe.append(recipe)
+        found = {(d.cls, d.where()) for d in self.run_compare()["differences"]}
+        self.assertIn((compare.EXPLICIT_DEFAULT, "spec.privateKey"), found)
+        cert["spec"]["privateKey"] = {"algorithm": "ECDSA"}
+        recipe["spec"]["privateKey"]["algorithm"] = "ECDSA"
+        found = {(d.cls, d.where()) for d in self.run_compare()["differences"]}
+        self.assertIn((compare.EXPLICIT_DEFAULT, "spec.privateKey.rotationPolicy"), found)
+        recipe["spec"]["privateKey"]["rotationPolicy"] = "Never"
+        self.assertIn("spec.privateKey.rotationPolicy", " ".join(self.unaccepted(self.run_compare())))
+
     def test_port_by_name_must_resolve_to_the_same_port(self):
         find(self.chart, "Service")["spec"]["ports"][0]["targetPort"] = 10250
         self.assertIn("spec.ports[0].targetPort", " ".join(self.unaccepted(self.run_compare())))

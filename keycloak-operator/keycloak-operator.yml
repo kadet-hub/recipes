@@ -1,0 +1,143 @@
+parameters:
+  components:
+    keycloak-operator:
+      application: keycloak-operator
+      image: quay.io/keycloak/keycloak-operator:${applications.keycloak-operator.version}@sha256:2f80ad73eaddbf2420e0b235cfe72ec568d053823f1ef4e3ff80b73d0984a0bc
+      pull_policy: Always
+      annotations: ${applications.keycloak-operator.annotations}
+      pod_annotations: ${applications.keycloak-operator.annotations}
+      grace_period: 10
+      service_account:
+        create: true
+        automount_service_account_token: true
+        annotations: ${applications.keycloak-operator.annotations}
+      automount_service_account_token: true
+      env:
+        KUBERNETES_NAMESPACE:
+          fieldRef: {fieldPath: metadata.namespace}
+        kc.operator.keycloak.image: ${applications.keycloak-operator.keycloak_image}
+        RELATED_IMAGE_KEYCLOAK: ${applications.keycloak-operator.keycloak_image}
+        # The chart's default: every controller watches every namespace.
+        QUARKUS_OPERATOR_SDK_CONTROLLERS_KEYCLOAKREALMIMPORTCONTROLLER_NAMESPACES: JOSDK_ALL_NAMESPACES
+        QUARKUS_OPERATOR_SDK_CONTROLLERS_KEYCLOAKSAMLCLIENTCONTROLLER_NAMESPACES: JOSDK_ALL_NAMESPACES
+        QUARKUS_OPERATOR_SDK_CONTROLLERS_KEYCLOAKCONTROLLER_NAMESPACES: JOSDK_ALL_NAMESPACES
+        QUARKUS_OPERATOR_SDK_CONTROLLERS_KEYCLOAKOIDCCLIENTCONTROLLER_NAMESPACES: JOSDK_ALL_NAMESPACES
+      ports:
+        http:
+          service_port: 80
+          container_port: 8080
+          app_protocol: ""
+      service:
+        type: ClusterIP
+        annotations: ${applications.keycloak-operator.annotations}
+      healthcheck:
+        startup:
+          type: http
+          path: /q/health/started
+          port: 8080
+          initial_delay_seconds: 5
+          timeout_seconds: 10
+        liveness:
+          type: http
+          path: /q/health/live
+          port: 8080
+          initial_delay_seconds: 5
+          timeout_seconds: 10
+        readiness:
+          type: http
+          path: /q/health/ready
+          port: 8080
+          initial_delay_seconds: 5
+          timeout_seconds: 10
+      resources:
+        requests:
+          cpu: 300m
+          memory: 450Mi
+        limits:
+          cpu: 700m
+          memory: 450Mi
+  generators:
+    kubernetes:
+      rbac:
+        keycloak-operator-clusterrole:
+          cluster_wide: true
+          service_accounts: ${applications.keycloak-operator.service_accounts}
+          rules:
+            - apiGroups: [config.openshift.io]
+              resources: [ingresses]
+              verbs: [get]
+        keycloak-operator-view:
+          cluster_role: view
+          namespaces:
+            - ${namespace}
+          service_accounts: ${applications.keycloak-operator.service_accounts}
+        keycloak-operator-keycloakcontroller:
+          cluster_wide: true
+          service_accounts: ${applications.keycloak-operator.service_accounts}
+          rules:
+            - apiGroups: [k8s.keycloak.org]
+              resources: [keycloaks, keycloaks/status, keycloaks/finalizers]
+              verbs: [get, list, watch, patch, update, create, delete]
+            - apiGroups: [""]
+              resources: [services]
+              verbs: [create, delete, get, list, patch, update, watch]
+            - apiGroups: [monitoring.coreos.com]
+              resources: [servicemonitors]
+              verbs: [create, delete, get, list, patch, update, watch]
+            - apiGroups: [networking.k8s.io]
+              resources: [networkpolicies]
+              verbs: [create, delete, get, list, patch, update, watch]
+            - apiGroups: [apps]
+              resources: [statefulsets]
+              verbs: [create, delete, get, list, patch, update, watch]
+            - apiGroups: [networking.k8s.io]
+              resources: [ingresses]
+              verbs: [create, delete, get, list, patch, update, watch]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [create, delete, get, list, watch]
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [pods]
+              verbs: [list]
+            - apiGroups: [""]
+              resources: [pods/log]
+              verbs: [get]
+        keycloak-operator-keycloakrealmimportcontroller:
+          cluster_wide: true
+          service_accounts: ${applications.keycloak-operator.service_accounts}
+          rules:
+            - apiGroups: [k8s.keycloak.org]
+              resources:
+                - keycloakrealmimports
+                - keycloakrealmimports/status
+                - keycloakrealmimports/finalizers
+              verbs: [get, list, watch, patch, update, create, delete]
+            - apiGroups: [batch]
+              resources: [jobs]
+              verbs: [create, delete, get, list, patch, watch]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [create, delete, get, list, patch, update, watch]
+        keycloak-operator-keycloakoidcclientcontroller:
+          cluster_wide: true
+          service_accounts: ${applications.keycloak-operator.service_accounts}
+          rules:
+            - apiGroups: [k8s.keycloak.org]
+              resources:
+                - keycloakoidcclients
+                - keycloakoidcclients/status
+                - keycloakoidcclients/finalizers
+              verbs: [get, list, watch, patch, update, create, delete]
+        keycloak-operator-keycloaksamlclientcontroller:
+          cluster_wide: true
+          service_accounts: ${applications.keycloak-operator.service_accounts}
+          rules:
+            - apiGroups: [k8s.keycloak.org]
+              resources:
+                - keycloaksamlclients
+                - keycloaksamlclients/status
+                - keycloaksamlclients/finalizers
+              verbs: [get, list, watch, patch, update, create, delete]

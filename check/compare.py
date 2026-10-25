@@ -364,6 +364,14 @@ def classify(d, chart_obj, recipe_obj, ctx):
     if last == "securityContext" and "containers" in path and {_canon(d.chart), _canon(d.recipe)} == {_canon(MISSING), "{}"}:
         return EXPLICIT_DEFAULT
 
+    # cert-manager 1.18 and later default a Certificate's rotationPolicy to Always.
+    if kind == "Certificate" and recipe_obj.get("apiVersion", "").startswith("cert-manager.io/"):
+        unset = _canon(MISSING)
+        if (path == ["spec", "privateKey", "rotationPolicy"] and {_canon(d.chart), _canon(d.recipe)} == {unset, '"Always"'}) or (
+            path == ["spec", "privateKey"] and {_canon(d.chart), _canon(d.recipe)} == {unset, _canon({"rotationPolicy": "Always"})}
+        ):
+            return EXPLICIT_DEFAULT
+
     if last in ("targetPort", "port"):
         if kind == "Service" and last == "targetPort":
             for side, value, other in (("chart", d.chart, d.recipe), ("recipe", d.recipe, d.chart)):
