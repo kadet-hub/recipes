@@ -182,6 +182,18 @@ file into the target is ruled out by RCP-17, and it fetches without a
 checksum. An application on such an operator follows DEC-14, as `rabbitmq`
 does on the RabbitMQ Cluster Operator.
 
+DEC-16: A recipe that rebuilds what a copyleft chart renders, without
+copying its text, is not a derivative of the chart and is published under
+this repository's Apache-2.0 (Nextcloud). The recipe takes from the chart
+what the image and the Kubernetes API dictate: field names, ports, paths,
+probe values. It carries no template, file or values text of the chart,
+and neither the recipe nor the registry ships the chart; `check` fetches
+it in CI only to compare. AGPL-3.0 section 13 concerns a modified program
+run as a network service, and the chart is neither run nor modified. This
+is the maintainer's reading, not legal advice. The remaining risk is that
+the selection and arrangement of those values counts as expression; it is
+accepted. Text that is copied falls under RCP-42.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -355,7 +367,10 @@ belong in the recipe.
   value the chart computes from its templates, such as a `checksum/*` pod
   annotation, is written as the chart renders it with `tests/values.yaml`,
   and the README says that it does not follow a change of the recipe.
-  `check lint` cannot tell copied text from written text.
+  `check lint` cannot tell copied text from written text. For a chart
+  under a copyleft license the review compares the recipe's lines with the
+  chart's templates, `files/` and `values.yaml` verbatim, as for nextcloud
+  (DEC-16).
 
   - Test: manual: review; CI `check` job
   - Since: #10
@@ -1275,9 +1290,10 @@ and drops its `path` (`pkg/gateway/httproute.go`), so on kind the redirect
 would keep the path.
 
 The chart is AGPL-3.0. The first version copies no text from its
-templates, so RCP-42 does not apply to it. Whether the recipe is a
-derivative of the chart is reviewed before the first `nextcloud` release
-(OQ-14).
+templates, so RCP-42 does not apply to it, and DEC-16 publishes it under
+Apache-2.0. Of the recipe's 41 lines of 30 characters or more, one occurs
+verbatim in the chart 9.4.1 (templates, `files/`, `values.yaml`): the label
+`app.kubernetes.io/monitor: enabled`.
 
 ## Keycloak
 
@@ -2243,10 +2259,6 @@ feature's design (OQ-6).
 - OQ-12: Do notify_push, an office server and imaginary become recipes
   that `nextcloud` includes, options of `nextcloud`, or recipes of their
   own that the target combines with it?
-- OQ-14: Is a recipe that rebuilds what the AGPL-3.0 nextcloud chart
-  renders a derivative of the chart, and does that change how it is
-  published under this repository's Apache-2.0? It copies no template
-  text. To be answered before the first `nextcloud` release.
 - OQ-16: Should `keycloak` render a route to a Gateway the target names,
   as `nextcloud` does? Keycloak serves HTTPS only, so the Gateway would
   need a BackendTLSPolicy towards port 8443 or TLS passthrough, and
