@@ -144,6 +144,18 @@ proof (Included recipes). An operator included like a database would be
 rendered by every target that uses it, and two operators would reconcile
 the same objects.
 
+DEC-14: A project that runs its application through its own operator, and
+ships a chart for the operator but none for the application, gets two
+recipes (Keycloak). The operator is a chart recipe and a prerequisite
+(DEC-13). The application is a designed recipe that renders the operator's
+custom resource with the project's image as its source (DEC-11, RCP-58).
+Deploying the image with the `kubernetes` generator was considered. It
+would replace the operator, whose upgrade and configuration logic the
+project maintains, with a workload that nobody upstream maintains, and the
+project's deployment guides for Kubernetes use the operator.
+mongodb did not take this path because no kadet-hub generator renders
+MongoDB's resources (Designed recipes).
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -682,6 +694,22 @@ back over DNS.
   - Test: manual: review; CI `check` job
   - Since: #14
 
+- RCP-58: A designed recipe whose image the project's operator runs MUST
+  set the image of its `Source` line as `spec.image` of the custom resource
+  it renders for that operator, and MUST require the operator's recipe
+  (RCP-54). `check lint` MUST accept a compiled object's `spec.image` as
+  the image that RCP-23 asks a container to run.
+
+  The operator creates the workload and its Services from the resource, so
+  the compiled recipe has no container to lint. The resource is no RBAC
+  object and selects no pods, so RCP-44 holds as it is. `check` waits only
+  for the rollouts of compiled workloads, so `tests/smoke` waits for the
+  resource to be ready and then reaches the Services the operator created
+  (RCP-45).
+
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
+  - Since: not implemented
+
 ## Recipes from kadet-hub/examples
 
 kadet-hub/examples carried recipes as single classes, written in kadet-hub
@@ -1018,6 +1046,143 @@ templates, so RCP-42 does not apply to it. Whether the recipe is a
 derivative of the chart is reviewed before the first `nextcloud` release
 (OQ-14).
 
+## Keycloak
+
+The Keycloak project's guides deploy Keycloak on Kubernetes through the
+Keycloak Operator. The one exception is the getting-started guide, which
+applies an example manifest from the `main` branch of
+keycloak/keycloak-quickstarts. The project ships no chart, Kustomize base or
+compose file for a Keycloak server. With each release it ships the operator
+three ways: an OLM bundle, which its installation guide recommends, a
+Kustomize base in keycloak/keycloak-k8s-resources, and a Helm chart at
+`oci://quay.io/keycloak/keycloak-operator-helm`, which the guide calls
+experimental (`docs/guides/operator/installation.adoc` of keycloak/keycloak
+26.8.1). The Quarkus Helm extension generates the chart from the same
+manifests as the Kustomize base, and the chart names the Keycloak Team as
+maintainer (`operator/README.md`). quay.io lists it from 26.8.0 on. The
+`keycloak` generator 1.0.3, built for operator 26.8.1, renders Keycloak's
+resources. Keycloak therefore moves from kadet-hub/examples as two recipes
+(DEC-14):
+
+| Recipe | Source | Role |
+|---|---|---|
+| `keycloak-operator` | `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:650f7e1021def78ff799aa5ada703818a1a7d0e3cb6ee7eba6d5e1b557656a17`, from keycloak/keycloak, Apache-2.0 | prerequisite of `keycloak`: the operator, its RBAC and, as option `crds`, its four CRDs |
+| `keycloak` | `quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b` | one `Keycloak` resource and its certificate, includes `postgresql`, requires `keycloak-operator` and `cert-manager` |
+
+### The operator
+
+The chart installs the operator cluster-wide. Its four controllers watch
+every namespace (`JOSDK_ALL_NAMESPACES`) with ClusterRoles. The guide calls
+that mode a preview. In it a `Keycloak` resource cannot set its own
+ServiceAccount, and one operator supports only the Keycloak version it was
+released with. The recipe keeps the chart's default, because a
+prerequisite runs once per cluster in a target of its own (DEC-13). Its
+`tests/target.yml` installs it in the namespace `keycloak-operator`, as the
+guide does. A target narrows the watch through the four `*_NAMESPACES`
+variables.
+
+The Kustomize base was considered as the source. Its operator watches only
+its own namespace, so it would have to run in the namespace of every
+Keycloak it serves, and `check` takes no Kustomize source (RCP-23). OLM
+would have to be installed on the cluster first.
+
+The kadet-hub/examples recipe installed the operator from this chart through
+a `helm` compile entry, which RCP-17 rules out here, and restricted its
+controllers to their own namespace.
+
+The recipe rebuilds the chart's objects with the `kubernetes` generator.
+The four CRDs are vendored from keycloak/keycloak-k8s-resources at tag
+26.8.1, whose files equal the chart's and which carries the Apache-2.0
+license that RCP-35 asks for. The chart package has no license file. The
+chart passes the default Keycloak image to the operator by tag, in
+`RELATED_IMAGE_KEYCLOAK` and `kc.operator.keycloak.image`. The recipe pins
+both by digest (RCP-6), and `tests/values.yaml` sets the same values. The
+chart's Deployment, pod template, Service and ServiceAccount carry
+`app.quarkus.io/*` annotations with the build's commit and time. RCP-9
+compares them, so the recipe writes them as the chart renders them.
+
+The project rebuilds a release from the same source revision and moves the
+version tag to the new build. On 2026-10-25 the image tag `26.8.1` pointed
+to the build of 2026-10-23, also tagged `26.8.1-1`. `26.8.1-0` is the build
+of the release day, 2026-10-13. The chart's 26.8.1 was also created on
+2026-10-23, so its digest and build annotations change with a rebuild.
+
+### The Keycloak resource
+
+`keycloak` renders the `Keycloak` resource `keycloak` in the target's
+namespace. The operator creates the StatefulSet `keycloak`, the Services
+`keycloak-service` and `keycloak-discovery`, and the Secret
+`keycloak-initial-admin` with a generated password for a temporary admin.
+The resource sets the image of the `Source` line (RCP-58). With an image
+set, the operator starts Keycloak with `--optimized`, which assumes an
+image built for its configuration (`KeycloakDeploymentDependentResource.java`).
+The project's image is not built for PostgreSQL, so the recipe sets
+`startOptimized: false` and Keycloak builds at start, as in the examples
+recipe.
+
+The database is the included recipe `postgresql` (DEC-4, DEC-12). Keycloak
+connects to the Service `postgresql-cluster-rw` and the database `app`.
+CloudNativePG creates `app` with the owner `app` when the chart sets no
+`initdb`. The user and password are the keys `username` and `password` of
+the Secret `postgresql-cluster-app`, the keys the generator's
+`credentials_secret` reads. Keycloak 26.8.1 is tested against PostgreSQL 18
+(`postgresql.version` in its `pom.xml`), the version `postgresql` runs.
+
+Keycloak serves HTTPS on port 8443 with the Secret `keycloak-tls`. The
+cert-manager Certificate `keycloak-tls` issues it for the host and for
+`keycloak-service.<namespace>.svc`, from an issuer the target names. The
+certificate's common name is the host. The examples recipe set it because
+Keycloak rejected its self-signed certificate with an empty issuer DN.
+
+The operator renders an Ingress unless `ingress.enabled` is false. The
+recipe turns it off, as the examples recipe did, and leaves exposure to the
+target (OQ-16).
+
+The target sets `applications.keycloak.host` and
+`applications.keycloak.issuer`, the issuer's `name` and `kind`.
+`postgresql` requires no parameter (RCP-51).
+
+### Moving from kadet-hub/examples
+
+The examples recipe rendered the Namespace `keycloak`, the three operators
+from their charts, the CloudNativePG Cluster `keycloak-db`, the self-signed
+Issuer `keycloak-selfsigned`, the Certificate `sso-tls` and the Keycloak
+`sso`. The operators become the prerequisites `keycloak-operator`,
+`cert-manager` and `cloudnative-pg`, each in a target of its own. The old
+operator in the namespace `keycloak` has to be gone before
+`keycloak-operator` starts, or both reconcile the same resource. RCP-3
+renames `sso` to `keycloak`, and with it the objects the operator derives
+from the name.
+
+Keycloak keeps its realms, users and sessions in the database, and the
+database does not carry over by name. The data is in the Cluster
+`keycloak-db`, database `keycloak`, and the recipe connects to
+`postgresql-cluster`, database `app`. A target moving from the examples
+recipe imports the old database into the new Cluster with CloudNativePG's
+import bootstrap (`bootstrap.initdb.import` of type `microservice`) before
+Keycloak first starts on it, and the README's `Replaces` section gives the
+values. The import is not tested yet. Keeping the Cluster `keycloak-db` in
+`keycloak` was considered. It would keep the data in place, but repeat the
+Cluster that `postgresql` proves and pins, so Keycloak and Nextcloud would
+run their databases two ways.
+
+### Proof
+
+Both are at level `deploys`. `keycloak-operator`'s `tests/smoke` creates a
+`Keycloak` resource in another namespace than the operator's and waits for
+its StatefulSet, which needs the CRDs, the cluster-wide watch and the
+ClusterRoles.
+
+For `keycloak`, `check` installs `keycloak-operator`, `cert-manager` and,
+through `postgresql`, `cloudnative-pg` (RCP-55), and applies `postgresql`
+with the recipe (RCP-49). `tests/target.yml` adds the self-signed Issuer
+`keycloak-selfsigned` and sets it as the issuer. `tests/smoke` waits for the
+Cluster and the `Keycloak` to be ready. Through `keycloak-service`, with the
+host name and the CA of `keycloak-tls`, it then gets `/realms/master` and a
+token for the temporary admin of `keycloak-initial-admin`, which needs the
+database. The examples recipe checked the readiness and `/realms/master`
+over TLS.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -1142,10 +1307,19 @@ first command.
   moves to. Docker Hub lists the repository's 11 tags on one page, so
   Renovate gets their release timestamps.
 
+  A package rule groups the `Source` lines of `keycloak-operator` and
+  `keycloak` into one pull request, because one operator supports only the
+  Keycloak version it was released with (Keycloak). Keycloak has no
+  long-term support line, so no rule holds the version. The rebuild tags
+  such as `26.8.1-1` carry a suffix, which Renovate's docker versioning
+  proposes for no pin without one, so a rebuild reaches the pins as a new
+  digest of `26.8.1`.
+
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19
+  - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
+    keycloak: not implemented
 
 ### Releasing
 
@@ -1455,6 +1629,12 @@ feature's design (OQ-6).
   consumer clone compiles nextcloud with the fetch inventory pinning
   nextcloud, postgresql and valkey at one commit, and the first nextcloud
   tag follows tags of postgresql and valkey whose trees it contains.
+- AC-18 (RCP-55, RCP-58): `check lint` fails on a designed recipe whose
+  `Source` image neither a container runs nor a `spec.image` sets, and
+  passes on keycloak. `check keycloak-operator --level deploys` and
+  `check keycloak --level deploys` pass in CI, and the latter's report
+  lists `postgresql` as included and `keycloak-operator`, `cert-manager`
+  and `cloudnative-pg` as installed.
 - AC-11 (RCP-41, RCP-42): valkey passes `check valkey --level deploys` in
   CI, its README names the kadet-hub/examples recipe it replaces, and
   `valkey.yml` names the chart file of its init script and has
@@ -1522,6 +1702,11 @@ feature's design (OQ-6).
   renders a derivative of the chart, and does that change how it is
   published under this repository's Apache-2.0? It copies no template
   text. To be answered before the first `nextcloud` release.
+- OQ-16: Should `keycloak` render a route to a Gateway the target names,
+  as `nextcloud` does? Keycloak serves HTTPS only, so the Gateway would
+  need a BackendTLSPolicy towards port 8443 or TLS passthrough, and
+  whether cloud-provider-kind 0.12.0 implements either is not checked.
+  Until then the target exposes `keycloak-service`.
 
 ## Implementation inventory
 
@@ -1540,6 +1725,7 @@ feature's design (OQ-6).
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
+| `check/lint.py` | `spec.image` of a designed recipe on an operator (RCP-58) |
 
 | Value | Setting |
 |---|---|
@@ -1558,3 +1744,5 @@ feature's design (OQ-6).
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cloudnative-pg`, level `deploys` |
 | cloudnative-pg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, level `deploys` |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
+| keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.0.3, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator` and `cert-manager`, level `deploys` |
