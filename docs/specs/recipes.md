@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.5.0 implements renders and deploys, also from
+Status: Draft. check 0.6.0 implements renders and deploys, also from
         release manifests (RCP-59), for compose sources and designed
         recipes deploys (RCP-38, RCP-44, RCP-58), included recipes and
         prerequisites (RCP-47 to RCP-50, RCP-54, RCP-55); migrates (RCP-14),
