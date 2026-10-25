@@ -1,0 +1,177 @@
+parameters:
+  components:
+    nextcloud:
+      application: nextcloud
+      image: docker.io/library/nextcloud:${applications.nextcloud.version}-apache@sha256:89af7ee7a96ff5e9668280566209268ae6b2d02327f6ef6d56f6d68228cf9431
+      update_strategy:
+        type: Recreate
+      env:
+        OVERWRITEPROTOCOL: https
+        POSTGRES_HOST:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: host
+        POSTGRES_DB:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: dbname
+        POSTGRES_USER:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: username
+        POSTGRES_PASSWORD:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+        DATABASE_URL: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST)/$(POSTGRES_DB)
+        REDIS_HOST: valkey
+        REDIS_HOST_PORT: "6379"
+        REDIS_HOST_PASSWORD:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+        REDIS_URL: redis://:$(REDIS_HOST_PASSWORD)@$(REDIS_HOST):$(REDIS_HOST_PORT)
+        NEXTCLOUD_ADMIN_USER:
+          secretKeyRef:
+            name: nextcloud
+            key: nextcloud-username
+        NEXTCLOUD_ADMIN_PASSWORD:
+          secretKeyRef:
+            name: nextcloud
+            key: nextcloud-password
+        NEXTCLOUD_TRUSTED_DOMAINS: ${applications.nextcloud.host}
+        OPENMETRICS_ALLOWED_CLIENTS: 127.0.0.1,10.42.0.0/16,10.43.0.0/16
+        NEXTCLOUD_DATA_DIR: /var/www/html/data
+      ports:
+        http:
+          container_port: 80
+      healthcheck:
+        liveness: &probe
+          type: http
+          port: 80
+          path: /status.php
+          httpHeaders:
+            - name: Host
+              value: ${applications.nextcloud.host}
+          initial_delay_seconds: 10
+        readiness: *probe
+        # The chart's startupProbe: the image installs only on its first start.
+        startup:
+          type: http
+          port: 80
+          path: /status.php
+          httpHeaders:
+            - name: Host
+              value: ${applications.nextcloud.host}
+          initial_delay_seconds: 30
+          failure_threshold: 30
+      automount_service_account_token: true
+      workload_security_context:
+        fsGroup: 33
+      # The chart's hashes of its rendered config, PHP config and hooks.
+      # They do not follow a change of the recipe.
+      pod_annotations:
+        nextcloud-config-hash: 2c620d6eac4314c9a69fdfb299af32077aa552fd06db46dbb6c56d93803f75f6
+        php-config-hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+        hooks-hash: 9525c2748a6c7cd0e28ec740623d0b3fa5a75c83b51ccfd136bc89c76737b204
+      volume_mounts:
+        root:
+          volume: nextcloud-main
+          mount_path: /var/www/
+          sub_path: root
+        html:
+          volume: nextcloud-main
+          mount_path: /var/www/html
+          sub_path: html
+        data:
+          volume: nextcloud-data
+          mount_path: /var/www/html/data
+          sub_path: data
+        config:
+          volume: nextcloud-main
+          mount_path: /var/www/html/config
+          sub_path: config
+        custom_apps:
+          volume: nextcloud-main
+          mount_path: /var/www/html/custom_apps
+          sub_path: custom_apps
+        tmp:
+          volume: nextcloud-main
+          mount_path: /var/www/tmp
+          sub_path: tmp
+        themes:
+          volume: nextcloud-main
+          mount_path: /var/www/html/themes
+          sub_path: themes
+      volumes:
+        nextcloud-main:
+          persistentVolumeClaim:
+            claimName: nextcloud-nextcloud
+        nextcloud-data:
+          persistentVolumeClaim:
+            claimName: nextcloud-nextcloud-data
+      persistent_volume_claims:
+        nextcloud-nextcloud:
+          storage: 8Gi
+        nextcloud-nextcloud-data:
+          storage: 8Gi
+      # The chart's cronjob.type sidecar: busybox crond as root, every 5 minutes.
+      additional_containers:
+        nextcloud-cron:
+          image: ${components.nextcloud.image}
+          command:
+            - /cron.sh
+          env: ${components.nextcloud.env}
+          volume_mounts: ${components.nextcloud.volume_mounts}
+  generators:
+    kubernetes:
+      # The chart labels only the Service, which a component's labels cannot.
+      services:
+        nextcloud:
+          type: ClusterIP
+          labels:
+            app.kubernetes.io/monitor: enabled
+          selector:
+            name: nextcloud
+          ports:
+            http:
+              service_port: 8080
+              container_port: 80
+              app_protocol: ""
+      # A component Secret would also be mounted as a volume.
+      secrets:
+        nextcloud:
+          string_data:
+            nextcloud-username:
+              value: ${applications.nextcloud.admin.username}
+            nextcloud-password:
+              value: ${applications.nextcloud.admin.password}
+      routes:
+        nextcloud:
+          hostnames:
+            - ${applications.nextcloud.host}
+          parent_refs:
+            - name: ${applications.nextcloud.gateway.name}
+              namespace: ${applications.nextcloud.gateway.namespace}
+              section_name: ${applications.nextcloud.gateway.section}
+          rules:
+            carddav:
+              matches:
+                carddav:
+                  type: Exact
+                  value: /.well-known/carddav
+              redirect: &dav
+                replace_full_path: /remote.php/dav
+                status_code: 301
+            caldav:
+              matches:
+                caldav:
+                  type: Exact
+                  value: /.well-known/caldav
+              redirect: *dav
+            nextcloud:
+              matches:
+                root:
+                  value: /
+              name: nextcloud
+              port: 8080

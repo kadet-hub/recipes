@@ -1,0 +1,45 @@
+nextcloud:
+  host: nextcloud.example.com
+  trustedDomains:
+    - nextcloud.example.com
+  password: smoke-password
+internalDatabase:
+  enabled: false
+externalDatabase:
+  enabled: true
+  type: postgresql
+  existingSecret:
+    enabled: true
+    secretName: postgresql-cluster-app
+    usernameKey: username
+    passwordKey: password
+    hostKey: host
+    databaseKey: dbname
+externalRedis:
+  enabled: true
+  host: valkey
+  existingSecret:
+    enabled: true
+    secretName: valkey-auth
+    passwordKey: default-password
+httpRoute:
+  enabled: true
+  hostnames:
+    - nextcloud.example.com
+  parentRefs:
+    - name: gateway
+      namespace: gateway
+      sectionName: http
+persistence:
+  enabled: true
+  nextcloudData:
+    enabled: true
+cronjob:
+  enabled: true
+phpClientHttpsFix:
+  enabled: true
+startupProbe:
+  enabled: true
+# The chart's default renders dnsConfig with an empty options list, which the
+# generator has no key for.
+dnsConfig: null
