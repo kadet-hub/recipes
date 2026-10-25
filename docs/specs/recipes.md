@@ -7,7 +7,8 @@ Status: Draft. check 0.3.0 implements renders and deploys, for compose
         implemented; RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
-                  #14, mysql at deploys; #17, mongodb at deploys
+                  #14, mysql at deploys; #17, mongodb at deploys;
+                  this change, keycloak-operator at deploys
 ```
 
 ## Problem
@@ -1281,8 +1282,8 @@ first command.
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17, #20; keycloak: not
-    implemented
+  - Since: #3; designed recipes: #14; mongodb: #17, #20; keycloak: this
+    change
 
 ### Releasing
 
