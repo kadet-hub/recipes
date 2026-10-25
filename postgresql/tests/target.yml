@@ -1,0 +1,7 @@
+classes:
+  - recipes.postgresql
+parameters:
+  namespace: postgresql
+  kapitan:
+    vars:
+      target: postgresql

@@ -40,6 +40,19 @@ RELEASE_IDENTITY = "https://github.com/kadet-hub/registry/.github/workflows/rele
 BUILTIN_ROLES = ("view", "edit", "admin")
 SYSTEM_NAMESPACES = {"default", "kube-system", "kube-public", "kube-node-lease"}
 WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet")
+# gateway-api (RCP-55): the Gateway each recipe's tests/target.yml attaches its routes to.
+GATEWAY = {
+    "apiVersion": "gateway.networking.k8s.io/v1",
+    "kind": "Gateway",
+    "metadata": {"name": "gateway", "namespace": "gateway"},
+    "spec": {
+        "gatewayClassName": "cloud-provider-kind",
+        "listeners": [{"name": "http", "port": 80, "protocol": "HTTP", "allowedRoutes": {"namespaces": {"from": "All"}}}],
+    },
+}
+GATEWAY_CRDS = ("gateways.gateway.networking.k8s.io", "httproutes.gateway.networking.k8s.io")
+# What a renders proof applies for real, of the recipe and of its prerequisites (RCP-26, RCP-55).
+GRANTING_KINDS = ("Namespace", "CustomResourceDefinition", "ServiceAccount", *compare.RBAC_KINDS)
 
 
 class Failed(Exception):
@@ -72,12 +85,14 @@ def run(cmd, *, cwd=None, env=None, input=None, timeout=900):
 
 
 def generator_sources(recipe):
-    """The ghcr.io/kadet-hub/ dependencies the recipe pins."""
+    """The ghcr.io/kadet-hub/ dependencies the recipe and the recipes it includes pin (RCP-49)."""
     out = []
-    for path in lint.class_files(recipe):
+    paths = [p for r in [recipe, *(recipe.parent / o for o in lint.included(recipe))] for p in lint.class_files(r)]
+    for path in paths:
         doc = yaml.safe_load(path.read_text()) or {}
         for dep in ((doc.get("parameters") or {}).get("kapitan") or {}).get("dependencies") or []:
-            out.append((dep["source"], dep["output_path"]))
+            if (dep["source"], dep["output_path"]) not in out:
+                out.append((dep["source"], dep["output_path"]))
     return out
 
 
@@ -145,7 +160,9 @@ def render_chart(name, recipe, tgz, namespace):
 
 def build_project(recipe, work):
     project = work / "project"
-    shutil.copytree(recipe, project / "inventory/classes/recipes" / recipe.name, ignore=shutil.ignore_patterns("tests"))
+    for r in [recipe, *(recipe.parent / o for o in lint.included(recipe))]:
+        # An included recipe from the same commit (RCP-49).
+        shutil.copytree(r, project / "inventory/classes/recipes" / r.name, ignore=shutil.ignore_patterns("tests"))
     (project / "inventory/targets").mkdir(parents=True)
     shutil.copy(recipe / "tests/target.yml", project / "inventory/targets" / f"{recipe.name}.yml")
     (project / ".kapitan").write_text("global:\n  inventory-backend: omegaconf\n")
@@ -188,6 +205,15 @@ def objects_of(files):
 # Clusters
 
 
+def drop_nulls(value):
+    """A null in a manifest leaves the field unset; a server-side apply rejects it instead."""
+    if isinstance(value, dict):
+        return {k: drop_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [drop_nulls(v) for v in value]
+    return value
+
+
 class Cluster:
     def __init__(self, name, work):
         self.name = name
@@ -206,7 +232,11 @@ class Cluster:
     def apply(self, objs, *flags):
         if not objs:
             return []
-        return compare.unwrap([json.loads(self.kubectl("apply", *flags, "-o", "json", "-f", "-", input=dump_all(objs)))])
+        objs = [drop_nulls(o) for o in objs]
+        # Server-side: a client-side apply stores the object as an annotation,
+        # which the API rejects for CRDs above 256 KiB, such as CloudNativePG's.
+        return compare.unwrap([json.loads(self.kubectl(
+            "apply", "--server-side", "--field-manager", "check", *flags, "-o", "json", "-f", "-", input=dump_all(objs)))])
 
     def wait_aggregation(self, objs, timeout=60):
         """The built-in roles carry the rules of the ClusterRoles that aggregate into them."""
@@ -236,9 +266,91 @@ def prepare(cluster, namespaces, namespace):
     cluster.kubectl("config", "set-context", "--current", "--namespace", namespace)
 
 
-def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces):
+def prerequisites(recipe, work):
+    """RCP-55: each recipe on the Requires line, compiled from its own tests/target.yml."""
+    out = []
+    names = []
+    for r in [recipe, *(recipe.parent / o for o in lint.included(recipe))]:
+        names += [n for n in lint.requires(r) or [] if n not in names]
+    for name in names:
+        if name == lint.GATEWAY_API:
+            out.append((name, None, []))
+            continue
+        other = recipe.parent / name
+        sub = work / "requires" / name
+        sub.mkdir(parents=True)
+        project = build_project(other, sub)
+        notes = fetch_generators(other, project, sub)
+        compile_recipe(project, sub / "out")
+        out.append((name, objects_of(compiled_files(sub / "out", name)), notes))
+    return out
+
+
+def install(cluster, prereqs, full):
+    """RCP-55: the prerequisites on one cluster, at renders only what grants or defines, at deploys all of it."""
+    for _, objs, _ in prereqs:
+        if objs is None:
+            install_gateway_api(cluster, full)
+            continue
+        objs = objs if full else [o for o in objs if o["kind"] in GRANTING_KINDS]
+        namespaces = sorted({o["metadata"]["namespace"] for o in objs if o["metadata"].get("namespace")} - SYSTEM_NAMESPACES)
+        cluster.apply([{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": n}} for n in namespaces])
+        crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
+        if crds:
+            cluster.apply(crds)
+            cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s",
+                            *[f"crd/{o['metadata']['name']}" for o in crds])
+        cluster.apply([o for o in objs if o["kind"] != "CustomResourceDefinition"])
+        if full:
+            wait_rollouts(cluster, objs)
+
+
+def install_gateway_api(cluster, full):
+    """cloud-provider-kind installs the Gateway API CRDs on each kind cluster; at deploys add the Gateway."""
+    deadline = time.monotonic() + 180
+    while subprocess.run(["kubectl", "--kubeconfig", str(cluster.kubeconfig), "get", *[f"crd/{c}" for c in GATEWAY_CRDS]],
+                         capture_output=True).returncode:
+        if time.monotonic() > deadline:
+            raise Failed(f"{cluster.name}: cloud-provider-kind installed no Gateway API CRDs")
+        time.sleep(2)
+    cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s", *[f"crd/{c}" for c in GATEWAY_CRDS])
+    if full:
+        cluster.apply([{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "gateway"}}, GATEWAY])
+        cluster.kubectl("wait", "-n", "gateway", "gateway/gateway", "--for", "condition=Programmed", "--timeout", "180s")
+
+
+class GatewayProvider:
+    """cloud-provider-kind for the duration of a proof that requires gateway-api (RCP-55)."""
+
+    def __init__(self, prereqs, work):
+        self.proc = None
+        if any(objs is None for _, objs, _ in prereqs):
+            self.log = open(work / "cloud-provider-kind.log", "w")
+            self.proc = subprocess.Popen(["cloud-provider-kind", "--enable-default-ingress=false"],
+                                         stdout=self.log, stderr=subprocess.STDOUT)
+
+    def stop(self):
+        if self.proc:
+            self.proc.terminate()
+            try:
+                self.proc.wait(30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+            self.log.close()
+
+
+def wait_rollouts(cluster, objs):
+    for o in objs:
+        if o["kind"] in WORKLOADS:
+            meta = o["metadata"]
+            cluster.kubectl("rollout", "status", f"{o['kind'].lower()}/{meta['name']}",
+                            "-n", meta.get("namespace", "default"), "--timeout", "300s")
+
+
+def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces, prereqs=()):
     """RCP-8, RCP-26: the API server's view of one side and what each subject may do."""
     prepare(cluster, namespaces, namespace)
+    install(cluster, prereqs, full=False)
     crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
     rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
     if crds:
@@ -262,14 +374,16 @@ def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces):
     return stored, permissions
 
 
-def deploy(cluster, objs, recipe):
+def deploy(cluster, objs, recipe, prereqs=()):
     """RCP-26: install for real, wait for every workload, run tests/smoke."""
-    cluster.apply(objs)
-    for o in objs:
-        if o["kind"] in WORKLOADS:
-            meta = o["metadata"]
-            cluster.kubectl("rollout", "status", f"{o['kind'].lower()}/{meta['name']}",
-                            "-n", meta.get("namespace", "default"), "--timeout", "300s")
+    install(cluster, prereqs, full=True)
+    crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
+    if crds:
+        cluster.apply(crds)
+        cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s",
+                        *[f"crd/{o['metadata']['name']}" for o in crds])
+    cluster.apply([o for o in objs if o["kind"] != "CustomResourceDefinition"])
+    wait_rollouts(cluster, objs)
     env = {**os.environ, "KUBECONFIG": str(cluster.kubeconfig)}
     return run([str((recipe / "tests/smoke").resolve())], cwd=recipe, env=env, timeout=600)
 
@@ -293,8 +407,22 @@ def cmd_lint(recipe, work):
     if source[0] == "design":
         return lint.lint_output(recipe.name, objs, set()) + lint.lint_design_output(objs, source[1]), notes
     chart, _ = render_chart(recipe.name, recipe, fetch_chart(source[1], work), namespace)
-    errors = lint.lint_output(recipe.name, objs, {o["metadata"]["name"] for o in chart})
+    own, included = owned(recipe, objs)
+    errors = lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart})
+    for other, other_objs in included.items():
+        errors += lint.lint_output(other, other_objs, set())
     return errors, notes
+
+
+def owned(recipe, objs):
+    """RCP-49: an object belongs to the recipe whose name is the longest prefix of its name."""
+    names = sorted([recipe.name, *lint.included(recipe)], key=len, reverse=True)
+    own, included = [], {n: [] for n in names if n != recipe.name}
+    for o in objs:
+        name = o["metadata"].get("name", "")
+        owner = next((n for n in names if name.startswith(n)), recipe.name)
+        (own if owner == recipe.name else included[owner]).append(o)
+    return own, included
 
 
 def cmd_check(recipe, level, work, keep):
@@ -334,6 +462,25 @@ def cmd_check(recipe, level, work, keep):
             say(f"hook left out: {h}" + ("" if listed else " NOT LISTED in README.md (RCP-25)"))
     files = compiled_files(work / "out", recipe.name)
     objs = objects_of(files)
+    prereqs = prerequisites(recipe, work)
+    for name, prereq_objs, prereq_notes in prereqs:
+        if prereq_objs is None:
+            say(f"requires: {name}, cloud-provider-kind with the Gateway gateway/gateway, installed before the proof")
+            continue
+        say(f"requires: {name}, {len(prereq_objs)} objects, installed before the proof")
+        for n in prereq_notes:
+            say(f"requires: {name}: generator: {n}, attestation and index verified")
+    gateways = GatewayProvider(prereqs, work)
+    try:
+        failed = proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs,
+                       chart if kind == "chart" else None, failed)
+    finally:
+        gateways.stop()
+    return report, failed
+
+
+def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed):
+    files = compiled_files(work / "out", recipe.name)
 
     project = work / "project"
     next_error = compile_next(project, work / "next")
@@ -351,20 +498,25 @@ def cmd_check(recipe, level, work, keep):
         try:
             prepare(cluster, {namespace} | {o["metadata"]["namespace"] for o in objs if o["metadata"].get("namespace")},
                     namespace)
-            say("smoke: " + (deploy(cluster, objs, recipe).strip().splitlines() or ["passed"])[-1])
+            say("smoke: " + (deploy(cluster, objs, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
             say("deploys: passed")
         finally:
             if not keep:
                 cluster.delete()
-        return report, failed
+        return failed
 
+    every = objs
+    objs, included = owned(recipe, every)
+    for other, other_objs in included.items():
+        for o in other_objs:
+            say(f"included {other}: `{o['kind']}/{o['metadata']['name']}`")
     subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)
     rbac_ns = compare.rbac_namespaces(chart + objs, subjects)
-    namespaces = {namespace} | {o["metadata"]["namespace"] for o in chart + objs if o["metadata"].get("namespace")}
+    namespaces = {namespace} | {o["metadata"]["namespace"] for o in chart + every if o["metadata"].get("namespace")}
     clusters = {side: Cluster(f"check-{recipe.name}-{side}-{os.getpid()}"[:50], work) for side in ("chart", "recipe")}
     try:
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
-            futures = {side: pool.submit(prove_side, clusters[side], side_objs, namespaces, namespace, subjects, rbac_ns)
+            futures = {side: pool.submit(prove_side, clusters[side], side_objs, namespaces, namespace, subjects, rbac_ns, prereqs)
                        for side, side_objs in (("chart", chart), ("recipe", objs))}
             (chart_stored, chart_perms), (recipe_stored, recipe_perms) = (futures[s].result() for s in ("chart", "recipe"))
 
@@ -396,7 +548,7 @@ def cmd_check(recipe, level, work, keep):
         if not failed:
             say("renders: passed")
         if level in ("deploys", "migrates") and not failed:
-            say("smoke: " + (deploy(clusters["recipe"], objs, recipe).strip().splitlines() or ["passed"])[-1])
+            say("smoke: " + (deploy(clusters["recipe"], every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
             say("deploys: passed")
         if level == "migrates":
             failed = True
@@ -405,7 +557,7 @@ def cmd_check(recipe, level, work, keep):
         if not keep:
             for c in clusters.values():
                 c.delete()
-    return report, failed
+    return failed
 
 
 def main(argv=None):

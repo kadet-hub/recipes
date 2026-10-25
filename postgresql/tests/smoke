@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# What the chart's left-out ping test checks, and the kadet-hub/examples
+# recipe before it: the Cluster is ready and the user app reaches its
+# database app through the read-write Service with the operator's Secret.
+set -euo pipefail
+kubectl wait cluster/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+secret() { kubectl get secret postgresql-cluster-app -o jsonpath="{.data.$1}" | base64 -d; }
+[[ $(secret host) == postgresql-cluster-rw ]]
+primary=$(kubectl get cluster postgresql-cluster -o jsonpath='{.status.currentPrimary}')
+result=$(kubectl exec "$primary" -c postgres -- env PGPASSWORD="$(secret password)" \
+  psql -h postgresql-cluster-rw -U "$(secret username)" -d "$(secret dbname)" -tAc 'select 1')
+[[ $result == 1 ]]
+echo "select 1 as app in app through postgresql-cluster-rw"

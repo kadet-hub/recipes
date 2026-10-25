@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# The stack through the Gateway of check (RCP-56): Nextcloud installed on
+# PostgreSQL, a file written over WebDAV as the admin reads back, which needs
+# the database, the file locking in Valkey and the data claim, and the
+# locking backend configured from REDIS_HOST.
+set -euo pipefail
+host=nextcloud.example.com
+kubectl wait cluster/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+address=$(kubectl -n gateway get gateway gateway -o jsonpath='{.status.addresses[0].value}')
+url=http://$address
+get() { curl -fsS -H "Host: $host" "$@"; }
+for _ in $(seq 60); do get "$url/status.php" 2>/dev/null | grep -q '"installed":true' && break; sleep 5; done
+get "$url/status.php" | grep -q '"installed":true'
+password=$(kubectl get secret nextcloud -o jsonpath='{.data.nextcloud-password}' | base64 -d)
+echo "written by tests/smoke" | get -u "admin:$password" -T - "$url/remote.php/dav/files/admin/smoke.txt"
+[[ $(get -u "admin:$password" "$url/remote.php/dav/files/admin/smoke.txt") == "written by tests/smoke" ]]
+locking=$(kubectl exec deployment/nextcloud -c nextcloud -- su -s /bin/sh -c "php /var/www/html/occ config:system:get memcache.locking" www-data)
+[[ $locking == '\OC\Memcache\Redis' ]]
+echo "status.php installed, WebDAV write and read through the Gateway, locking in Valkey"

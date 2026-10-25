@@ -1,0 +1,25 @@
+classes:
+  - recipes.nextcloud
+parameters:
+  namespace: nextcloud
+  kapitan:
+    vars:
+      target: nextcloud
+  # The values tests/values.yaml gives the chart, and the Gateway of check.
+  applications:
+    nextcloud:
+      host: nextcloud.example.com
+      admin:
+        password: smoke-password
+      gateway:
+        name: gateway
+        namespace: gateway
+        section: http
+    valkey:
+      password: smoke-password
+  # One instance is enough for the proof.
+  generators:
+    cloudnative-pg:
+      clusters:
+        postgresql-cluster:
+          instances: 1

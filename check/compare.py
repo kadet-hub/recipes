@@ -356,6 +356,13 @@ def classify(d, chart_obj, recipe_obj, ctx):
             if sa is None or sa.get("automountServiceAccountToken") is not False:
                 return EXPLICIT_DEFAULT
 
+    # The generator renders a container's securityContext as {} when the
+    # inventory sets none, which the API stores as it is.
+    if last == "securityContext" and "containers" in path and (
+        (d.chart is MISSING and d.recipe == {}) or (d.recipe is MISSING and d.chart == {})
+    ):
+        return EXPLICIT_DEFAULT
+
     if last in ("targetPort", "port"):
         if kind == "Service" and last == "targetPort":
             for side, value, other in (("chart", d.chart, d.recipe), ("recipe", d.recipe, d.chart)):

@@ -16,6 +16,9 @@ COMPOSE_LINE = re.compile(
 )
 IMAGE_LINE = re.compile(r"^Source: `([a-z0-9.-]+\.[a-z]+/[\w./-]+):([\w.-]+)@(sha256:[0-9a-f]{64})`$", re.M)
 LEVEL_LINE = re.compile(r"^Level: `(\w+)`$", re.M)
+REQUIRES_LINE = re.compile(r"^Requires: (.*)$", re.M)
+REQUIRES_ENTRIES = re.compile(r"^`[a-z0-9][a-z0-9-]*`(, `[a-z0-9][a-z0-9-]*`)*$")
+GATEWAY_API = "gateway-api"
 DEPENDENCY = re.compile(r"^ghcr\.io/kadet-hub/([a-z0-9][a-z0-9._-]*)(:[\w.-]+)?@sha256:[0-9a-f]{64}$")
 PINNED = re.compile(r"@sha256:[0-9a-f]{64}$")
 KUBERNETES = re.compile(r"^ghcr\.io/kadet-hub/kubernetes:(\d+)\.(\d+)\.(\d+)@")
@@ -78,6 +81,67 @@ def readme_fields(recipe):
         else ("design", image.groups()) if image else None,
         level.group(1) if level else None,
     )
+
+
+def requires(recipe):
+    """The entries of the README's Requires line (RCP-54), or None when the line is malformed."""
+    m = REQUIRES_LINE.search((Path(recipe) / "README.md").read_text())
+    if not m:
+        return []
+    if not REQUIRES_ENTRIES.match(m.group(1).strip()):
+        return None
+    return re.findall(r"`([a-z0-9-]+)`", m.group(1))
+
+
+def included(recipe):
+    """The recipes of this repository that a class file of the recipe includes as recipes.<other>."""
+    recipe = Path(recipe)
+    out = set()
+    for path in class_files(recipe):
+        try:
+            classes = (yaml.safe_load(path.read_text()) or {}).get("classes") or []
+        except yaml.YAMLError:
+            continue
+        for cls in classes:
+            parts = str(cls).split(".")
+            if parts[0] == "recipes" and len(parts) > 1 and parts[1] != recipe.name:
+                out.add(parts[1])
+    return sorted(out)
+
+
+def _include_errors(recipe):
+    """RCP-47: an included recipe includes no recipe; RCP-48: shared generators at the same source."""
+    errors = []
+    pins = {}
+    for r in [recipe, *(recipe.parent / o for o in included(recipe))]:
+        if r != recipe and included(r):
+            errors.append(f"includes {r.name}, which includes {', '.join(included(r))} itself (RCP-47)")
+        for path in class_files(r):
+            try:
+                deps = (((yaml.safe_load(path.read_text()) or {}).get("parameters") or {}).get("kapitan") or {}).get("dependencies") or []
+            except (yaml.YAMLError, AttributeError):
+                continue
+            for dep in deps:
+                pins.setdefault(str(dep.get("output_path", "")).rstrip("/"), set()).add((str(dep.get("source")), r.name))
+    for output_path, sources in sorted(pins.items()):
+        if len({s for s, _ in sources}) > 1:
+            listed = ", ".join(f"{s} ({n})" for s, n in sorted(sources))
+            errors.append(f"{output_path} is pinned at different sources: {listed} (RCP-48)")
+    return errors
+
+
+def _requires_errors(recipe):
+    """RCP-54: every entry a recipe of this repository or gateway-api, none also included."""
+    entries = requires(recipe)
+    if entries is None:
+        return ["README.md: the Requires line is not ``Requires: `<entry>`[, `<entry>`]`` (RCP-54)"]
+    errors = []
+    for entry in entries:
+        if entry != GATEWAY_API and (entry == recipe.name or not (recipe.parent / entry / "init.yml").is_file()):
+            errors.append(f"README.md: Requires {entry}, which is neither a recipe of this repository nor {GATEWAY_API} (RCP-54)")
+        elif entry in included(recipe):
+            errors.append(f"README.md: Requires {entry}, which the recipe also includes (RCP-54)")
+    return errors
 
 
 def _flow_errors(f, text):
@@ -218,6 +282,8 @@ def lint_files(recipe):
     elif level != "renders" and not (recipe / "tests/smoke").is_file():
         errors.append(f"tests/smoke is missing for level {level} (RCP-1)")
 
+    errors += _requires_errors(recipe)
+    errors += _include_errors(recipe)
     for path in sorted(recipe.rglob("*.py")):
         errors.append(f"{path.relative_to(recipe)}: a recipe contains no Python (RCP-33)")
     pinned, compiles = set(), []

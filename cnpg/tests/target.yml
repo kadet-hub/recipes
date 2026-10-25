@@ -1,0 +1,8 @@
+classes:
+  - recipes.cnpg
+  - recipes.cnpg.crds
+parameters:
+  namespace: cnpg-system
+  kapitan:
+    vars:
+      target: cnpg

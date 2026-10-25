@@ -1,0 +1,17 @@
+classes:
+  - .operator
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.8.0@sha256:5ff4e555c26af0e8e4edf7055e74e20c92cea644ea8dd97cb3db9c590f4d5090
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    cnpg:
+      version: 1.30.1
