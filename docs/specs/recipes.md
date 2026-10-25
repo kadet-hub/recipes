@@ -1,12 +1,13 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.8.1 implements renders and deploys, for charts
+Status: Draft. check 0.9.0 implements renders and deploys, for charts
         from OCI and HTTP repositories and for release manifests (RCP-59),
         for compose sources and designed recipes deploys (RCP-38, RCP-44,
         RCP-58), included recipes and prerequisites (RCP-47 to RCP-50,
-        RCP-54, RCP-55); migrates (RCP-14), RCP-21, RCP-22, RCP-31, RCP-32
-        and RCP-34 are not implemented; RCP-15 only up to publication.
+        RCP-54, RCP-55), and renders from given outputs (RCP-34);
+        migrates (RCP-14), RCP-21, RCP-22 and RCP-32 are not implemented;
+        RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
@@ -1860,12 +1861,17 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   The version is the recipe's own SemVer. The major version rises when a
   target that included the previous version needs a change to compile the
   same application, for example a renamed key or a removed option. A new
-  chart version is a minor version unless it also does that. A `tags`
-  ruleset enforces who creates tags. The registry's SEC-16 opens an issue
-  when a registered tag moves.
+  chart version is a minor version unless it also does that. The
+  registry's SEC-16 opens an issue when a registered tag moves.
+
+  Two tag rulesets, the same as kadet-hub/generators has, enforce who
+  creates, moves and deletes tags. `tag creation` restricts creating any
+  tag, with the admin role as its only bypass. `release tags` forbids deleting, updating and
+  force-pushing `refs/tags/*-v*`, without bypass, which also covers
+  `check-vX.Y.Z` (RCP-22).
 
   - Test: manual: `gh api repos/kadet-hub/recipes/rulesets`
-  - Since: not implemented
+  - Since: #41; the rulesets exist since the repository was set up
 
 - RCP-32: The first paragraph of a recipe's README, after the heading, MUST
   describe the recipe in at most 300 characters, without control or
@@ -1900,8 +1906,37 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   `helm template` (OQ-7) or a generator stays inside the sandbox. In this
   repository's CI `check` keeps compiling and rendering itself.
 
-  - Test: `check/tests/` (not written); the registry's `gate-selftest`
-  - Since: not implemented
+  The gate runs the pinned `check` release (RCP-22) as:
+
+  ```sh
+  uv run --locked --project check check/check.py <recipes>/<name> \
+    --level renders --compiled <out> --rendered <file>
+  ```
+
+  `<recipes>` holds the recipe's directory at the recipe's commit, and next
+  to it the directory of each recipe it includes or requires, as in this
+  repository. `check` reads their READMEs, class files and
+  `tests/target.yml` there.
+
+  `<out>` is a Kapitan output path. It holds `compiled/<recipe>/` for the
+  recipe, for each recipe it includes (RCP-49) and for each prerequisite
+  (RCP-55). Each is the compile of that recipe's own `tests/target.yml`,
+  whose `kapitan.vars.target` is the recipe's name.
+
+  `<file>` is the unfiltered output of
+  `helm template <name> <chart> -n <namespace> -f tests/values.yaml --include-crds`,
+  with the release name and namespace of RCP-23, or the release manifest
+  as downloaded. `check` leaves out the hooks itself (RCP-25).
+
+  The two flags go together and only with `--level renders`. With them
+  `check` pulls no generator, chart or manifest and does not compile with
+  Kapitan `next` (RCP-24). The generator attestations (RCP-27) and the
+  chart or manifest digest (RCP-23) are then the gate's to verify (REC-6,
+  REC-7 there), and the report says the outputs were given. Linting the
+  output, the comparison and the proof on kind run as without the flags.
+
+  - Test: `check/tests/test_check.py`; the registry's `gate-selftest`
+  - Since: #41
 
 ## Security
 
@@ -2087,6 +2122,10 @@ argument as a literal `${...}` and reads nothing.
   injected extra object then shows up as a difference outside RCP-12. The
   registry gate pins a `check` release in the same way (REC-5, REC-9).
 
+  The release is a tag on a commit of `main`, and `X.Y.Z` is `VERSION` in
+  that commit's `check/check.py`. Nothing else is published. The gate pins
+  the tag's commit SHA and runs `check` from that commit.
+
   - Test: manual: the skill names a `check` version
   - Since: not implemented
 
@@ -2266,7 +2305,7 @@ feature's design (OQ-6).
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
-| `.github/ruleset-tags.json` | RCP-31, applied with `gh api` |
+| Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
