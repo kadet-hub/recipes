@@ -292,6 +292,18 @@ class LintDesign(unittest.TestCase):
             ],
         )
 
+    def test_output_on_an_operator(self):
+        source = ("quay.io/keycloak/keycloak", "26.8.1", DIGEST)
+        resource = {"apiVersion": "k8s.keycloak.org/v2beta1", "kind": "Keycloak",
+                    "metadata": {"name": "keycloak", "namespace": "keycloak"},
+                    "spec": {"image": f"quay.io/keycloak/keycloak:26.8.1@{DIGEST}"}}
+        self.assertEqual(lint.lint_design_output([resource], source), [])
+        resource["spec"]["image"] = f"quay.io/keycloak/keycloak:26.8.0@{DIGEST}"
+        self.assertEqual(
+            lint.lint_design_output([resource], source),
+            [f"no container runs the Source image quay.io/keycloak/keycloak:26.8.1@{DIGEST} (RCP-23)"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
