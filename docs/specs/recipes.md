@@ -644,6 +644,24 @@ recipe pins the digest of that build, the one the examples recipe ran. The
 examples recipe's check, `ping` after mongosh authenticates as `root`, is
 the recipe's `tests/smoke`.
 
+powerdns was the third, the PowerDNS part of the kadet-hub/examples recipe
+`external-dns-powerdns` (Recipes from kadet-hub/examples). PowerDNS
+publishes no chart and no Kustomize base. The compose file in PowerDNS/pdns
+builds its three services from the repository's Dockerfiles, and a `build`
+without a published `image` is a gap of Compose sources. The recipe runs
+`docker.io/powerdns/pdns-auth-51`, which PowerDNS builds, on the 5.1
+release line that the examples recipe followed. PowerDNS publishes one
+repository per release line, such as `pdns-auth-50` and `pdns-auth-51`, and
+on 2026-10-25 `pdns-auth-52` held only `5.2.0-alpha0`.
+
+As in the examples recipe, PowerDNS keeps its zones in SQLite on the claim.
+The claim hides the image's empty database, so an init container copies it
+onto an empty claim, and a second one creates the zone
+`applications.powerdns.zone` when the database lacks it. The examples
+recipe's check read an A record that external-dns wrote. Without
+external-dns, `tests/smoke` writes the record through the API and reads it
+back over DNS.
+
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
   object, every selector selecting pods, then a deploy on one fresh kind
@@ -674,6 +692,17 @@ to the recipe here. valkey was the first: valkey-io publishes the chart
 a Deployment, a PersistentVolumeClaim and ACL authentication where the
 examples recipe had a StatefulSet and `--requirepass`. mysql and mongodb
 moved as designed recipes (Designed recipes).
+
+`external-dns-powerdns` combines two projects and moves in two steps.
+PowerDNS ships no chart and moves first, as the designed recipe `powerdns`.
+external-dns ships its chart only in the HTTP repository
+`https://kubernetes-sigs.github.io/external-dns/`, and it needs a
+ClusterRole, which a designed recipe cannot have (RCP-44). An OCI chart is
+asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
+follows as the chart recipe `external-dns-powerdns` that includes
+`powerdns`, once `check` fetches a chart from an HTTP repository (RCP-23)
+and builds included recipes (RCP-49). Until then the examples recipe stays
+in kadet-hub/examples.
 
 - RCP-41: The README of a recipe that replaces one of kadet-hub/examples
   MUST have a section `Replaces` that names that recipe and lists the
@@ -1096,10 +1125,17 @@ first command.
   image has more than 1000 tags. With `minimumReleaseAgeBehaviour:
   timestamp-required`, every update of it stays pending (OQ-15).
 
+  powerdns needs no package rule. `pdns-auth-51` holds the 5.1 releases and
+  their prereleases, whose tags carry a suffix such as `5.1.0-beta1`, and
+  Renovate's docker versioning proposes no suffixed tag for a pin without
+  one. The next release line is another repository, which a maintainer
+  moves to. Docker Hub lists the repository's 11 tags on one page, so
+  Renovate gets their release timestamps.
+
   Compose sources are not covered yet (OQ-10).
 
   - Test: manual: Renovate dry run
-  - Since: #3; designed recipes: #14; mongodb: #17
+  - Since: #3; designed recipes: #14; mongodb: #17; powerdns: this change
 
 ### Releasing
 
@@ -1415,8 +1451,8 @@ feature's design (OQ-6).
   `valkey.yml.LICENSE`.
 - AC-13 (RCP-23, RCP-44, RCP-45): `check lint` fails on a designed recipe
   at level `renders` and on one whose `Source` image no container runs,
-  and passes on mysql and mongodb; both pass `check <name> --level
-  deploys` in CI.
+  and passes on mysql, mongodb and powerdns; each passes `check <name>
+  --level deploys` in CI.
 - AC-12 (RCP-43): `check lint` warns on an `args` list of a component
   and of an `init_containers` entry and still passes, does not warn when
   the recipe pins the generator below 1.7.0, and passes without a warning
