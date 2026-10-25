@@ -26,7 +26,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node

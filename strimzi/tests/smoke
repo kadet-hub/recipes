@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# The operator reconciles a Kafka in another namespace: a single-node KRaft
+# cluster on ephemeral storage becomes Ready.
+set -euo pipefail
+kubectl create namespace strimzi-smoke
+kubectl -n strimzi-smoke apply -f - <<'YAML'
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual
+  labels:
+    strimzi.io/cluster: smoke
+spec:
+  replicas: 1
+  roles:
+    - controller
+    - broker
+  storage:
+    type: ephemeral
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: smoke
+spec:
+  kafka:
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+YAML
+kubectl -n strimzi-smoke wait kafka/smoke --for=condition=Ready --timeout=420s
+echo "Kafka strimzi-smoke/smoke is Ready"

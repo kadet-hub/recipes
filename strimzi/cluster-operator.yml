@@ -1,0 +1,449 @@
+parameters:
+  applications:
+    strimzi:
+      service_accounts:
+        - ${namespace}/strimzi-cluster-operator
+      # Pinned by digest in the container and in the three variables that
+      # run it as the Topic Operator, the User Operator and the Kafka init
+      # container.
+      operator_image: quay.io/strimzi/operator:${applications.strimzi.version}@sha256:4deb564fa329afa4046c550a6f8f1a6d00be3b9297e556969acabe6647b6676f
+      # The chart appends the Kafka version to the tag of each Kafka image,
+      # so these stay by tag.
+      kafka_image: quay.io/strimzi/kafka:${applications.strimzi.version}-kafka
+      kafka_images: |
+        4.2.0=${applications.strimzi.kafka_image}-4.2.0
+        4.2.1=${applications.strimzi.kafka_image}-4.2.1
+        4.2.2=${applications.strimzi.kafka_image}-4.2.2
+        4.3.0=${applications.strimzi.kafka_image}-4.3.0
+        4.3.1=${applications.strimzi.kafka_image}-4.3.1
+  components:
+    strimzi-cluster-operator:
+      application: strimzi
+      image: ${applications.strimzi.operator_image}
+      args:
+        run: /opt/strimzi/bin/cluster_operator_run.sh
+      pod_labels:
+        strimzi.io/kind: cluster-operator
+      service_account:
+        create: true
+        automount_service_account_token: true
+      ports:
+        http:
+          container_port: 8080
+      env:
+        STRIMZI_NAMESPACE: "*"
+        STRIMZI_FULL_RECONCILIATION_INTERVAL_MS: "120000"
+        STRIMZI_OPERATION_TIMEOUT_MS: "300000"
+        STRIMZI_DEFAULT_KAFKA_EXPORTER_IMAGE: ${applications.strimzi.kafka_image}-4.3.1
+        STRIMZI_DEFAULT_CRUISE_CONTROL_IMAGE: ${applications.strimzi.kafka_image}-4.3.1
+        STRIMZI_KAFKA_IMAGES: ${applications.strimzi.kafka_images}
+        STRIMZI_KAFKA_CONNECT_IMAGES: ${applications.strimzi.kafka_images}
+        STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES: ${applications.strimzi.kafka_images}
+        STRIMZI_DEFAULT_TOPIC_OPERATOR_IMAGE: ${applications.strimzi.operator_image}
+        STRIMZI_DEFAULT_USER_OPERATOR_IMAGE: ${applications.strimzi.operator_image}
+        STRIMZI_DEFAULT_KAFKA_INIT_IMAGE: ${applications.strimzi.operator_image}
+        STRIMZI_DEFAULT_KAFKA_BRIDGE_IMAGE: quay.io/strimzi/kafka-bridge:1.2.0
+        STRIMZI_DEFAULT_BUILDAH_IMAGE: quay.io/strimzi/buildah:${applications.strimzi.version}
+        STRIMZI_DEFAULT_MAVEN_BUILDER: quay.io/strimzi/maven-builder:${applications.strimzi.version}
+        STRIMZI_OPERATOR_NAMESPACE:
+          fieldRef:
+            fieldPath: metadata.namespace
+        STRIMZI_FEATURE_GATES: ""
+        STRIMZI_LEADER_ELECTION_ENABLED: "true"
+        STRIMZI_LEADER_ELECTION_LEASE_NAME: strimzi-cluster-operator
+        STRIMZI_LEADER_ELECTION_LEASE_NAMESPACE:
+          fieldRef:
+            fieldPath: metadata.namespace
+        STRIMZI_LEADER_ELECTION_IDENTITY:
+          fieldRef:
+            fieldPath: metadata.name
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /healthy
+          initial_delay_seconds: 10
+          period_seconds: 30
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /ready
+          initial_delay_seconds: 10
+          period_seconds: 30
+          timeout_seconds: 1
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 384Mi
+        requests:
+          cpu: 200m
+          memory: 384Mi
+      volume_mounts:
+        kube-api-access:
+          mount_path: /var/run/secrets/kubernetes.io/serviceaccount
+          read_only: true
+        strimzi-tmp:
+          mount_path: /tmp
+        co-config-volume:
+          mount_path: /opt/strimzi/custom-config/
+      volumes:
+        kube-api-access:
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
+        strimzi-tmp:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        co-config-volume:
+          configMap:
+            name: strimzi-cluster-operator
+  generators:
+    kubernetes:
+      configs:
+        strimzi-cluster-operator:
+          data:
+            # templates/050-ConfigMap-strimzi-cluster-operator.yaml of the
+            # strimzi-kafka-operator chart 1.3.0, Apache-2.0
+            # (cluster-operator.yml.LICENSE). Log4j2's ${...} is written as
+            # ${escape:...}.
+            log4j2.properties:
+              value: |
+                name = COConfig
+                monitorInterval = 30
+
+                appender.console.type = Console
+                appender.console.name = STDOUT
+                appender.console.layout.type = PatternLayout
+                appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n
+
+                rootLogger.level = ${escape:env:STRIMZI_LOG_LEVEL:-INFO}
+                rootLogger.appenderRefs = stdout
+                rootLogger.appenderRef.console.ref = STDOUT
+
+                # Kafka AdminClient logging is a bit noisy at INFO level
+                logger.kafka.name = org.apache.kafka
+                logger.kafka.level = WARN
+
+                # Keeps separate level for Netty logging -> to not be changed by the root logger
+                logger.netty.name = io.netty
+                logger.netty.level = INFO
+      rbac:
+        strimzi-cluster-operator-namespaced:
+          cluster_wide: true
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - apiGroups:
+                - rbac.authorization.k8s.io
+              resources:
+                - rolebindings
+              verbs: &manage
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
+            - apiGroups:
+                - rbac.authorization.k8s.io
+              resources:
+                - roles
+              verbs: *manage
+            - apiGroups:
+                - ""
+              resources:
+                - pods
+                - serviceaccounts
+                - configmaps
+                - services
+                - endpoints
+                - secrets
+                - persistentvolumeclaims
+              verbs: *manage
+            - apiGroups:
+                - ""
+              resources:
+                - pods/resize
+              verbs:
+                - patch
+                - update
+            - apiGroups:
+                - ""
+              resources:
+                - serviceaccounts/token
+              verbs:
+                - create
+            - apiGroups:
+                - apps
+              resources:
+                - deployments
+                - replicasets
+              verbs: *manage
+            - apiGroups:
+                - apps
+              resources:
+                - deployments/scale
+              verbs:
+                - get
+                - patch
+                - update
+            - apiGroups:
+                - events.k8s.io
+              resources:
+                - events
+              verbs:
+                - create
+            - apiGroups:
+                - build.openshift.io
+              resources:
+                - buildconfigs
+                - buildconfigs/instantiate
+                - builds
+              verbs: *manage
+            - apiGroups:
+                - networking.k8s.io
+              resources:
+                - networkpolicies
+                - ingresses
+              verbs: *manage
+            - apiGroups:
+                - route.openshift.io
+              resources:
+                - routes
+                - routes/custom-host
+              verbs: *manage
+            - apiGroups:
+                - image.openshift.io
+              resources:
+                - imagestreams
+              verbs:
+                - get
+            - apiGroups:
+                - policy
+              resources:
+                - poddisruptionbudgets
+              verbs: *manage
+            - apiGroups:
+                - gateway.networking.k8s.io
+              resources:
+                - tlsroutes
+              verbs: *manage
+            - apiGroups:
+                - cert-manager.io
+              resources:
+                - certificates
+              verbs:
+                - get
+                - watch
+                - create
+                - delete
+                - patch
+                - update
+        strimzi-cluster-operator-global:
+          cluster_wide: true
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - apiGroups:
+                - rbac.authorization.k8s.io
+              resources:
+                - clusterrolebindings
+              verbs: *manage
+            - apiGroups:
+                - storage.k8s.io
+              resources:
+                - storageclasses
+              verbs:
+                - get
+            - apiGroups:
+                - ""
+              resources:
+                - nodes
+              verbs:
+                - list
+        strimzi-cluster-operator-leader-election:
+          namespaces:
+            - ${namespace}
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - apiGroups:
+                - coordination.k8s.io
+              resources:
+                - leases
+              verbs:
+                - create
+            - apiGroups:
+                - coordination.k8s.io
+              resources:
+                - leases
+              resourceNames:
+                - strimzi-cluster-operator
+              verbs:
+                - get
+                - list
+                - watch
+                - delete
+                - patch
+                - update
+        strimzi-cluster-operator-watched:
+          cluster_wide: true
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - apiGroups:
+                - ""
+              resources:
+                - pods
+              verbs:
+                - watch
+                - list
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkas
+                - kafkanodepools
+                - kafkaconnects
+                - kafkaconnectors
+                - kafkabridges
+                - kafkamirrormaker2s
+                - kafkarebalances
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - patch
+                - update
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkas/status
+                - kafkanodepools/status
+                - kafkaconnects/status
+                - kafkaconnectors/status
+                - kafkabridges/status
+                - kafkamirrormaker2s/status
+                - kafkarebalances/status
+              verbs: &status
+                - get
+                - patch
+                - update
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkas/finalizers
+                - kafkanodepools/finalizers
+                - kafkaconnects/finalizers
+                - kafkaconnectors/finalizers
+                - kafkabridges/finalizers
+                - kafkamirrormaker2s/finalizers
+                - kafkarebalances/finalizers
+              verbs:
+                - update
+            - apiGroups:
+                - core.strimzi.io
+              resources:
+                - strimzipodsets
+              verbs: *manage
+            - apiGroups:
+                - core.strimzi.io
+              resources:
+                - strimzipodsets/status
+              verbs: *status
+            - apiGroups:
+                - core.strimzi.io
+              resources:
+                - strimzipodsets/finalizers
+              verbs:
+                - update
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkarebalances
+              verbs:
+                - delete
+        # The operator binds these three to the pods it starts, so it holds
+        # their permissions itself and the names stay the chart's.
+        strimzi-kafka-broker:
+          cluster_wide: true
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - &get_nodes
+              apiGroups:
+                - ""
+              resources:
+                - nodes
+              verbs:
+                - get
+        strimzi-entity-operator:
+          cluster_wide: true
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkatopics
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - patch
+                - update
+                - delete
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkausers
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - patch
+                - update
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkatopics/status
+                - kafkausers/status
+              verbs: *status
+            - apiGroups:
+                - kafka.strimzi.io
+              resources:
+                - kafkatopics/finalizers
+                - kafkausers/finalizers
+              verbs:
+                - update
+            - apiGroups:
+                - ""
+              resources:
+                - secrets
+              verbs: *manage
+        strimzi-kafka-client:
+          cluster_wide: true
+          service_accounts: ${applications.strimzi.service_accounts}
+          rules:
+            - *get_nodes
