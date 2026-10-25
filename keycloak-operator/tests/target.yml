@@ -1,0 +1,8 @@
+classes:
+  - recipes.keycloak-operator
+  - recipes.keycloak-operator.crds
+parameters:
+  namespace: keycloak-operator
+  kapitan:
+    vars:
+      target: keycloak-operator
