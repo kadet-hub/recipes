@@ -211,9 +211,11 @@ belong in the recipe.
   and `~` drops one. The values render in the mapping's order (K8S-4 of the
   generator's spec). A target changes or drops one argument the recipe
   sets by its key, as in `components.cert-manager.args.verbosity: --v=4`.
-  With a list it cannot, because reclass appends to a list a class sets
-  and omegaconf replaces it, so the target has to repeat every argument.
-  cert-manager switched to the mapping in #4.
+  With a list it cannot, because both backends merge a target's list into
+  the class's: reclass appends, and the omegaconf backend of Kapitan 0.36.3
+  extends with `EXTEND_UNIQUE`. Changing one argument then took a class
+  that resets the list, included before the target. cert-manager switched
+  to the mapping in #4.
 
   A list is still valid input for the generator and renders the same
   objects (K8S-3), so a recipe with a list compiles and is proven like any
