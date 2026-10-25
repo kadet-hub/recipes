@@ -851,16 +851,41 @@ moved as designed recipes (Designed recipes). kafka moves as a designed
 recipe on Strimzi's operator, which becomes the chart recipe `strimzi`
 (Kafka).
 
-`external-dns-powerdns` combines two projects and moves in two steps.
-PowerDNS ships no chart and moves first, as the designed recipe `powerdns`.
+`external-dns-powerdns` combines two projects and moved in two steps.
+PowerDNS ships no chart and moved first, as the designed recipe `powerdns`.
 external-dns ships its chart only in the HTTP repository
 `https://kubernetes-sigs.github.io/external-dns/`, and it needs a
 ClusterRole, which a designed recipe cannot have (RCP-44). An OCI chart is
 asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
-follows as the chart recipe `external-dns-powerdns` that includes
-`powerdns`, once `check` fetches a chart from an HTTP repository (RCP-23)
-and builds included recipes (RCP-49). Until then the examples recipe stays
-in kadet-hub/examples.
+followed as the chart recipe `external-dns-powerdns` on the chart
+`external-dns` 1.23.0 from that repository (RCP-23), with external-dns
+0.23.0. It includes `powerdns` (RCP-47) and requires nothing.
+
+The chart names its objects after the release, which is the recipe's name,
+so the Deployment, Service, ServiceAccount and ClusterRole are
+`external-dns-powerdns`. The examples recipe named them `external-dns`, and
+the ClusterRole and its binding `dns-external-dns`. Keeping `external-dns`
+through `fullnameOverride` was considered. RCP-18 rules out the component
+`external-dns`, and the generator names a workload after its component, as
+with Kafka's `events`. The rename costs no data. external-dns keeps its
+state in the zone, as TXT records with its owner ID, so a Deployment of the
+new name with the same `--txt-owner-id`, `kadet-hub-recipe`, takes the
+records over. The ClusterRole and its binding come from
+`generators.kubernetes.rbac.external-dns-powerdns`. A component's
+`cluster_role` would be named `<namespace>-external-dns-powerdns`, which
+RCP-3 rejects.
+
+The parent writes nothing below `applications.powerdns` (RCP-18). external-dns
+filters on `applications.powerdns.zone`, so the target sets the zone once
+for both recipes. It reads the API key from the Secret `powerdns`, key
+`api-key`, which `powerdns` renders, and reaches the API through the Service
+`powerdns`. Both recipes pin the `kubernetes` generator 1.9.0 (RCP-48), so
+`powerdns` moved from 1.8.0 in the same change. The chart installs the CRDs
+of DNSEndpoint and DNSRecord from its `crds/` directory with every release.
+The recipe copies them from the chart's archive, and external-dns reads them
+only with the source `crd`, which the recipe does not set. `tests/smoke` is
+the examples recipe's check: PowerDNS answers an A record with the cluster
+IP of a Service annotated with a hostname in the zone.
 
 - RCP-41: The README of a recipe that replaces one of kadet-hub/examples
   MUST have a section `Replaces` that names that recipe and lists the
@@ -2066,6 +2091,7 @@ feature's design (OQ-6).
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Consumer path | `inventory/classes/recipes/<name>/` |
+| First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.0.1, PostgreSQL 18.6, requires `cloudnative-pg`, level `deploys` |
 | cloudnative-pg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, level `deploys` |
