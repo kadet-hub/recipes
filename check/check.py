@@ -423,6 +423,8 @@ def main(argv=None):
             errors, _ = cmd_lint(recipe, work)
             for e in errors:
                 print(f"lint: {e}")
+            for w in [] if errors else lint.lint_warnings(recipe):
+                print(f"lint: warning: {w}")
             print(f"lint: {recipe.name}: " + ("failed" if errors else "passed"))
             return 1 if errors else 0
         report, failed = cmd_check(recipe, args.level, work, args.keep)

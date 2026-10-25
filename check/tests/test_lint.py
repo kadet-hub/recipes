@@ -1,4 +1,4 @@
-"""AC-1, AC-5, AC-8, AC-9 and AC-10: check lint on the cert-manager and miniflux recipes and on broken copies of them."""
+"""AC-1, AC-5, AC-8, AC-9, AC-10 and AC-12: check lint on the cert-manager and miniflux recipes and on broken copies of them."""
 
 import shutil
 import tempfile
@@ -171,6 +171,27 @@ class Lint(unittest.TestCase):
                        text.replace("No parameter has to be set.", "")):
             readme.write_text(broken)
             self.assertIn('README.md has no section "Required parameters"', "\n".join(lint.lint_files(self.recipe)))
+
+
+    # AC-12
+
+    def test_args_list_warns(self):
+        (self.recipe / "broken.yml").write_text(
+            "parameters:\n  components:\n    cert-manager-extra:\n      application: cert-manager\n"
+            "      args:\n        - --v=2\n      init_containers:\n        wait:\n          args:\n            - --once\n"
+        )
+        self.assertEqual(lint.lint_files(self.recipe), [])
+        self.assertEqual(lint.lint_warnings(self.recipe), [
+            "broken.yml: components.cert-manager-extra.args is a list, write it as a mapping (RCP-43)",
+            "broken.yml: components.cert-manager-extra.init_containers.wait.args is a list, write it as a mapping (RCP-43)",
+        ])
+        init = self.recipe / "init.yml"
+        init.write_text(init.read_text().replace("kubernetes:1.7.0@", "kubernetes:1.6.0@"))
+        self.assertEqual(lint.lint_warnings(self.recipe), [])
+
+    def test_args_mappings_do_not_warn(self):
+        self.assertEqual(lint.lint_warnings(self.recipe), [])
+        self.assertEqual(lint.lint_warnings(RECIPE.parent / "valkey"), [])
 
 
 class LintCompose(unittest.TestCase):

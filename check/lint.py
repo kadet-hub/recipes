@@ -17,6 +17,7 @@ COMPOSE_LINE = re.compile(
 LEVEL_LINE = re.compile(r"^Level: `(\w+)`$", re.M)
 DEPENDENCY = re.compile(r"^ghcr\.io/kadet-hub/([a-z0-9][a-z0-9._-]*)(:[\w.-]+)?@sha256:[0-9a-f]{64}$")
 PINNED = re.compile(r"@sha256:[0-9a-f]{64}$")
+KUBERNETES = re.compile(r"^ghcr\.io/kadet-hub/kubernetes:(\d+)\.(\d+)\.(\d+)@")
 IMAGE_ARG = re.compile(r"^--?[\w-]*image[\w-]*=(.+)$")
 FORBIDDEN_RESOLVER = re.compile(r"\$\{\s*(from_file|write|oc\.env|filename|parent_filename|path|parent_path)\s*:")
 SHA_COMMENT = re.compile(r"#.*SHA-256 ([0-9a-f]{64})")
@@ -252,6 +253,27 @@ def lint_files(recipe):
         errors += _compile_errors(name, recipe, f, text, kapitan, pinned)
     return errors
 
+
+def lint_warnings(recipe):
+    """RCP-43: on the kubernetes generator 1.7.0 or later, every args list of a component."""
+    docs = [(p.relative_to(recipe).as_posix(), yaml.safe_load(p.read_text()) or {}) for p in class_files(recipe)]
+    versions = [
+        tuple(map(int, m.groups()))
+        for _, doc in docs
+        for dep in ((doc.get("parameters") or {}).get("kapitan") or {}).get("dependencies") or []
+        if (m := KUBERNETES.match(str(dep.get("source", ""))))
+    ]
+    if not versions or max(versions) < (1, 7, 0):
+        return []
+    warnings = []
+    for f, doc in docs:
+        for comp, body in ((doc.get("parameters") or {}).get("components") or {}).items():
+            containers = [(f"components.{comp}", body or {})]
+            for key in ("additional_containers", "init_containers"):
+                containers += [(f"components.{comp}.{key}.{n}", c or {}) for n, c in ((body or {}).get(key) or {}).items()]
+            warnings += [f"{f}: {where}.args is a list, write it as a mapping (RCP-43)"
+                         for where, c in containers if isinstance(c.get("args"), list)]
+    return warnings
 
 def lint_output(name, objects, chart_names):
     """The rules on the compiled output: RCP-3 names and RCP-6 images."""
