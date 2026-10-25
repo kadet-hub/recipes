@@ -1,5 +1,6 @@
 classes:
   - recipes.keycloak
+  - recipes.keycloak.route
 parameters:
   namespace: keycloak
   kapitan:
@@ -11,6 +12,11 @@ parameters:
       issuer:
         name: keycloak-selfsigned
         kind: Issuer
+      # The Gateway of check.
+      gateway:
+        name: gateway
+        namespace: gateway
+        section: http
   generators:
     certmanager:
       issuers:
