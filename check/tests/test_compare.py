@@ -81,6 +81,15 @@ class Compare(unittest.TestCase):
             " ".join(self.unaccepted(self.run_compare())),
         )
 
+    def test_empty_container_security_context_is_an_explicit_default(self):
+        container = find(self.recipe, "Deployment")["spec"]["template"]["spec"]["containers"][0]
+        container["securityContext"] = {}
+        find(self.chart, "Deployment")["spec"]["template"]["spec"]["containers"][0].pop("securityContext", None)
+        found = {(d.cls, d.where()) for d in self.run_compare()["differences"]}
+        self.assertIn((compare.EXPLICIT_DEFAULT, "spec.template.spec.containers[0].securityContext"), found)
+        container["securityContext"] = {"runAsNonRoot": True}
+        self.assertIn("containers[0].securityContext", " ".join(self.unaccepted(self.run_compare())))
+
     def test_port_by_name_must_resolve_to_the_same_port(self):
         find(self.chart, "Service")["spec"]["ports"][0]["targetPort"] = 10250
         self.assertIn("spec.ports[0].targetPort", " ".join(self.unaccepted(self.run_compare())))
