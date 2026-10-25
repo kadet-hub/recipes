@@ -1,0 +1,105 @@
+parameters:
+  components:
+    external-dns-powerdns:
+      application: external-dns-powerdns
+      image: registry.k8s.io/external-dns/external-dns:v${applications.external-dns-powerdns.version}@sha256:1854499e2b08cee47c40a08e356bff20dcb192dbcfde8378fc3f900f12cad5a3
+      update_strategy:
+        type: Recreate
+      service_account:
+        create: true
+        automount_service_account_token: true
+      automount_service_account_token: true
+      workload_security_context:
+        fsGroup: 65534
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+      # The Secret and the Service of the included recipe powerdns.
+      env:
+        PDNS_API_KEY:
+          secretKeyRef:
+            name: powerdns
+            key: api-key
+      args:
+        log-level: --log-level=info
+        log-format: --log-format=text
+        interval: --interval=10s
+        source: --source=service
+        policy: --policy=sync
+        registry: --registry=txt
+        # The owner of the records in the zone; keep it to take them over.
+        txt-owner-id: --txt-owner-id=kadet-hub-recipe
+        domain-filter: --domain-filter=${applications.powerdns.zone}
+        provider: --provider=pdns
+        publish-internal-services: --publish-internal-services
+        pdns-server: --pdns-server=http://powerdns:8081
+        pdns-api-key: --pdns-api-key=$(PDNS_API_KEY)
+      ports:
+        http:
+          container_port: 7979
+          service_port: 7979
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /healthz
+          initial_delay_seconds: 10
+          failure_threshold: 2
+        readiness:
+          type: http
+          port: http
+          path: /healthz
+          initial_delay_seconds: 5
+          failure_threshold: 6
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+      service:
+        type: ClusterIP
+  generators:
+    kubernetes:
+      rbac:
+        external-dns-powerdns:
+          cluster_wide: true
+          service_accounts:
+            - ${namespace}/external-dns-powerdns
+          rules:
+            - apiGroups:
+                - ""
+              resources:
+                - nodes
+              verbs:
+                - list
+                - watch
+            - apiGroups:
+                - ""
+              resources:
+                - pods
+                - services
+              verbs:
+                - get
+                - watch
+                - list
+            - apiGroups:
+                - discovery.k8s.io
+              resources:
+                - endpointslices
+              verbs:
+                - get
+                - watch
+                - list

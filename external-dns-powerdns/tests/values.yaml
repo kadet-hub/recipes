@@ -1,0 +1,25 @@
+provider:
+  name: pdns
+env:
+  - name: PDNS_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: powerdns
+        key: api-key
+extraArgs:
+  - --publish-internal-services
+  - --pdns-server=http://powerdns:8081
+  - --pdns-api-key=$(PDNS_API_KEY)
+sources:
+  - service
+domainFilters:
+  - example.internal
+policy: sync
+txtOwnerId: kadet-hub-recipe
+interval: 10s
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi

@@ -1,0 +1,10 @@
+classes:
+  - recipes.external-dns-powerdns
+parameters:
+  namespace: dns
+  kapitan:
+    vars:
+      target: external-dns-powerdns
+  applications:
+    powerdns:
+      api_key: smoke-api-key

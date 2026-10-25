@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# The kadet-hub/examples recipe's check: external-dns writes an A record with
+# the cluster IP of a Service annotated with a hostname in the zone, and
+# PowerDNS answers it through the Service powerdns.
+set -euo pipefail
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: Service
+metadata:
+  name: smoke-web
+  annotations:
+    external-dns.kubernetes.io/hostname: web.example.internal
+spec:
+  selector:
+    app: smoke-web
+  ports:
+    - port: 80
+YAML
+ip=$(kubectl get service smoke-web -o jsonpath='{.spec.clusterIP}')
+dns=$(kubectl get service powerdns -o jsonpath='{.spec.clusterIP}')
+for _ in $(seq 40); do
+  out=$(kubectl exec statefulset/powerdns -c powerdns -- sdig "$dns" 53 web.example.internal A || true)
+  if grep -qE "web\.example\.internal\.\s+[0-9]+\s+IN\s+A\s+${ip//./\\.}([^0-9]|$)" <<<"$out"; then
+    echo "external-dns wrote web.example.internal A $ip, answered through the Service powerdns"
+    exit 0
+  fi
+  sleep 3
+done
+echo "$out" >&2
+kubectl logs deployment/external-dns-powerdns >&2 || true
+exit 1

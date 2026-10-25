@@ -2,7 +2,7 @@
 
 PowerDNS Authoritative Server with one zone in SQLite and its HTTP API,
 designed in kadet-hub on PowerDNS's image and rendered by the kadet-hub
-`kubernetes` generator 1.8.0.
+`kubernetes` generator 1.9.0.
 
 Source: `docker.io/powerdns/pdns-auth-51:5.1.5@sha256:77ff4efdbb9ec30e9309c8a1cbed6121a67fa3be25c848bbbfa756fc75bf9a27`
 
@@ -19,7 +19,7 @@ linux/amd64 and linux/arm64.
 
 This recipe replaces the PowerDNS part of the `external-dns-powerdns`
 recipe of kadet-hub/examples, which stood in for Bitnami's `external-dns`
-chart. The external-dns part follows as a recipe of this repository that
+chart. The external-dns part is the recipe `external-dns-powerdns`, which
 includes this one. Moving from it changes these objects:
 
 | kadet-hub/examples | This recipe |

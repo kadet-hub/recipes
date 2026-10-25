@@ -1,0 +1,27 @@
+classes:
+  - .external-dns-powerdns
+  - recipes.powerdns
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+      # The chart installs these CRDs from crds/ with every release.
+      - input_type: copy
+        input_paths:
+          # crds/ of the chart archive in the README's Source line, Apache-2.0:
+          # SHA-256 96f4383d550a04d7c78b3312edc6e0f9dab9777d8195ff4cfdc76a0ca9587bbe
+          - inventory/classes/recipes/external-dns-powerdns/vendor/dnsendpoints.externaldns.k8s.io.yaml
+          # SHA-256 bad8879419bac5393b52f2dfff43b0915048e9ae2abab25f926f2f00b20bb132
+          - inventory/classes/recipes/external-dns-powerdns/vendor/dnsrecords.externaldns.k8s.io.yaml
+        output_path: manifests/
+  applications:
+    external-dns-powerdns:
+      version: 0.23.0
