@@ -9,7 +9,8 @@ Status: Draft. check 0.6.0 implements renders and deploys, for charts
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
-                  #19, powerdns at deploys; #29, strimzi at deploys
+                  #19, powerdns at deploys; #29, strimzi at deploys;
+                  #26, keycloak-operator at deploys
 ```
 
 ## Problem
@@ -564,7 +565,7 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   | Class | Example | Why it is accepted |
   |---|---|---|
   | Selector scheme | the generator selects on `name`, the chart on `app.kubernetes.io/*` | RCP-10 proves the same selection |
-  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, a container's empty `securityContext` | same value as the ServiceAccount's, or every field unset as on the other side |
+  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, a container's empty `securityContext`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
   | Port by name | `targetPort: http-metrics` against `9402` | resolves to the same container port |
   | Derived name | container named after the component, webhook configuration `<ns>-<component>`, sorted container ports | names the generator derives, no change in behaviour |
 
@@ -574,8 +575,9 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   `check` accepts a difference only where its class holds: a selector
   difference where RCP-10 found the same selection, `true` where the other
   side is unset and the pod's ServiceAccount does not disable the token,
-  `{}` as a container's `securityContext` where the other side has none, a
-  port name that resolves to the other side's number in the selected pods
+  `{}` as a container's `securityContext` where the other side has none,
+  `Always` as a cert-manager Certificate's `privateKey.rotationPolicy`
+  where the other side leaves it unset, a port name that resolves to the other side's number in the selected pods
   or the same pod, a first container named after its workload, container
   ports that are the same set sorted by name, and a webhook configuration
   named `<namespace>-...` with the same webhooks.
@@ -583,8 +585,16 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   The `kubernetes` generator renders `securityContext: {}` on a container
   that sets no `security_context`. The Keycloak Operator's chart sets none.
 
+  The `certmanager` generator 1.0.2 renders `privateKey.rotationPolicy:
+  Always` on every Certificate, and the RabbitMQ Cluster Operator's
+  manifest sets no `privateKey`. cert-manager 1.18 made `Always` the
+  default behind the feature gate `DefaultPrivateKeyRotationPolicyAlways`,
+  which is on by default, and its release notes announce the gate as GA
+  for 1.19. A recipe whose report shows this difference therefore requires
+  cert-manager 1.18 or later with that gate on, and its README says so.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: this change
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
@@ -1594,8 +1604,8 @@ first command.
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
-    keycloak: not implemented; release manifests: #22, #25; kafka: not
-    implemented; HTTP repository: #23
+    keycloak: #26; release manifests: #22, #25; kafka: not implemented; HTTP
+    repository: #23
 
 ### Releasing
 

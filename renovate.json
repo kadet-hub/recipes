@@ -104,6 +104,14 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "RCP-16: the Keycloak Operator's chart and the Keycloak image move in one pull request; one operator supports only the Keycloak version it was released with",
+      "matchPackageNames": [
+        "quay.io/keycloak/keycloak-operator-helm",
+        "quay.io/keycloak/keycloak"
+      ],
+      "groupName": "keycloak"
+    },
+    {
       "description": "RCP-30: kind and the node image of its release",
       "matchDepNames": [
         "kubernetes-sigs/kind",

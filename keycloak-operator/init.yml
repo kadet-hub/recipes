@@ -1,0 +1,28 @@
+classes:
+  - .keycloak-operator
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.8.0@sha256:5ff4e555c26af0e8e4edf7055e74e20c92cea644ea8dd97cb3db9c590f4d5090
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    keycloak-operator:
+      version: 26.8.1
+      # The default image of a Keycloak resource that sets none.
+      keycloak_image: quay.io/keycloak/keycloak:${applications.keycloak-operator.version}@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+      # The chart's build annotations, as 26.8.1 renders them. They change
+      # with each rebuild of the release.
+      annotations:
+        app.quarkus.io/quarkus-version: 3.40.1
+        app.quarkus.io/commit-id: 24ed1dadf3f246a555adb6d3d4a99e9b3003fb3b
+        app.quarkus.io/vcs-uri: https://github.com/keycloak/keycloak.git
+        app.quarkus.io/build-timestamp: 2026-10-23 - 09:49:37 +0000
+      service_accounts:
+        - ${namespace}/keycloak-operator
