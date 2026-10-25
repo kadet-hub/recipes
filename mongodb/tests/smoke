@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# The kadet-hub/examples recipe's check through the Service (RCP-45):
+# mongosh authenticates as root in admin and runs ping, connecting to the
+# Service mongodb on port 27017.
+set -euo pipefail
+password=$(kubectl get secret mongodb -o jsonpath='{.data.password}' | base64 -d)
+# --password= keeps a password that starts with "-" from being read as an option.
+out=$(kubectl exec statefulset/mongodb -c mongodb -- mongosh --quiet --host mongodb --port 27017 \
+  -u root --password="$password" --authenticationDatabase admin --eval 'db.runCommand({ping: 1}).ok')
+[[ $out == 1 ]]
+echo "ping as the user root, authenticated in admin, through the Service mongodb"

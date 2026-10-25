@@ -1,0 +1,56 @@
+parameters:
+  components:
+    mongodb:
+      application: mongodb
+      type: statefulset
+      image: docker.io/mongodb/mongodb-community-server:${applications.mongodb.version}-ubi9-slim@sha256:449f87becbf5f3a5d915ead43356254034ea3f8d90c67e33e0e4a89acbb7313c
+      security_profile: restricted
+      # The image runs as the user mongod, UID 1000 in its /etc/passwd.
+      workload_security_context:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      # The entrypoint warns that the MONGO_INITDB_* names are deprecated.
+      env:
+        MONGODB_INITDB_ROOT_USERNAME: root
+        MONGODB_INITDB_ROOT_PASSWORD:
+          secretKeyRef:
+            key: password
+      secrets:
+        auth:
+          string_data:
+            password:
+              value: ${applications.mongodb.password}
+      ports:
+        mongodb:
+          service_port: 27017
+      # The entrypoint creates the root user on a first mongod bound to
+      # localhost, so the port opens on the pod IP once that is done.
+      healthcheck:
+        startup:
+          type: tcp
+          port: mongodb
+          failure_threshold: 30
+        readiness: &probe
+          type: tcp
+          port: mongodb
+        liveness: *probe
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+      volume_mounts:
+        data:
+          mount_path: /data/db
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 8Gi
+      service:
+        type: ClusterIP

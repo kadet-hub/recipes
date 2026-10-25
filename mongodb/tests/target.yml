@@ -1,0 +1,10 @@
+classes:
+  - recipes.mongodb
+parameters:
+  namespace: mongodb
+  kapitan:
+    vars:
+      target: mongodb
+  applications:
+    mongodb:
+      password: smoke-password

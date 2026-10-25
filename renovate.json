@@ -69,6 +69,13 @@
       "allowedVersions": "<10"
     },
     {
+      "description": "RCP-16: mongodb stays on MongoDB's 9.0 major release; minor releases are not patched once the next is out",
+      "matchPackageNames": [
+        "docker.io/mongodb/mongodb-community-server"
+      ],
+      "allowedVersions": "/^9\\.0\\./"
+    },
+    {
       "description": "RCP-30: kind and the node image of its release",
       "matchDepNames": [
         "kubernetes-sigs/kind",
