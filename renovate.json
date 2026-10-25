@@ -104,6 +104,13 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "RCP-16: Docker Hub gives no release timestamps for the rabbitmq image, which has more than 1000 tags. docker-library rebuilds it at most about twice a week, not daily, so no schedule window",
+      "matchPackageNames": [
+        "docker.io/library/rabbitmq"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "RCP-16: the Keycloak Operator's chart and the Keycloak image move in one pull request; one operator supports only the Keycloak version it was released with",
       "matchPackageNames": [
         "quay.io/keycloak/keycloak-operator-helm",

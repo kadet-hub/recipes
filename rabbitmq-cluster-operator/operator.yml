@@ -1,0 +1,213 @@
+parameters:
+  components:
+    rabbitmq-cluster-operator:
+      application: rabbitmq-cluster-operator
+      image: ghcr.io/rabbitmq/cluster-operator:${applications.rabbitmq-cluster-operator.version}@sha256:a6794c3912978fdba7b8e1bb9f0327ec40dacf77469854bc42c48ca39dceb642
+      command:
+        - /manager
+      args:
+        health-probe-bind-address: --health-probe-bind-address=:8081
+      env:
+        OPERATOR_NAMESPACE:
+          fieldRef: {fieldPath: metadata.namespace}
+      ports:
+        metrics:
+          container_port: 8080
+        webhook-server:
+          container_port: 9443
+      healthcheck:
+        liveness:
+          type: http
+          port: 8081
+          path: /healthz
+          initial_delay_seconds: 15
+          period_seconds: 20
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: 8081
+          path: /readyz
+          initial_delay_seconds: 5
+          timeout_seconds: 1
+      resources:
+        requests:
+          cpu: 200m
+          memory: 500Mi
+        limits:
+          cpu: 200m
+          memory: 500Mi
+      service_account:
+        create: true
+        automount_service_account_token: true
+      automount_service_account_token: true
+      grace_period: 10
+      workload_security_context:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volume_mounts:
+        cluster-operator-webhook-certs:
+          mount_path: /tmp/k8s-webhook-server/serving-certs
+          read_only: true
+      volumes:
+        cluster-operator-webhook-certs:
+          secret:
+            secretName: cluster-operator-webhook-server-cert
+      webhook_configuration_name: cluster-operator-mutating-webhook-configuration
+      validating_webhook_configuration_name: cluster-operator-validating-webhook-configuration
+      webhook_annotations:
+        cert-manager.io/inject-ca-from: ${namespace}/cluster-operator-serving-cert
+      webhooks:
+        - name: mrabbitmqcluster-v1beta1.kb.io
+          namespaceSelector: {}
+          rules:
+            - apiGroups: [rabbitmq.com]
+              apiVersions: [v1beta1]
+              operations: [CREATE, UPDATE]
+              resources: [rabbitmqclusters]
+          clientConfig:
+            service:
+              name: cluster-operator-webhook-service
+              path: /mutate-rabbitmq-com-v1beta1-rabbitmqcluster
+      validating_webhooks:
+        - name: vrabbitmqcluster-v1beta1.kb.io
+          namespaceSelector: {}
+          rules:
+            - apiGroups: [rabbitmq.com]
+              apiVersions: [v1beta1]
+              operations: [CREATE, UPDATE]
+              resources: [rabbitmqclusters]
+          clientConfig:
+            service:
+              name: cluster-operator-webhook-service
+              path: /validate-rabbitmq-com-v1beta1-rabbitmqcluster
+  generators:
+    kubernetes:
+      namespaces:
+        rabbitmq-cluster-operator:
+          name: ${namespace}
+      services:
+        rabbitmq-cluster-operator-webhook-service:
+          name: cluster-operator-webhook-service
+          selector:
+            name: rabbitmq-cluster-operator
+          ports:
+            # The manifest's port has no name. The API stores an empty one
+            # as none.
+            "":
+              service_port: 443
+              container_port: 9443
+        rabbitmq-cluster-operator-metrics-service:
+          selector:
+            name: rabbitmq-cluster-operator
+          ports:
+            http:
+              service_port: 8080
+              container_port: 8080
+              app_protocol: ~
+      rbac:
+        rabbitmq-cluster-operator-role:
+          cluster_wide: true
+          service_accounts:
+            - ${namespace}/rabbitmq-cluster-operator
+          rules:
+            - apiGroups: [""]
+              resources:
+                - configmaps
+                - persistentvolumeclaims
+                - secrets
+                - serviceaccounts
+                - services
+              verbs: [create, get, list, update, watch]
+            - apiGroups: [""]
+              resources: [endpoints]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [create, get, patch]
+            - apiGroups: [""]
+              resources: [pods]
+              verbs: [get, list, update, watch]
+            - apiGroups: [""]
+              resources: [pods/exec]
+              verbs: [create]
+            - apiGroups: [apps]
+              resources: [statefulsets]
+              verbs: [create, delete, get, list, update, watch]
+            - apiGroups: [discovery.k8s.io]
+              resources: [endpointslices]
+              verbs: [get, list, watch]
+            - apiGroups: [rabbitmq.com]
+              resources: [rabbitmqclusters]
+              verbs: [create, get, list, update, watch]
+            - apiGroups: [rabbitmq.com]
+              resources: [rabbitmqclusters/finalizers]
+              verbs: [update]
+            - apiGroups: [rabbitmq.com]
+              resources: [rabbitmqclusters/status]
+              verbs: [get, patch, update]
+            - apiGroups: [rbac.authorization.k8s.io]
+              resources: [rolebindings, roles]
+              verbs: [create, delete, get, list, update, watch]
+        rabbitmq-cluster-operator-leader-election:
+          name: rabbitmq-cluster-leader-election-role
+          namespace: ${namespace}
+          service_accounts:
+            - ${namespace}/rabbitmq-cluster-operator
+          rules:
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [create, patch]
+        # Aggregated by its label into the ClusterRole of a Service Binding
+        # controller.
+        rabbitmq-cluster-operator-service-binding:
+          name: rabbitmq-cluster-service-binding-role
+          labels:
+            servicebinding.io/controller: "true"
+          rules:
+            - apiGroups: [rabbitmq.com]
+              resources: [rabbitmqclusters]
+              verbs: [get, list, watch]
+    certmanager:
+      issuers:
+        rabbitmq-cluster-operator-selfsigned:
+          name: selfsigned-issuer
+          spec:
+            selfSigned: {}
+      certs:
+        rabbitmq-cluster-operator-serving-cert:
+          name: cluster-operator-serving-cert
+          spec:
+            dnsNames:
+              - cluster-operator-webhook-service.${namespace}.svc
+              - cluster-operator-webhook-service.${namespace}.svc.cluster.local
+            issuerRef:
+              kind: Issuer
+              name: selfsigned-issuer
+            secretName: cluster-operator-webhook-server-cert
+        # The manifest's placeholder names, which its Kustomize base does not
+        # replace. No pod mounts the Secret.
+        rabbitmq-cluster-operator-metrics-certs:
+          name: metrics-certs
+          spec:
+            dnsNames:
+              - SERVICE_NAME.SERVICE_NAMESPACE.svc
+              - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
+            issuerRef:
+              kind: Issuer
+              name: selfsigned-issuer
+            secretName: rabbitmq-cluster-operator-metrics-server-cert

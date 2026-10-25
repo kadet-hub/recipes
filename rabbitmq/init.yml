@@ -1,0 +1,17 @@
+classes:
+  - .rabbitmq
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/rabbitmq:1.1.0@sha256:06de7216aec4dd35f2722303e93e76075ca46565e2c3a5cd7753b19fc151b210
+        output_path: lib/rabbitmq
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/rabbitmq
+        output_path: manifests/
+        output_type: yml
+  applications:
+    rabbitmq:
+      version: 4.3.6

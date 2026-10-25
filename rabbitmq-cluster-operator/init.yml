@@ -1,0 +1,31 @@
+classes:
+  - .operator
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+      - type: oci
+        source: ghcr.io/kadet-hub/certmanager:1.0.2@sha256:ba7632e9e06a593fbe20e9fa6774139203d7df65992adff9db94779606888ad9
+        output_path: lib/certmanager
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+      - input_type: kadet
+        input_paths:
+          - lib/certmanager
+        output_path: manifests/
+        output_type: yml
+      - input_type: copy
+        input_paths:
+          # SHA-256 6203b7216bbb76aa6eeedc8ee3d07e4750b8ed66c9498346e6098be9a89c309e
+          # from https://github.com/rabbitmq/cluster-operator/blob/v2.23.1/config/crd/bases/rabbitmq.com_rabbitmqclusters.yaml
+          - inventory/classes/recipes/rabbitmq-cluster-operator/vendor/rabbitmq.com_rabbitmqclusters.yaml
+        output_path: manifests/
+  applications:
+    rabbitmq-cluster-operator:
+      version: 2.23.1

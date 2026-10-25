@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# The kadet-hub/examples recipe's check, all three nodes ready and RabbitMQ
+# running, then through the Service rabbitmq (RCP-45): a message published to
+# a quorum queue over the HTTP API comes back, the AMQP listener answers the
+# protocol header and the Prometheus endpoint serves metrics.
+set -euo pipefail
+kubectl wait rabbitmqcluster/rabbitmq --for=condition=AllReplicasReady --timeout=480s
+kubectl exec rabbitmq-server-0 -c rabbitmq -- rabbitmq-diagnostics -q check_running
+user=$(kubectl get secret rabbitmq-default-user -o jsonpath='{.data.username}' | base64 -d)
+password=$(kubectl get secret rabbitmq-default-user -o jsonpath='{.data.password}' | base64 -d)
+kubectl exec -i rabbitmq-server-0 -c rabbitmq -- bash -s "$user" "$password" <<'SH'
+set -euo pipefail
+admin=(rabbitmqadmin --non-interactive -H rabbitmq -P 15672 -u "$1" -p "$2")
+"${admin[@]}" declare queue --name recipe-smoke --type quorum
+"${admin[@]}" publish message --routing-key recipe-smoke --payload recipe-check
+"${admin[@]}" get messages --queue recipe-smoke | grep -q recipe-check
+"${admin[@]}" delete queue --name recipe-smoke
+exec 3<>/dev/tcp/rabbitmq/5672
+printf 'AMQP\0\0\x09\x01' >&3
+[[ $(head -c 1 <&3 | od -An -tx1) == " 01" ]]
+exec 4<>/dev/tcp/rabbitmq/15692
+printf 'GET /metrics HTTP/1.0\r\nHost: rabbitmq\r\n\r\n' >&4
+grep -q '^rabbitmq_' <&4
+SH
+echo "a message to the quorum queue recipe-smoke came back through the Service rabbitmq, which answers on 5672, 15672 and 15692"

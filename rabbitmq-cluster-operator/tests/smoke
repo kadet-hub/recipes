@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# The operator serves its webhooks with the CA that cert-manager injected: a
+# RabbitmqCluster in another namespace is admitted, the mutating webhook fills
+# in its image, and all its replicas become ready.
+set -euo pipefail
+ns=rabbitmq-smoke
+kubectl create namespace "$ns" >/dev/null
+trap 'kubectl delete namespace "$ns" --wait=false >/dev/null' EXIT
+cluster() {
+  kubectl -n "$ns" apply -f - <<'YAML'
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: smoke
+spec: {}
+YAML
+}
+# cert-manager injects the CA shortly after the operator is ready.
+for _ in $(seq 30); do cluster >/dev/null 2>&1 && break; sleep 2; done
+cluster >/dev/null
+[[ -n $(kubectl -n "$ns" get rabbitmqcluster smoke -o jsonpath='{.spec.image}') ]]
+kubectl -n "$ns" wait rabbitmqcluster/smoke --for=condition=AllReplicasReady --timeout=300s >/dev/null
+echo "RabbitmqCluster smoke admitted, defaulted by the mutating webhook and ready"

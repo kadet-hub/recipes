@@ -1,0 +1,14 @@
+parameters:
+  generators:
+    rabbitmq:
+      rabbitmqcluster:
+        rabbitmq:
+          spec:
+            image: docker.io/library/rabbitmq:${applications.rabbitmq.version}-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58
+            replicas: 3
+            resources:
+              requests:
+                cpu: 250m
+                memory: 1Gi
+              limits:
+                memory: 1Gi

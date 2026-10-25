@@ -1,0 +1,7 @@
+classes:
+  - recipes.rabbitmq-cluster-operator
+parameters:
+  namespace: rabbitmq-system
+  kapitan:
+    vars:
+      target: rabbitmq-cluster-operator

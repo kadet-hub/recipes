@@ -1,0 +1,7 @@
+classes:
+  - recipes.rabbitmq
+parameters:
+  namespace: messaging
+  kapitan:
+    vars:
+      target: rabbitmq
