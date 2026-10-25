@@ -26,6 +26,8 @@ parameters:
         password: <ref>
 ```
 
+## Required parameters
+
 Both passwords must be set, as refs with the backend of your choice.
 Without them the compile stops with
 `Interpolation key 'applications.miniflux.database.password' not found`.

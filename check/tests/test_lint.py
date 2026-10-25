@@ -164,6 +164,14 @@ class Lint(unittest.TestCase):
         self.assertIn("README.md has no line Level:", "\n".join(lint.lint_files(self.recipe)))
 
 
+    def test_required_parameters(self):
+        readme = self.recipe / "README.md"
+        text = readme.read_text()
+        for broken in (text.replace("## Required parameters", "## Required"),
+                       text.replace("No parameter has to be set.", "")):
+            readme.write_text(broken)
+            self.assertIn('README.md has no section "Required parameters"', "\n".join(lint.lint_files(self.recipe)))
+
 
 class LintCompose(unittest.TestCase):
     """AC-10: a recipe derived from a compose file."""

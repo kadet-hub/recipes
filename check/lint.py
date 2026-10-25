@@ -201,6 +201,11 @@ def lint_files(recipe):
         errors.append("tests/values.yaml is missing (RCP-1)")
     elif source[0] == "compose" and level != "deploys":
         errors.append(f"a compose source is proven at level deploys, not {level} (RCP-38)")
+    sections = [section.partition("\n") for section in re.split(r"^## ", (recipe / "README.md").read_text(), flags=re.M)[1:]]
+    headings = [heading.strip() for heading, _, _ in sections]
+    after = headings.index("Include") + 1 if "Include" in headings else len(headings)
+    if headings[after : after + 1] != ["Required parameters"] or not sections[after][2].strip():
+        errors.append('README.md has no section "Required parameters" with text directly after "Include" (RCP-40)')
     if level not in LEVELS:
         errors.append(f"README.md has no line Level: `<{'|'.join(LEVELS)}>` (RCP-13)")
     elif level != "renders" and not (recipe / "tests/smoke").is_file():

@@ -25,6 +25,10 @@ parameters:
 release v1.21.2, SHA-256
 `262fef78478492cd35b73a1b227106b7802f9c056361d1f561d04b32d751337f`.
 
+## Required parameters
+
+No parameter has to be set.
+
 ## Settings
 
 | Chart value | Inventory |
@@ -48,8 +52,6 @@ the entry, for example `components.cert-manager.args.verbosity: --v=4`.
 Any other list set in the target is appended to the recipe's list. To
 replace one, set the key to `~` in a class included after the recipe and the
 new list in the target.
-
-No parameter has to be set.
 
 ## Left out
 
