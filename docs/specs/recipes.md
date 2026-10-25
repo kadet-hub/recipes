@@ -3,7 +3,8 @@
 ```text
 Status: Draft. check 0.5.0 implements renders and deploys, also from
         release manifests (RCP-59), for compose sources and designed
-        recipes deploys (RCP-38, RCP-44, RCP-58); migrates (RCP-14),
+        recipes deploys (RCP-38, RCP-44, RCP-58), included recipes and
+        prerequisites (RCP-47 to RCP-50, RCP-54, RCP-55); migrates (RCP-14),
         RCP-21, RCP-22, RCP-31, RCP-32 and RCP-34 are not implemented;
         RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
@@ -357,6 +358,14 @@ belong in the recipe.
 `tests/values.yaml`, compiles the recipe with the same values, and compares
 the two. Helm hooks that only run inside `helm install` and test pods are
 listed in the recipe's README and left out of the comparison.
+
+`check` applies every object server-side. A client-side apply stores the
+object as an annotation, and the API rejects that for CRDs above 256 KiB,
+such as CloudNativePG's `clusters` and `poolers`. Null fields are dropped
+before an apply, on both sides alike. A null leaves a field unset in a
+manifest, and a server-side apply rejects it where the schema has no
+`nullable`, as CloudNativePG's `cluster` chart renders
+`bootstrap.initdb: null`.
 
 `check` is one Python CLI in `check/`, run with
 `uv run --locked --project check check/check.py`. Its lock pins Kapitan
@@ -858,7 +867,7 @@ both compile entries run that version.
   when the included recipe includes a recipe itself.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #15; implemented: this change
 
 - RCP-48: A parent and its included recipes MUST pin every generator they
   share at the same source. `check lint` MUST fail on two
@@ -866,13 +875,14 @@ both compile entries run that version.
   sources.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #15; implemented: this change
 
 - RCP-49: `check` MUST build the project from the parent and each recipe it
   includes, at the same commit, and verify the generators of each as RCP-27
-  describes. An object belongs to the recipe whose name is the longest
-  prefix of the object's name, and RCP-3 applies to the objects of each
-  recipe. At `renders`, `check` MUST leave the objects of included recipes
+  describes. An object belongs to an included recipe when the compile of
+  that recipe's own `tests/target.yml` renders an object of the same kind
+  and name, and to the parent otherwise. RCP-3 applies to the objects of
+  each recipe. At `renders`, `check` MUST leave the objects of included recipes
   out of the comparison and list each as
   `` included <recipe>: `<Kind>/<name>` ``. At `deploys` it MUST apply them
   together with the parent's.
@@ -881,16 +891,19 @@ both compile entries run that version.
   points the chart at the included recipes' Services and Secrets, so the
   chart side renders the parent's objects only. Each included recipe is
   proven by its own `check`. At `deploys` the parent's `tests/smoke`
-  exercises the whole stack.
+  exercises the whole stack. Ownership by name prefix was the first
+  version of this rule. It fails for an included recipe that keeps a name
+  its chart renders, such as a Cluster that keeps the name of the
+  kadet-hub/examples recipe it replaces.
 
-  - Test: `check/tests/` (not written); CI `check` job
-  - Since: not implemented
+  - Test: `check/tests/test_check.py`; CI `check` job
+  - Since: #15; implemented: this change
 
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
 
   - Test: CI `select` job
-  - Since: not implemented
+  - Since: #15; implemented: this change
 
 - RCP-51: The section "Required parameters" of a parent MUST name the
   parameters its included recipes require as well.
@@ -951,7 +964,10 @@ and the recipe's `tests/target.yml` attaches its route to it.
 cloud-provider-kind runs outside kind with the runner's Docker socket. A
 Gateway or LoadBalancer Service that a pull request applies at `deploys`
 therefore starts containers on the runner, which the approval for forks of
-RCP-20 covers. It does not advertise `HTTPRoutePathRedirect`, so a redirect
+RCP-20 covers. It also manages every other kind cluster on the same
+Docker host, including clusters that have nothing to do with `check`, so a
+proof that requires `gateway-api` runs only where no other kind cluster
+runs, as on a CI runner. It does not advertise `HTTPRoutePathRedirect`, so a redirect
 that changes the path is proven at `renders` only. Envoy Gateway supports
 that feature and was considered, but it would add a chart install to every
 proof that requires `gateway-api`.
@@ -964,7 +980,7 @@ proof that requires `gateway-api`.
   through the `Requires:` lines of its prerequisites.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #15; implemented: this change
 
 - RCP-55: Before the proof, `check` MUST install the prerequisites of the
   recipe, of its included recipes and, in turn, of those prerequisites on
@@ -973,7 +989,8 @@ proof that requires `gateway-api`.
   own `tests/target.yml`. At `renders` only its Namespaces, CRDs,
   ServiceAccounts and RBAC objects are applied, as RCP-26 applies the
   recipe's. At `deploys` all of it is applied and its rollouts are waited
-  for, and an apply the API server rejects is repeated for up to a minute.
+  for, and an apply the API server rejects is repeated for up to a minute,
+  as is the recipe's own apply after them.
 
   The chart side needs the prerequisites too: a dry run of a CloudNativePG
   Cluster or an HTTPRoute fails without its CRD. The RabbitMQ operator's
@@ -983,7 +1000,7 @@ proof that requires `gateway-api`.
   repeated apply covers.
 
   - Test: CI `check` job, report lines `requires`
-  - Since: not implemented
+  - Since: #15; implemented: this change
 
 - RCP-56: The `tests/smoke` of a recipe that renders a route MUST reach the
   application through that route.
