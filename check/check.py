@@ -284,13 +284,24 @@ class Cluster:
             "apply", "--server-side", "--field-manager", "check", *flags, "-o", "json", "-f", "-",
             input=dump_all([drop_nulls(o) for o in objs])))])
 
+    def established(self, names, timeout=60):
+        """The CRDs once Established; kubectl wait fails while a new CRD's status.conditions is null (RCP-55)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            crds = compare.unwrap([json.loads(self.kubectl("get", *names, "-o", "json"))])
+            if all(any(c.get("type") == "Established" and c.get("status") == "True"
+                       for c in (o.get("status") or {}).get("conditions") or []) for o in crds):
+                return crds
+            if time.monotonic() > deadline:
+                raise Failed(f"{self.name}: {', '.join(names)} not Established after {timeout}s")
+            time.sleep(1)
+
     def apply_for_real(self, objs, timeout=60):
         """CRDs first; an apply the API server rejects, such as a webhook not serving yet, again for a minute (RCP-55)."""
         crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
         if crds:
             self.apply(crds)
-            self.kubectl("wait", "--for", "condition=Established", "--timeout", "60s",
-                         *[f"crd/{o['metadata']['name']}" for o in crds])
+            self.established([f"crd/{o['metadata']['name']}" for o in crds])
         rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
         deadline = time.monotonic() + timeout
         while True:
@@ -390,7 +401,7 @@ def install_gateway_api(cluster, full):
         if time.monotonic() > deadline:
             raise Failed(f"{cluster.name}: cloud-provider-kind installed no Gateway API CRDs")
         time.sleep(2)
-    cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s", *[f"crd/{c}" for c in GATEWAY_CRDS])
+    cluster.established([f"crd/{c}" for c in GATEWAY_CRDS])
     if full:
         cluster.apply_for_real([{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "gateway"}}, GATEWAY])
         cluster.kubectl("wait", "-n", "gateway", "gateway/gateway", "--for", "condition=Programmed", "--timeout", "180s")
@@ -458,9 +469,7 @@ def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces, 
     rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
     if crds:
         cluster.apply(crds)
-        names = [f"crd/{o['metadata']['name']}" for o in crds]
-        cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s", *names)
-        crds = compare.unwrap([json.loads(cluster.kubectl("get", *names, "-o", "json"))])
+        crds = cluster.established([f"crd/{o['metadata']['name']}" for o in crds])
     stored = crds + cluster.apply(rest, "--dry-run=server")
     granting = [o for o in rest if o["kind"] in compare.RBAC_KINDS or o["kind"] == "ServiceAccount"]
     cluster.apply(granting)

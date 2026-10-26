@@ -1,6 +1,6 @@
 """AC-19 and AC-21: check downloads a release manifest, and a chart from an HTTP repository served on localhost,
 and fails unless the SHA-256 is the one of the Source line (RCP-23).
-AC-15: null fields, the order of prerequisites and the owner of an object, which need no cluster.
+AC-15: null fields, the order of prerequisites, the owner of an object and the wait for Established CRDs, which need no cluster.
 RCP-34: check at renders on a given compiled output and chart render, without Kapitan, helm or a cluster."""
 
 import contextlib
@@ -8,6 +8,7 @@ import functools
 import hashlib
 import http.server
 import io
+import json
 import shutil
 import tarfile
 import tempfile
@@ -124,6 +125,27 @@ class DropNulls(unittest.TestCase):
     def test_falsy_values_stay(self):
         value = {"a": 0, "b": "", "c": [], "d": {}, "e": False}
         self.assertEqual(check.drop_nulls(value), value)
+
+
+class Established(unittest.TestCase):
+    """RCP-55: a CRD whose status.conditions is still null is waited for, not failed on."""
+
+    def crd(self, conditions):
+        return json.dumps({"kind": "CustomResourceDefinition", "metadata": {"name": "a.example.org"},
+                           "status": {"conditions": conditions}})
+
+    def established(self, *answers, timeout=60):
+        cluster = check.Cluster("c", Path("/nonexistent"))
+        with mock.patch.object(cluster, "kubectl", side_effect=answers), mock.patch("time.sleep"):
+            return cluster.established(["crd/a.example.org"], timeout=timeout)
+
+    def test_null_conditions_then_established(self):
+        crds = self.established(self.crd(None), self.crd([{"type": "Established", "status": "True"}]))
+        self.assertEqual(crds[0]["metadata"]["name"], "a.example.org")
+
+    def test_never_established_fails(self):
+        with self.assertRaisesRegex(check.Failed, "not Established"):
+            self.established(self.crd(None), self.crd(None), timeout=-1)
 
 
 class RequirementOrder(unittest.TestCase):
