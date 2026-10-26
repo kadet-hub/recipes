@@ -29,6 +29,8 @@ KUBERNETES = re.compile(r"^ghcr\.io/kadet-hub/kubernetes:(\d+)\.(\d+)\.(\d+)@")
 IMAGE_ARG = re.compile(r"^--?[\w-]*image[\w-]*=(.+)$")
 FORBIDDEN_RESOLVER = re.compile(r"\$\{\s*(from_file|write|oc\.env|filename|parent_filename|path|parent_path)\s*:")
 SHA_COMMENT = re.compile(r"#.*SHA-256 ([0-9a-f]{64})")
+DESCRIPTION_LIMIT = 300
+DESCRIPTION_CHAR = re.compile(r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 def class_files(recipe):
@@ -278,6 +280,29 @@ def _compile_errors(name, recipe, f, text, kapitan, pinned):
     return errors
 
 
+def _description_errors(text):
+    """RCP-32: the first non-empty block of lines after the first line starting with #, whitespace collapsed."""
+    lines = text.split("\n")
+    start = next((i for i, line in enumerate(lines) if line.startswith("#")), len(lines))
+    block = []
+    for line in lines[start + 1 :]:
+        if line.strip(" \t"):
+            block.append(line)
+        elif block:
+            break
+    if not block:
+        return ["README.md has no paragraph after the heading (RCP-32)"]
+    description = re.sub(r"[ \t\n]+", " ", "\n".join(block)).strip(" ")
+    errors = []
+    if len(description) > DESCRIPTION_LIMIT:
+        errors.append(f"README.md: the first paragraph is {len(description)} characters, at most {DESCRIPTION_LIMIT} (RCP-32)")
+    if m := DESCRIPTION_CHAR.search(description):
+        errors.append(f"README.md: the first paragraph contains U+{ord(m.group()):04X}, a control or bidirectional formatting character (RCP-32)")
+    if description.endswith(":"):
+        errors.append("README.md: the first paragraph ends with a colon (RCP-32)")
+    return errors
+
+
 def lint_files(recipe):
     """The rules that need only the recipe's files. Returns a list of errors."""
     recipe = Path(recipe)
@@ -308,6 +333,7 @@ def lint_files(recipe):
     after = headings.index("Include") + 1 if "Include" in headings else len(headings)
     if headings[after : after + 1] != ["Required parameters"] or not sections[after][2].strip():
         errors.append('README.md has no section "Required parameters" with text directly after "Include" (RCP-40)')
+    errors += _description_errors((recipe / "README.md").read_text())
     if level not in LEVELS:
         errors.append(f"README.md has no line Level: `<{'|'.join(LEVELS)}>` (RCP-13)")
     elif level != "renders" and not (recipe / "tests/smoke").is_file():

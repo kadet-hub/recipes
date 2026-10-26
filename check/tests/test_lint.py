@@ -185,6 +185,56 @@ class Lint(unittest.TestCase):
             readme.write_text(broken)
             self.assertIn('README.md has no section "Required parameters"', "\n".join(lint.lint_files(self.recipe)))
 
+    def rcp32_errors(self, readme=None):
+        """The RCP-32 errors, after writing the README if one is given."""
+        if readme is not None:
+            (self.recipe / "README.md").write_text(readme)
+        return [e for e in lint.lint_files(self.recipe) if "(RCP-32)" in e]
+
+    def description_errors(self, paragraph):
+        """The RCP-32 errors after replacing the README's first paragraph."""
+        readme = self.recipe / "README.md"
+        heading, _, rest = readme.read_text().split("\n\n", 2)
+        return self.rcp32_errors(f"{heading}\n\n{paragraph}\n\n{rest}")
+
+    def test_description_length(self):
+        self.assertEqual(self.description_errors("x" * 300), [])
+        self.assertEqual(
+            self.description_errors("x" * 301),
+            ["README.md: the first paragraph is 301 characters, at most 300 (RCP-32)"],
+        )
+
+    def test_description_length_counts_collapsed_whitespace(self):
+        self.assertEqual(self.description_errors("x" * 150 + "\n   \t" + "y" * 149), [])
+        self.assertEqual(len(self.description_errors("x" * 150 + "\n   \t" + "y" * 150)), 1)
+
+    def test_description_is_the_first_block_after_the_heading(self):
+        readme = "x" * 400 + "\n\n# cert-manager\n\n\nOne\nparagraph.\n\n" + "x" * 400 + "\n"
+        self.assertEqual(self.rcp32_errors(readme), [])
+        readme = "Short.\n\n# cert-manager\n\n\n" + "x" * 301 + "\n\nShort.\n"
+        self.assertEqual(len(self.rcp32_errors(readme)), 1)
+
+    def test_description_control_character(self):
+        self.assertEqual(self.description_errors("Two\tlines\nof text"), [])
+        for char in ("\x00", "\x1b", "\x7f", "\x85"):
+            self.assertEqual(
+                self.description_errors(f"A{char}B"),
+                [f"README.md: the first paragraph contains U+{ord(char):04X}, a control or bidirectional formatting character (RCP-32)"],
+            )
+
+    def test_description_bidirectional_character(self):
+        self.assertEqual(self.description_errors("Caf\u00e9 \u201cquoted\u201d"), [])
+        for char in ("\u061c", "\u200e", "\u202e", "\u2066"):
+            self.assertEqual(len(self.description_errors(f"A{char}B")), 1, char)
+
+    def test_description_trailing_colon(self):
+        self.assertEqual(self.description_errors("Derived from: the chart."), [])
+        for paragraph in ("Derived from the chart:", "Derived from\nthe chart: "):
+            self.assertEqual(self.description_errors(paragraph), ["README.md: the first paragraph ends with a colon (RCP-32)"])
+
+    def test_description_missing(self):
+        for readme in ("# cert-manager\n", "# cert-manager\n\n\n \t\n", "no heading\n\ntext\n"):
+            self.assertEqual(self.rcp32_errors(readme), ["README.md has no paragraph after the heading (RCP-32)"], readme)
 
     # AC-12
 
