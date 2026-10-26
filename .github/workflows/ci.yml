@@ -128,3 +128,16 @@ jobs:
           uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --report report.txt || status=$?
           { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+  # The one required check of the main ruleset (RCP-65).
+  ci:
+    needs: [test, select, lint, check]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          ! grep -qwE 'failure|cancelled' <<<"$RESULTS"
