@@ -646,6 +646,19 @@ For a compose source and a designed recipe, `renders`, also as part of
   - Test: CI `select` job
   - Since: #2
 
+- RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
+  needs every other job of the run and fails when one of them failed or
+  was cancelled. A skipped job passes, since a pull request that changes no
+  recipe skips `lint` and `check`.
+
+  The `lint` and `check` jobs are a matrix whose names carry the recipe, so
+  no fixed job name could be a required check without `ci`. The `main`
+  ruleset requires `ci`, so an approved pull request with a failed proof
+  stays blocked.
+
+  - Test: CI `ci` job; manual: `gh api repos/kadet-hub/recipes/rulesets`
+  - Since: this change
+
 ## Compose sources
 
 A compose recipe maps the services of one compose file, pinned by
