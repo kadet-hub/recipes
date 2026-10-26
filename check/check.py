@@ -1,14 +1,16 @@
-"""check: lint a recipe and validate its Kapitan output on kind, or deploy it (DEC-19).
+"""check: lint a recipe, or prove it against the chart or release manifest it replaces, or deploy it (compose, design).
 
   check lint <name>
   check <name> --level renders|deploys
-  check <name> --level renders --compiled <out>   (RCP-34)
+  check <name> --level renders --compiled <out> [--rendered <file>]   (RCP-34)
 
 Run from the repository root through uv: uv run --locked --project check check/check.py ...
-Needs kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
+Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
 """
 
 import argparse
+import concurrent.futures
+import hashlib
 import json
 import os
 import shutil
@@ -17,6 +19,8 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -35,6 +39,7 @@ KIND_NODE_IMAGE = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405
 KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:fca6da0da9f5caebc285740cebe1720e6d8c66dc0f25f1f9fd3367703946aef4"
 INDEX = "ghcr.io/kadet-hub/index"
 RELEASE_IDENTITY = "https://github.com/kadet-hub/registry/.github/workflows/release.yml@refs/heads/main"
+BUILTIN_ROLES = ("view", "edit", "admin")
 SYSTEM_NAMESPACES = {"default", "kube-system", "kube-public", "kube-node-lease"}
 WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet")
 # What a renders proof applies for real of a prerequisite, as of the recipe (RCP-26, RCP-55).
@@ -123,6 +128,81 @@ def fetch_generators(recipe, project, work):
             tar.extractall(target, filter="data")
         pulled.append(f"{name} {version or '?'} ({digest[:19]}, index serial {index['serial']})")
     return pulled
+
+
+def fetch_chart(source, work):
+    """helm pull by digest; the chart's version must be the one the README names."""
+    repo, version, digest = source
+    out = work / "chart"
+    out.mkdir()
+    run(["helm", "pull", f"oci://{repo}@{digest}", "-d", str(out)])
+    (tgz,) = out.glob("*.tgz")
+    chart = yaml.safe_load(run(["helm", "show", "chart", str(tgz)]))
+    if str(chart.get("version")) != version:
+        raise Failed(f"oci://{repo}@{digest} is version {chart.get('version')}, the README names {version}")
+    return tgz
+
+
+def fetch_http_chart(source, work):
+    """The archive the repository's index lists for the chart and version; its SHA-256 must be the one
+    the README names, and its Chart.yaml must name the chart and version (RCP-23)."""
+    repo, name, version, digest = source
+    # charts.jetstack.io answers Python's default User-Agent with 403.
+    agent = {"User-Agent": f"check/{VERSION}"}
+    with urllib.request.urlopen(urllib.request.Request(f"{repo}/index.yaml", headers=agent), timeout=60) as r:
+        index = yaml.load(r.read(), Loader=Loader)
+    entry = next((e for e in (index.get("entries") or {}).get(name) or [] if str(e.get("version")) == version), None)
+    if not entry or not entry.get("urls"):
+        raise Failed(f"{repo}/index.yaml lists no archive of {name} {version}")
+    url = urllib.parse.urljoin(f"{repo}/", entry["urls"][0])
+    with urllib.request.urlopen(urllib.request.Request(url, headers=agent), timeout=60) as r:
+        data = r.read()
+    actual = "sha256:" + hashlib.sha256(data).hexdigest()
+    if actual != digest:
+        raise Failed(f"{url} has {actual}, the README names {digest}")
+    out = work / "chart"
+    out.mkdir()
+    tgz = out / f"{name}-{version}.tgz"
+    tgz.write_bytes(data)
+    with tarfile.open(tgz) as tar:
+        chart = yaml.safe_load(tar.extractfile(f"{name}/Chart.yaml"))
+    if (chart.get("name"), str(chart.get("version"))) != (name, version):
+        raise Failed(f"{url} is {chart.get('name')} {chart.get('version')}, the README names {name} {version}")
+    return tgz
+
+
+def fetch_compose(source):
+    """The compose file at the pinned commit; its SHA-256 must be the one the README names (RCP-23)."""
+    repo, commit, path, digest = source
+    with urllib.request.urlopen(f"https://raw.githubusercontent.com/{repo}/{commit}/{path}", timeout=60) as r:
+        actual = "sha256:" + hashlib.sha256(r.read()).hexdigest()
+    if actual != digest:
+        raise Failed(f"{path} of {repo} at {commit} has {actual}, the README names {digest}")
+
+
+def fetch_manifest(source, work):
+    """The release asset; its SHA-256 must be the one the README names (RCP-23). Returns its objects (RCP-59)."""
+    repo, tag, file, digest = source
+    with urllib.request.urlopen(f"https://github.com/{repo}/releases/download/{tag}/{file}", timeout=60) as r:
+        data = r.read()
+    actual = "sha256:" + hashlib.sha256(data).hexdigest()
+    if actual != digest:
+        raise Failed(f"{file} of {repo} release {tag} has {actual}, the README names {digest}")
+    (work / "manifest.yaml").write_bytes(data)
+    return load_all(data.decode())
+
+
+def render_chart(name, recipe, tgz, namespace, rendered=None):
+    """The chart's objects, and the hooks left out (RCP-25); from helm template's output in rendered if given (RCP-34)."""
+    text = rendered.read_text() if rendered else run(
+        ["helm", "template", name, str(tgz), "-n", namespace, "-f", str(recipe / "tests/values.yaml"), "--include-crds"])
+    objs, hooks = [], []
+    for o in load_all(text):
+        if "helm.sh/hook" in ((o.get("metadata") or {}).get("annotations") or {}):
+            hooks.append(f"{o['kind']}/{o['metadata']['name']}")
+        else:
+            objs.append(o)
+    return objs, hooks
 
 
 def build_project(recipe, work):
@@ -220,6 +300,25 @@ class Cluster:
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(5)
+
+    def wait_aggregation(self, objs, timeout=60):
+        """The built-in roles carry the rules of the ClusterRoles that aggregate into them."""
+        for role in BUILTIN_ROLES:
+            want = [r for o in compare.aggregated(objs, role) for r in o.get("rules") or []]
+            deadline = time.monotonic() + timeout
+            while True:
+                have = json.loads(self.kubectl("get", "clusterrole", role, "-o", "json")).get("rules") or []
+                missing = [r for r in want if r not in have]
+                if not missing:
+                    break
+                if time.monotonic() > deadline:
+                    raise Failed(f"{self.name}: ClusterRole {role} did not aggregate {missing}")
+                time.sleep(1)
+
+    def can_i(self, subject, namespace):
+        return compare.normalize_can_i(
+            self.kubectl("auth", "can-i", "--list", "-n", namespace, *compare.impersonation(subject))
+        )
 
 
 def prepare(cluster, namespaces, namespace):
@@ -351,18 +450,31 @@ def partition(objs, included):
     return own, parts
 
 
-def apply_renders(cluster, objs, namespaces, namespace, prereqs=()):
-    """RCP-8, RCP-26: CRDs, ServiceAccounts and RBAC for real, every other object in a server-side dry run."""
+def prove_side(cluster, objs, namespaces, namespace, subjects, rbac_namespaces, prereqs=()):
+    """RCP-8, RCP-26: the API server's view of one side and what each subject may do."""
     prepare(cluster, namespaces, namespace)
     install(cluster, prereqs, full=False)
     crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
     rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
     if crds:
         cluster.apply(crds)
-        cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s",
-                        *[f"crd/{o['metadata']['name']}" for o in crds])
-    cluster.apply(rest, "--dry-run=server")
-    cluster.apply([o for o in rest if o["kind"] in compare.RBAC_KINDS or o["kind"] == "ServiceAccount"])
+        names = [f"crd/{o['metadata']['name']}" for o in crds]
+        cluster.kubectl("wait", "--for", "condition=Established", "--timeout", "60s", *names)
+        crds = compare.unwrap([json.loads(cluster.kubectl("get", *names, "-o", "json"))])
+    stored = crds + cluster.apply(rest, "--dry-run=server")
+    granting = [o for o in rest if o["kind"] in compare.RBAC_KINDS or o["kind"] == "ServiceAccount"]
+    cluster.apply(granting)
+    for role in BUILTIN_ROLES:
+        cluster.kubectl("create", "clusterrolebinding", f"check-{role}", "--clusterrole", role, "--user", f"check-{role}")
+    cluster.wait_aggregation(granting)
+    permissions = {}
+    for subject in sorted(subjects):
+        kind, ns, name = subject
+        for n in sorted(rbac_namespaces):
+            permissions[f"{kind} {ns + '/' if ns else ''}{name} in {n}"] = cluster.can_i(subject, n)
+    for role in BUILTIN_ROLES:
+        permissions[f"User check-{role} (bound to {role}) in default"] = cluster.can_i(("User", "", f"check-{role}"), "default")
+    return stored, permissions
 
 
 def deploy(cluster, objs, recipe, prereqs=()):
@@ -377,11 +489,12 @@ def deploy(cluster, objs, recipe, prereqs=()):
 # Commands
 
 
-def cmd_lint(recipe, work, compiled=None):
+def cmd_lint(recipe, work, compiled=None, rendered=None):
     errors = lint.lint_files(recipe)
     if errors:
         return errors, []
     source, _ = lint.readme_fields(recipe)
+    namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
     notes = []
     if compiled:
         for name in [r.name for r in with_included(recipe)] + requirement_order(recipe):
@@ -397,21 +510,29 @@ def cmd_lint(recipe, work, compiled=None):
     for other, other_objs in parts.items():
         errors += lint.lint_output(other, other_objs, {o["metadata"]["name"] for o in other_objs})
     if source[0] == "compose":
+        if not compiled:
+            fetch_compose(source[1])
         return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_compose_output(own), notes
     if source[0] == "design":
         return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_design_output(own, source[1]), notes
-    # RCP-3: which names a chart or release manifest uses is the migration's to check (DEC-19).
-    return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in own}), notes
+    if source[0] == "manifest":
+        manifest = load_all(rendered.read_text()) if rendered else fetch_manifest(source[1], work)
+        return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in manifest}), notes
+    tgz = None
+    if not rendered:
+        tgz = fetch_http_chart(source[1], work) if source[0] == "http" else fetch_chart(source[1], work)
+    chart, _ = render_chart(recipe.name, recipe, tgz, namespace, rendered)
+    return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart}), notes
 
 
-def cmd_check(recipe, level, work, keep, compiled=None):
-    report = []
+def cmd_check(recipe, level, work, keep, compiled=None, rendered=None):
+    report, failed = [], False
 
     def say(line=""):
         report.append(line)
         print(line, flush=True)
 
-    errors, notes = cmd_lint(recipe, work, compiled)
+    errors, notes = cmd_lint(recipe, work, compiled, rendered)
     say(f"check {VERSION}: {recipe.name} at level {level}")
     for n in notes:
         say(f"generator: {n}, attestation and index verified")
@@ -419,7 +540,34 @@ def cmd_check(recipe, level, work, keep, compiled=None):
         for e in errors:
             say(f"lint: {e}")
         return report, True
+    (kind, source), _ = lint.readme_fields(recipe)
     namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
+    chart = None
+    if kind == "compose":
+        if level == "migrates":
+            say("migrates: a compose source has no level migrates (RCP-38)")
+            return report, True
+        say(f"compose: https://github.com/{source[0]}/blob/{source[1]}/{source[2]}, {source[3]} "
+            + ("not verified by check" if compiled else "verified"))
+    elif kind == "design":
+        if level == "migrates":
+            say("migrates: a designed recipe has no level migrates (RCP-44)")
+            return report, True
+        say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
+    elif kind == "manifest":
+        say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, "
+            + (f"given in {rendered}, not verified by check" if rendered else f"{source[3]} verified"))
+        chart = load_all((rendered or work / "manifest.yaml").read_text())
+    else:
+        ref = "{}/{}:{}@{}".format(*source) if kind == "http" else "oci://{}:{}@{}".format(*source)
+        say(f"chart: {ref}, " + (f"rendered output given in {rendered}, not verified by check" if rendered else "values tests/values.yaml"))
+        tgz = None if rendered else next((work / "chart").glob("*.tgz"))
+        chart, hooks = render_chart(recipe.name, recipe, tgz, namespace, rendered)
+        readme = (recipe / "README.md").read_text()
+        for h in hooks:
+            listed = f"`{h}`" in readme
+            failed |= not listed
+            say(f"hook left out: {h}" + ("" if listed else " NOT LISTED in README.md (RCP-25)"))
     objs = objects_of(compiled_files(compiled or work / "out", recipe.name))
     if compiled:
         say(f"compiled: given in {compiled}, generators not verified by check")
@@ -433,13 +581,13 @@ def cmd_check(recipe, level, work, keep, compiled=None):
             say(f"requires: {name}: generator: {n}, attestation and index verified")
     gateways = GatewayProvider(prereqs, work)
     try:
-        failed = proof(recipe, level, work, keep, say, namespace, objs, prereqs, compiled)
+        failed = proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled)
     finally:
         gateways.stop()
     return report, failed
 
 
-def proof(recipe, level, work, keep, say, namespace, objs, prereqs, compiled=None):
+def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled=None):
     if compiled:
         say(f"kapitan next ({KAPITAN_NEXT}): not compiled, the compiled output is given (RCP-34)")
     elif next_error := compile_next(work / "project", work / "next"):
@@ -451,29 +599,77 @@ def proof(recipe, level, work, keep, say, namespace, objs, prereqs, compiled=Non
         say(f"kapitan next ({KAPITAN_NEXT}): "
             + (f"output differs in {', '.join(changed)}, not deciding" if changed else "same output as 0.36.3"))
 
-    _, parts = owned(recipe, objs, work, compiled)
+    every = objs
+    objs, parts = owned(recipe, every, work, compiled)
     for other, other_objs in parts.items():
         for o in other_objs:
             say(f"included {other}: `{o['kind']}/{o['metadata']['name']}`")
 
-    # RCP-8, RCP-26: one cluster, at renders the apply with its dry run, at deploys the recipe deployed for real.
-    cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
-    namespaces = {namespace} | {o["metadata"]["namespace"] for o in objs if o["metadata"].get("namespace")}
-    failed = False
+    if kind in ("compose", "design"):
+        # RCP-38, RCP-44: lint checked RBAC and selectors; one cluster, at renders the apply of RCP-26 with
+        # nothing to compare, at deploys the recipe deployed for real.
+        cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
+        namespaces = {namespace} | {o["metadata"]["namespace"] for o in every if o["metadata"].get("namespace")}
+        try:
+            if level == "renders":
+                prove_side(cluster, every, namespaces, namespace, set(), set(), prereqs)
+                say("renders: passed")
+            else:
+                prepare(cluster, namespaces, namespace)
+                say("smoke: " + (deploy(cluster, every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
+                say("deploys: passed")
+        finally:
+            if not keep:
+                cluster.delete()
+        return failed
+
+    subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)
+    rbac_ns = compare.rbac_namespaces(chart + objs, subjects, namespace)
+    namespaces = {namespace} | {o["metadata"]["namespace"] for o in chart + every if o["metadata"].get("namespace")}
+    clusters = {side: Cluster(f"check-{recipe.name}-{side}-{os.getpid()}"[:50], work) for side in ("chart", "recipe")}
     try:
-        if level == "renders":
-            apply_renders(cluster, objs, namespaces, namespace, prereqs)
+        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+            futures = {side: pool.submit(prove_side, clusters[side], side_objs, namespaces, namespace, subjects, rbac_ns, prereqs)
+                       for side, side_objs in (("chart", chart), ("recipe", objs))}
+            (chart_stored, chart_perms), (recipe_stored, recipe_perms) = (futures[s].result() for s in ("chart", "recipe"))
+
+        result = compare.compare(chart_stored, recipe_stored)
+        say(f"objects outside RBAC: chart {result['objects'][0]}, recipe {result['objects'][1]}")
+        for i in result["only_chart"]:
+            failed = True
+            say(f"only in the chart: {i}")
+        for i in result["only_recipe"]:
+            failed = True
+            say(f"only in the recipe: {i}")
+        for d in result["differences"]:
+            failed |= not d.cls
+            say(f"difference: {d}")
+        for e in result["selector_errors"]:
+            failed = True
+            say(f"selector: {e}")
+        if not result["selector_errors"]:
+            say(f"selectors: {result['selection_equal']} select the same objects on both sides")
+        perm_diff = compare.diff_permissions(chart_perms, recipe_perms)
+        for line in perm_diff:
+            failed = True
+            say(f"permissions: {line}")
+        if not perm_diff:
+            say(f"permissions: equal for {len(subjects)} subjects in {', '.join(sorted(rbac_ns))}"
+                f" and for users bound to {', '.join(BUILTIN_ROLES)}")
+        for label in compare.untested_aggregation(chart + objs):
+            say(f"permissions: not tested on kind: {label}")
+        if not failed:
             say("renders: passed")
-        else:
-            prepare(cluster, namespaces, namespace)
-            say("smoke: " + (deploy(cluster, objs, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
+        if level in ("deploys", "migrates") and not failed:
+            say("smoke: " + (deploy(clusters["recipe"], every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
             say("deploys: passed")
         if level == "migrates":
             failed = True
             say("migrates: not implemented in this version of check")
     finally:
         if not keep:
-            cluster.delete()
+            for c in clusters.values():
+                c.delete()
     return failed
 
 
@@ -485,6 +681,8 @@ def main(argv=None):
     parser.add_argument("--keep", action="store_true", help="keep the kind clusters and the work directory")
     parser.add_argument("--compiled", type=Path, metavar="OUT",
                         help="Kapitan output path with compiled/<recipe>/ of the recipe, its included recipes and prerequisites (RCP-34)")
+    parser.add_argument("--rendered", type=Path, metavar="FILE",
+                        help="helm template's output of the chart, or the release manifest (RCP-34)")
     args = parser.parse_args(argv)
     if args.args[0] == "lint" and len(args.args) == 2:
         mode, name = "lint", args.args[1]
@@ -492,11 +690,15 @@ def main(argv=None):
         mode, name = "check", args.args[0]
     else:
         parser.error("usage: check lint <name> | check <name> --level <level>")
-    if args.compiled and (mode == "lint" or args.level != "renders"):
-        parser.error("--compiled goes with check <name> --level renders (RCP-34)")
     recipe = Path(name.rstrip("/")).resolve()
     if not (recipe / "init.yml").is_file():
         parser.error(f"{name}: not a recipe directory")
+    if args.compiled or args.rendered:
+        source = (recipe / "README.md").is_file() and lint.readme_fields(recipe)[0]
+        unrendered = bool(source) and source[0] in ("compose", "design")
+        if mode == "lint" or args.level != "renders" or not args.compiled or bool(args.rendered) == unrendered:
+            parser.error("--compiled goes with check <name> --level renders, and --rendered with it unless"
+                         " the recipe is a compose source or designed (RCP-34)")
     work = Path(tempfile.mkdtemp(prefix="check-"))
     try:
         if mode == "lint":
@@ -507,7 +709,7 @@ def main(argv=None):
                 print(f"lint: warning: {w}")
             print(f"lint: {recipe.name}: " + ("failed" if errors else "passed"))
             return 1 if errors else 0
-        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled)
+        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered)
         if args.report:
             args.report.write_text("\n".join(report) + "\n")
         return 1 if failed else 0

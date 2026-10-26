@@ -1,18 +1,113 @@
-"""AC-15: null fields, the order of prerequisites and the owner of an object, which need no cluster.
-AC-24: check validates only the Kapitan output (DEC-19). Every recipe kind at renders, on a given compiled output
-(RCP-34) or its own compile, is linted and applied once on one cluster, with no helm run and no download of its
-Source (RCP-8, RCP-26)."""
+"""AC-19 and AC-21: check downloads a release manifest, and a chart from an HTTP repository served on localhost,
+and fails unless the SHA-256 is the one of the Source line (RCP-23).
+AC-15: null fields, the order of prerequisites and the owner of an object, which need no cluster.
+RCP-34: check at renders on a given compiled output and chart render, without Kapitan, helm or a cluster."""
 
 import contextlib
+import functools
+import hashlib
+import http.server
 import io
-import os
 import shutil
+import tarfile
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import check
+
+MANIFEST = b"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: rabbitmq-system\n---\n"
+DIGEST = "sha256:" + hashlib.sha256(MANIFEST).hexdigest()
+SOURCE = ("rabbitmq/cluster-operator", "v2.23.1", "cluster-operator.yml")
+
+
+class FetchManifest(unittest.TestCase):
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        self.urlopen = mock.patch("urllib.request.urlopen", return_value=io.BytesIO(MANIFEST)).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def tearDown(self):
+        shutil.rmtree(self.work)
+
+    def test_matching_digest(self):
+        objs = check.fetch_manifest((*SOURCE, DIGEST), self.work)
+        self.assertEqual(objs, [{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "rabbitmq-system"}}])
+        self.assertEqual((self.work / "manifest.yaml").read_bytes(), MANIFEST)
+        self.assertEqual(
+            self.urlopen.call_args.args[0],
+            "https://github.com/rabbitmq/cluster-operator/releases/download/v2.23.1/cluster-operator.yml",
+        )
+
+    def test_other_digest_fails(self):
+        other = "sha256:" + "0" * 64
+        with self.assertRaises(check.Failed) as e:
+            check.fetch_manifest((*SOURCE, other), self.work)
+        self.assertEqual(
+            str(e.exception),
+            f"cluster-operator.yml of rabbitmq/cluster-operator release v2.23.1 has {DIGEST}, the README names {other}",
+        )
+        self.assertFalse((self.work / "manifest.yaml").exists())
+
+
+def archive(name, version):
+    """A chart archive as helm package writes it: <name>/Chart.yaml in a gzipped tar."""
+    data = f"apiVersion: v2\nname: {name}\nversion: {version}\n".encode()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(f"{name}/Chart.yaml")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+class HttpChart(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        # The index names the archive relative to the repository, as helm repo index writes it.
+        self.repo.joinpath("index.yaml").write_text(
+            "apiVersion: v1\nentries:\n  demo:\n    - name: demo\n      version: 1.2.0\n"
+            "      urls:\n        - demo-1.2.0.tgz\n"
+        )
+        self.serve(archive("demo", "1.2.0"))
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(self.repo))
+        handler.log_message = lambda *args: None
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+        self.work = self.tmp / "work"
+        self.work.mkdir()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        shutil.rmtree(self.tmp)
+
+    def serve(self, data):
+        self.repo.joinpath("demo-1.2.0.tgz").write_bytes(data)
+        self.digest = "sha256:" + hashlib.sha256(data).hexdigest()
+
+    def test_archive_with_its_digest(self):
+        tgz = check.fetch_http_chart((self.url, "demo", "1.2.0", self.digest), self.work)
+        self.assertEqual("sha256:" + hashlib.sha256(tgz.read_bytes()).hexdigest(), self.digest)
+
+    def test_archive_with_another_digest_fails(self):
+        with self.assertRaisesRegex(check.Failed, "demo-1.2.0.tgz has sha256:.*, the README names sha256:0{64}"):
+            check.fetch_http_chart((self.url, "demo", "1.2.0", "sha256:" + "0" * 64), self.work)
+
+    def test_chart_yaml_with_another_version_fails(self):
+        self.serve(archive("demo", "1.3.0"))
+        with self.assertRaisesRegex(check.Failed, "is demo 1.3.0, the README names demo 1.2.0"):
+            check.fetch_http_chart((self.url, "demo", "1.2.0", self.digest), self.work)
+
+    def test_version_the_index_does_not_list_fails(self):
+        with self.assertRaisesRegex(check.Failed, "index.yaml lists no archive of demo 1.1.0"):
+            check.fetch_http_chart((self.url, "demo", "1.1.0", self.digest), self.work)
+
 
 RECIPES = Path(__file__).resolve().parents[2]
 
@@ -85,144 +180,128 @@ def obj(kind, name, api="v1", **fields):
     return {"apiVersion": api, "kind": kind, "metadata": {"name": name, "namespace": "nextcloud"}, **fields}
 
 
-
-def deployment(name, namespace, image="docker.io/library/busybox:1.37.0@sha256:" + "0" * 64):
-    labels = {"name": name}
-    return {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": name, "namespace": namespace},
-            "spec": {"selector": {"matchLabels": labels},
-                     "template": {"metadata": {"labels": labels}, "spec": {"containers": [{"name": name, "image": image}]}}}}
-
-
-MYSQL = ("container-registry.oracle.com/mysql/community-server:9.7.4"
-         "@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb")
-
-
-class Renders(unittest.TestCase):
-    """AC-24: a chart (nextcloud, which includes postgresql and valkey and requires cnpg and gateway-api), a chart
-    from an HTTP repository (external-dns-powerdns, which includes powerdns), a release manifest
-    (rabbitmq-cluster-operator, which requires cert-manager), a compose (miniflux) and a designed recipe (mysql)."""
+class GivenOutputs(unittest.TestCase):
+    """RCP-34: nextcloud, which includes postgresql and valkey and requires cnpg (through postgresql) and
+    gateway-api, at renders on outputs the caller compiled and rendered."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
-        self.out, self.report = self.tmp / "out", self.tmp / "report.txt"
+        self.out, self.rendered = self.tmp / "out", self.tmp / "rendered.yaml"
+        config = obj("ConfigMap", "nextcloud-config", data={"a": "1"})
+        secret = obj("Secret", "valkey-auth", stringData={"password": "x"})
+        cluster = obj("Cluster", "postgresql-cluster", api="postgresql.cnpg.io/v1", spec={"instances": 1})
+        write_all(self.rendered, obj("ServiceAccount", "nextcloud"),
+                  {**config, "metadata": {**config["metadata"], "labels": {"helm.sh/chart": "nextcloud-9.4.1"}}})
+        write_all(self.out / "compiled/nextcloud/manifests.yml", obj("ServiceAccount", "nextcloud"), config, secret, cluster)
+        write_all(self.out / "compiled/valkey/manifests.yml", secret)
+        write_all(self.out / "compiled/postgresql/manifests.yml", cluster)
+        write_all(self.out / "compiled/cnpg/manifests.yml", obj("Namespace", "cnpg-system"))
         self.ran = []
         for target in ("check.run", "subprocess.run", "subprocess.Popen", "urllib.request.urlopen"):
             mock.patch(target, side_effect=lambda *a, **kw: self.ran.append(a)).start()
         mock.patch("check.GatewayProvider").start()
         mock.patch("check.Cluster.delete").start()
-        self.apply = mock.patch("check.apply_renders").start()
-        self.deploy = mock.patch("check.deploy").start()
+        self.prove = mock.patch("check.prove_side", side_effect=lambda cluster, objs, *a: (objs, {})).start()
         self.addCleanup(mock.patch.stopall)
-        cluster = obj("Cluster", "postgresql-cluster", api="postgresql.cnpg.io/v1")
-        secret = obj("Secret", "valkey-auth")
-        powerdns = deployment("powerdns", "dns")
-        self.compiled("nextcloud", deployment("nextcloud", "nextcloud"), cluster, secret)
-        self.compiled("postgresql", cluster)
-        self.compiled("valkey", secret)
-        self.compiled("cnpg", {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "cnpg-system"}})
-        self.compiled("external-dns-powerdns", deployment("external-dns-powerdns", "dns"), powerdns)
-        self.compiled("powerdns", powerdns)
-        # RCP-3: a release manifest's own names, as the Issuer of the RabbitMQ Cluster Operator's.
-        self.compiled("rabbitmq-cluster-operator", deployment("rabbitmq-cluster-operator", "rabbitmq-system"),
-                      {"apiVersion": "cert-manager.io/v1", "kind": "Issuer",
-                       "metadata": {"name": "selfsigned-issuer", "namespace": "rabbitmq-system"}})
-        self.compiled("cert-manager", {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "cert-manager"}})
-        self.compiled("miniflux", deployment("miniflux", "miniflux"))
-        self.compiled("mysql", deployment("mysql", "mysql", MYSQL))
 
-    def compiled(self, name, *objs):
-        write_all(self.out / f"compiled/{name}/manifests.yml", *objs)
-
-    def main(self, name, *args):
-        self.report.unlink(missing_ok=True)
+    def main(self, *args):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
-            status = check.main([str(RECIPES / name), "--report", str(self.report), *args])
-        return status, self.report.read_text().splitlines() if self.report.exists() else err.getvalue()
+            status = check.main([str(RECIPES / "nextcloud"), *args])
+        return status, err.getvalue()
 
-    def test_every_kind_once_on_one_cluster(self):
-        for name, objects in (("nextcloud", 3), ("external-dns-powerdns", 2), ("rabbitmq-cluster-operator", 2),
-                              ("miniflux", 1), ("mysql", 1)):
-            with self.subTest(name=name):
-                self.apply.reset_mock()
-                status, lines = self.main(name, "--compiled", str(self.out))
-                self.assertEqual(status, 0, lines)
-                self.assertEqual(lines[-1], "renders: passed")
-                (call,) = self.apply.call_args_list
-                self.assertEqual(call.args[0].name, f"check-{name}-{os.getpid()}"[:50])
-                self.assertEqual(len(call.args[1]), objects)
-        self.deploy.assert_not_called()
+    def test_compares_the_given_outputs(self):
+        report = self.tmp / "report.txt"
+        status, _ = self.main("--compiled", str(self.out), "--rendered", str(self.rendered), "--report", str(report))
+        lines = report.read_text().splitlines()
         self.assertEqual(self.ran, [])
-
-    def test_report_of_a_parent(self):
-        _, lines = self.main("nextcloud", "--compiled", str(self.out))
+        self.assertEqual(status, 0, lines)
         for line in [
-            "compiled: given in " + str(self.out) + ", generators not verified by check",
             "requires: gateway-api, cloud-provider-kind with the Gateway gateway/gateway, installed before the proof",
             "requires: cnpg, 1 objects, installed before the proof",
             "included valkey: `Secret/valkey-auth`",
             "included postgresql: `Cluster/postgresql-cluster`",
+            "renders: passed",
         ]:
             self.assertIn(line, lines)
-
-    def test_own_compile_fetches_no_source(self):
-        mock.patch("check.fetch_generators", return_value=[]).start()
-        mock.patch("check.compile_recipe", side_effect=lambda project, out: write_all(
-            out / "compiled/valkey/manifests.yml", deployment("valkey", "valkey"))).start()
-        mock.patch("check.compile_next", return_value="not run in this test").start()
-        status, lines = self.main("valkey")
-        self.assertEqual(status, 0, lines)
-        self.assertEqual(lines[-1], "renders: passed")
-        self.apply.assert_called_once()
-        self.assertEqual(self.ran, [])
-
-    def test_lint_fails_on_rbac_of_a_compose_recipe(self):
-        self.compiled("miniflux", deployment("miniflux", "miniflux"),
-                      {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": {"name": "miniflux", "namespace": "miniflux"}})
-        status, lines = self.main("miniflux", "--compiled", str(self.out))
-        self.assertEqual(status, 1)
-        self.assertIn("lint: Role.rbac.authorization.k8s.io/miniflux/miniflux: RBAC object, the source grants no API access (RCP-38)", lines)
-        self.apply.assert_not_called()
-
-    def test_names_without_the_prefix(self):
-        """RCP-3: a compose recipe's names start with its own, a chart recipe's may be the chart's."""
-        self.compiled("miniflux", deployment("miniflux", "miniflux"), deployment("db", "miniflux"))
-        status, lines = self.main("miniflux", "--compiled", str(self.out))
-        self.assertEqual(status, 1)
-        self.assertIn("lint: Deployment/db: name neither starts with miniflux nor is one the chart uses (RCP-3)", lines)
-        self.compiled("valkey", deployment("valkey", "valkey"), deployment("db", "valkey"))
-        status, lines = self.main("valkey", "--compiled", str(self.out))
-        self.assertEqual(status, 0, lines)
+        sides = {tuple(o["metadata"]["name"] for o in c.args[1]) for c in self.prove.call_args_list}
+        self.assertEqual(sides, {("nextcloud", "nextcloud-config")})
 
     def test_missing_compile_of_an_included_recipe_fails(self):
         shutil.rmtree(self.out / "compiled/valkey")
-        status, err = self.main("nextcloud", "--compiled", str(self.out))
+        status, err = self.main("--compiled", str(self.out), "--rendered", str(self.rendered))
         self.assertEqual(status, 2)
         self.assertIn("no compiled output of valkey", err)
         self.assertEqual(self.ran, [])
 
-    def test_compiled_only_at_renders_and_no_rendered(self):
-        for args in (["--compiled", str(self.out), "--level", "deploys"],
-                     ["--compiled", str(self.out), "--rendered", str(self.tmp / "chart.yaml")]):
+    def test_flags_only_together_and_at_renders(self):
+        both = ["--compiled", str(self.out), "--rendered", str(self.rendered)]
+        for args in (both[:2], both[2:], [*both, "--level", "deploys"]):
             with self.subTest(args=args), self.assertRaises(SystemExit):
-                self.main("valkey", *args)
+                self.main(*args)
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-            check.main(["lint", str(RECIPES / "valkey"), "--compiled", str(self.out)])
+            check.main(["lint", str(RECIPES / "nextcloud"), *both])
         self.assertEqual(self.ran, [])
 
-    def test_deploys_on_one_cluster_without_the_renders_apply(self):
-        objs = [deployment("valkey", "valkey")]
-        prepare = mock.patch("check.prepare").start()
-        self.deploy.return_value = "smoke passed\n"
-        lines = []
-        for level, failed in (("deploys", False), ("migrates", True)):
-            with self.subTest(level=level):
-                self.assertEqual(check.proof(RECIPES / "valkey", level, self.tmp, False, lines.append, "valkey", objs, [], self.out), failed)
-        self.assertEqual([c.args[0].name for c in prepare.call_args_list], [f"check-valkey-{os.getpid()}"] * 2)
-        self.assertEqual([c.args[1] for c in self.deploy.call_args_list], [objs, objs])
-        self.apply.assert_not_called()
-        self.assertEqual(lines.count("deploys: passed"), 2)
-        self.assertEqual(lines[-1], "migrates: not implemented in this version of check")
+
+class GivenCompile(unittest.TestCase):
+    """RCP-34, RCP-38, RCP-44: a compose recipe (miniflux) and a designed one (mysql) at renders on a given
+    compiled output: lint, then the apply of RCP-26 on one cluster, and nothing compared."""
+
+    IMAGES = {
+        "miniflux": "docker.io/miniflux/miniflux:2.3.4@sha256:" + "0" * 64,
+        "mysql": "container-registry.oracle.com/mysql/community-server:9.7.4"
+                 "@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb",
+    }
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.ran = []
+        for target in ("check.run", "subprocess.run", "subprocess.Popen", "urllib.request.urlopen"):
+            mock.patch(target, side_effect=lambda *a, **kw: self.ran.append(a)).start()
+        mock.patch("check.Cluster.delete").start()
+        self.prove = mock.patch("check.prove_side", return_value=([], {})).start()
+        self.compare = mock.patch("compare.compare").start()
+        self.deploy = mock.patch("check.deploy").start()
+        self.addCleanup(mock.patch.stopall)
+
+    def main(self, name, *objs, args=()):
+        labels = {"name": name}
+        deployment = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": name, "namespace": name},
+                      "spec": {"selector": {"matchLabels": labels}, "template": {
+                          "metadata": {"labels": labels}, "spec": {"containers": [{"name": name, "image": self.IMAGES[name]}]}}}}
+        write_all(self.tmp / f"out/compiled/{name}/manifests.yml", deployment, *objs)
+        report = self.tmp / "report.txt"
+        with contextlib.redirect_stdout(io.StringIO()):
+            status = check.main([str(RECIPES / name), "--compiled", str(self.tmp / "out"), "--report", str(report), *args])
+        return status, report.read_text().splitlines()
+
+    def test_applies_and_compares_nothing(self):
+        for name in self.IMAGES:
+            with self.subTest(name=name):
+                self.prove.reset_mock()
+                status, lines = self.main(name)
+                self.assertEqual(status, 0, lines)
+                self.assertIn("renders: passed", lines)
+                (call,) = self.prove.call_args_list
+                self.assertEqual(([o["metadata"]["name"] for o in call.args[1]], call.args[4]), ([name], set()))
+        self.compare.assert_not_called()
+        self.deploy.assert_not_called()
+        self.assertEqual(self.ran, [])
+
+    def test_lint_fails_on_rbac(self):
+        role = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": {"name": "miniflux", "namespace": "miniflux"}}
+        status, lines = self.main("miniflux", role)
+        self.assertEqual(status, 1)
+        self.assertIn("lint: Role.rbac.authorization.k8s.io/miniflux/miniflux: RBAC object, the source grants no API access (RCP-38)", lines)
+        self.prove.assert_not_called()
+
+    def test_rendered_is_rejected(self):
+        for name in self.IMAGES:
+            with self.subTest(name=name), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                self.main(name, args=("--rendered", str(self.tmp / "rendered.yaml")))
+        self.prove.assert_not_called()
 
 
 if __name__ == "__main__":
