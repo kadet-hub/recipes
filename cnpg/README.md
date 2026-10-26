@@ -25,9 +25,12 @@ parameters:
       target: cnpg
 ```
 
-`crds.yml` copies `vendor/cnpg.crds.yaml`, the chart's
-`templates/crds/crds.yaml` without its first and last line, the condition
-on `crds.create`. SHA-256 of the vendored file:
+`crds.yml` copies the eleven files `vendor/<name of the CRD>.yml`. They are
+the documents of the chart's `templates/crds/crds.yaml` without its first
+and last line, the condition on `crds.create`. The registry takes no file
+above 1 MiB and the documents have 1,259,760 bytes together, so each CRD
+has a file of its own. The files in the order of `crds.yml`, joined by
+`---` lines, have the SHA-256
 `d35964ebdb5ff843ce12ff84c673f838537d11ec1e8ac0dab65498e37ed835b3`.
 
 The operator runs once per cluster and watches every namespace. Install it

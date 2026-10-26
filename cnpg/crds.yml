@@ -3,8 +3,28 @@ parameters:
     compile:
       - input_type: copy
         input_paths:
-          # SHA-256 d35964ebdb5ff843ce12ff84c673f838537d11ec1e8ac0dab65498e37ed835b3
-          # from https://github.com/cloudnative-pg/charts/blob/cloudnative-pg-v0.29.1/charts/cloudnative-pg/templates/crds/crds.yaml
-          # without its first and last line, the condition on crds.create
-          - inventory/classes/recipes/cnpg/vendor/cnpg.crds.yaml
+          # From https://github.com/cloudnative-pg/charts/blob/cloudnative-pg-v0.29.1/charts/cloudnative-pg/templates/crds/crds.yaml
+          # without its first and last line, the condition on crds.create, split at its --- lines:
+          # SHA-256 30eabf1dcd945dcd7aee498a49bb301001044e331ba72ab79218aeffc545446a
+          - inventory/classes/recipes/cnpg/vendor/backups.postgresql.cnpg.io.yml
+          # SHA-256 28ab352a2ee429f50ca4fb6cb830d86751f1887d426ff007b4ac22682d4aea41
+          - inventory/classes/recipes/cnpg/vendor/clusterimagecatalogs.postgresql.cnpg.io.yml
+          # SHA-256 624747135b63b67157ae9ee42938eba088ec189c075473f7b0017844069feb02
+          - inventory/classes/recipes/cnpg/vendor/clusters.postgresql.cnpg.io.yml
+          # SHA-256 de2a0c37f634e87c400d52056aa37d7e296a4de5e8aca6cf619b056210b0b45a
+          - inventory/classes/recipes/cnpg/vendor/databaseroles.postgresql.cnpg.io.yml
+          # SHA-256 8c1e0cbf34775b8957c6701a5163e5ec5914d2b2189586350f4e08cbe02c8f59
+          - inventory/classes/recipes/cnpg/vendor/databases.postgresql.cnpg.io.yml
+          # SHA-256 84ad8c63808a99e350b7c55f85733b6ce76ffcd91401621ddff0bce7cf8ea32e
+          - inventory/classes/recipes/cnpg/vendor/failoverquorums.postgresql.cnpg.io.yml
+          # SHA-256 a4c7a2c00fb129807f66b09eefed3b483144835a50f7cf7eb311789fc650b3a6
+          - inventory/classes/recipes/cnpg/vendor/imagecatalogs.postgresql.cnpg.io.yml
+          # SHA-256 57d42b34270a1154c721bf3baf8391f76338055393294429db8f46ae215e4f34
+          - inventory/classes/recipes/cnpg/vendor/poolers.postgresql.cnpg.io.yml
+          # SHA-256 5459f468be1fd3d138f3ddbc0d0eed737b73022f1c92a29e6f3cf633978d7b26
+          - inventory/classes/recipes/cnpg/vendor/publications.postgresql.cnpg.io.yml
+          # SHA-256 49d5c7146d7927b669542f7a09ad02b57797ad4fe767a29186dd4e01b1067c95
+          - inventory/classes/recipes/cnpg/vendor/scheduledbackups.postgresql.cnpg.io.yml
+          # SHA-256 5a60cced72b17131f41903bbe872a9e923fe5cf11226bc9825cb9e3acc93c634
+          - inventory/classes/recipes/cnpg/vendor/subscriptions.postgresql.cnpg.io.yml
         output_path: manifests/
