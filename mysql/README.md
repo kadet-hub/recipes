@@ -2,7 +2,7 @@
 
 MySQL Community Server as a single instance with one database and its
 user, designed in kadet-hub on Oracle's image and rendered by the kadet-hub
-`kubernetes` generator 1.7.0.
+`kubernetes` generator 1.9.0.
 
 Source: `container-registry.oracle.com/mysql/community-server:9.7.4@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb`
 

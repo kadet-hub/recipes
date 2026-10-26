@@ -1,7 +1,7 @@
 # strimzi
 
 The Strimzi Cluster Operator 1.3.0, watching every namespace, with its RBAC
-and the CRDs, rendered by the kadet-hub `kubernetes` generator 1.8.0.
+and the CRDs, rendered by the kadet-hub `kubernetes` generator 1.9.0.
 Derived from Strimzi's operator chart, which the `kafka` recipe requires.
 
 Source: `oci://quay.io/strimzi-helm/strimzi-kafka-operator:1.3.0@sha256:08852fb5aca9782750ec1698616cad0efe15d5eef1a366d124373129ff9c29ea`

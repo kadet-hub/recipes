@@ -1,7 +1,7 @@
 # keycloak-operator
 
 The Keycloak Operator 26.8.1, watching every namespace, with its RBAC and
-optionally its CRDs, rendered by the kadet-hub `kubernetes` generator 1.8.0.
+optionally its CRDs, rendered by the kadet-hub `kubernetes` generator 1.9.0.
 Derived from the Keycloak project's operator chart, which the `keycloak`
 recipe requires.
 

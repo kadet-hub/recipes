@@ -2,7 +2,7 @@
 
 MongoDB Community Server as a single instance with authentication and the
 user `root`, designed in kadet-hub on MongoDB's image and rendered by the
-kadet-hub `kubernetes` generator 1.7.0.
+kadet-hub `kubernetes` generator 1.9.0.
 
 Source: `docker.io/mongodb/mongodb-community-server:9.0.4-ubi9-slim@sha256:449f87becbf5f3a5d915ead43356254034ea3f8d90c67e33e0e4a89acbb7313c`
 
