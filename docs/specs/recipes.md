@@ -657,7 +657,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   stays blocked.
 
   - Test: CI `ci` job; manual: `gh api repos/kadet-hub/recipes/rulesets`
-  - Since: this change
+  - Since: #47
 
 ## Compose sources
 
