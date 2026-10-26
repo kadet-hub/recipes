@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.11.0 implements renders and deploys, for charts
+Status: Draft. check 0.12.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -989,6 +989,12 @@ artifact into `lib/<generator>` and write the same files. Two pins of
 different versions conflict. The later fetch wins `lib/<generator>`, and
 both compile entries run that version.
 
+A consumer project fetches the generators into one `lib/` for all of its
+targets, so recipes in separate targets conflict too. The consumer workflow
+fails on two dependencies with the same `output_path` and different sources
+(CON-1 in kadet-hub/registry). cert-manager 1.0.0 pins the `kubernetes`
+generator 1.7.0 and cnpg 1.0.0 pins 1.9.0, so no project can use both.
+
 - RCP-47: A recipe MAY include another recipe of this repository as
   `recipes.<other>` or `recipes.<other>.<option>`. `check lint` MUST fail
   when the included recipe includes a recipe itself.
@@ -996,13 +1002,22 @@ both compile entries run that version.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #15; implemented: #31
 
-- RCP-48: A parent and its included recipes MUST pin every generator they
-  share at the same source. `check lint` MUST fail on two
-  `kapitan.dependencies` entries with the same `output_path` and different
-  sources.
+- RCP-48: Every recipe of this repository MUST pin a generator it shares
+  with another recipe of this repository at the same source. `check lint`
+  MUST fail on two `kapitan.dependencies` entries of the recipe and its
+  included recipes with the same `output_path` and different sources. It
+  MUST also fail when another recipe pins the `output_path` of one of these
+  entries at a different source.
+
+  The other recipes are the directories next to the recipe that hold an
+  `init.yml`, which leaves out `check/` and `docs/`. A recipe checked
+  without such directories next to it has nothing to compare. The registry
+  gate writes every recipe directory of the recipe's commit next to it
+  (REC-4 there), so from `check` 0.12.0 on its REC-5 compares the same pins
+  as this repository's CI.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #15; implemented: #31
+  - Since: #15; implemented: #31; every recipe: #48
 
 - RCP-49: `check` MUST build the project from the parent and each recipe it
   includes, at the same commit, and verify the generators of each as RCP-27
@@ -2291,7 +2306,7 @@ argument as a literal `${...}` and reads nothing.
   that commit's `check/check.py`. Nothing else is published. The gate pins
   the tag's commit SHA and runs `check` from that commit.
 
-  - Test: manual: the `to-recipe` skill names `check-v0.10.0`
+  - Test: manual: the `to-recipe` skill names a `check-vX.Y.Z` tag
   - Since: tags `check-v0.9.0` and `check-v0.10.0`; the skill pins
     `check-v0.10.0` since kapitan-recipes 0.3.0, Moep90/agent-skills#9
 
@@ -2342,9 +2357,11 @@ feature's design (OQ-6).
   deploys` in CI.
 - AC-14 (RCP-47, RCP-48, RCP-54): `check lint` fails on a parent whose
   included recipe includes a recipe, on a parent and an included recipe
-  that pin `lib/kubernetes` at different sources, on a `Requires:` entry
+  that pin `lib/kubernetes` at different sources, on a recipe next to one
+  that pins `lib/kubernetes` at another source, on a `Requires:` entry
   that is neither a recipe nor `gateway-api`, and on a recipe that includes
-  and requires the same recipe, and passes on nextcloud.
+  and requires the same recipe. It passes on nextcloud, and on a recipe
+  alone or next to one with the same `lib/kubernetes` pin.
 - AC-15 (RCP-49, RCP-55, RCP-56): `check nextcloud --level deploys` passes
   in CI, its report lists the objects of `postgresql` and `valkey` as
   included and `cnpg` and `gateway-api` as installed, and its
