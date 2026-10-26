@@ -2,6 +2,7 @@
 
 The cert-manager controller, cainjector and webhook with their RBAC, and
 optionally the CRDs, rendered by the kadet-hub `kubernetes` generator 1.7.0.
+
 Derived from the cert-manager Helm chart v1.21.2:
 
 Source: `oci://quay.io/jetstack/charts/cert-manager:v1.21.2@sha256:634dce9c13b56677a2c05e2ab76c312d0be2664022d5dd05815da67e1fd5f610`

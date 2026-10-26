@@ -4,7 +4,7 @@ Nextcloud 35.0.2 as one replica with its background jobs and an HTTPRoute
 to a Gateway the cluster already runs, rendered by the kadet-hub
 `kubernetes` generator 1.9.0 from Nextcloud's Helm chart 9.4.1. The
 database is the included recipe `postgresql`, the cache and file locking
-the included recipe `valkey`.
+`valkey`.
 
 Source: `oci://ghcr.io/nextcloud/helm/nextcloud:9.4.1@sha256:90ffc4c8dd014e25343ecd37de7262f04d1c2cacb47a48315316d7798e7b35cb`
 

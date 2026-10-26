@@ -2,9 +2,10 @@
 
 Keycloak 26.8.1 as one `Keycloak` resource of the Keycloak Operator, on the
 PostgreSQL of the `postgresql` recipe and with a cert-manager certificate,
-and optionally an HTTPRoute to a Gateway the cluster already runs, designed
-in kadet-hub on Keycloak's image and rendered by the kadet-hub `keycloak`
-generator 1.1.0, `certmanager` generator 1.0.2 and, for the route,
+and optionally an HTTPRoute to a Gateway the cluster already runs.
+
+Designed in kadet-hub on Keycloak's image and rendered by the kadet-hub
+`keycloak` generator 1.1.0, `certmanager` generator 1.0.2 and, for the route,
 `kubernetes` generator 1.9.0.
 
 Source: `quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b`
