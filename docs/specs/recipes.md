@@ -1150,7 +1150,7 @@ proof that requires `gateway-api`.
 
   - Test: CI `check` job, report lines `requires`; `check/tests/test_check.py`
     (`Established`)
-  - Since: #15; implemented: #31; CRD wait: this change
+  - Since: #15; implemented: #31; CRD wait: #49
 
 - RCP-56: The `tests/smoke` of a recipe that renders a route MUST reach the
   application through that route.
