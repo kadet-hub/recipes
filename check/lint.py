@@ -156,10 +156,13 @@ def _requires_errors(recipe):
 
 
 def _include_errors(recipe):
-    """RCP-47: an included recipe includes no recipe; RCP-48: shared generators at the same source."""
+    """RCP-47: an included recipe includes no recipe; RCP-48: the recipe, its included recipes and the
+    recipes next to it pin the generators of the first two at the same source."""
     errors, pins = [], {}
-    for r in [recipe, *(recipe.parent / o for o in included(recipe))]:
-        if r != recipe and included(r):
+    group = [recipe, *(recipe.parent / o for o in included(recipe))]
+    others = [d for d in sorted(recipe.parent.iterdir()) if (d / "init.yml").is_file() and d not in group]
+    for r in group + others:
+        if r in group[1:] and included(r):
             errors.append(f"includes {r.name}, which includes {', '.join(included(r))} itself (RCP-47)")
         for path in class_files(r):
             try:
@@ -167,10 +170,12 @@ def _include_errors(recipe):
             except (yaml.YAMLError, AttributeError):
                 continue
             for dep in kapitan.get("dependencies") or []:
-                pins.setdefault(str(dep.get("output_path", "")).rstrip("/"), set()).add((str(dep.get("source")), r.name))
+                output_path = str(dep.get("output_path", "")).rstrip("/")
+                if r in group or output_path in pins:
+                    pins.setdefault(output_path, {}).setdefault(str(dep.get("source")), set()).add(r.name)
     for output_path, sources in sorted(pins.items()):
-        if len({s for s, _ in sources}) > 1:
-            listed = ", ".join(f"{s} ({n})" for s, n in sorted(sources))
+        if len(sources) > 1:
+            listed = ", ".join(f"{s} ({', '.join(sorted(names))})" for s, names in sorted(sources.items()))
             errors.append(f"{output_path} is pinned at different sources: {listed} (RCP-48)")
     return errors
 

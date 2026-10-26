@@ -434,6 +434,27 @@ class LintIncludesAndRequires(unittest.TestCase):
         init.write_text(re.sub(r"kubernetes:[0-9.]+@", "kubernetes:1.6.0@", init.read_text()))
         self.assertIn("lib/kubernetes is pinned at different sources", self.errors())
 
+    def test_other_recipe_with_another_pin_fails(self):
+        pin = re.search(r"ghcr\.io/kadet-hub/kubernetes:\S+", (self.tmp / "cert-manager/init.yml").read_text()).group(0)
+        other = re.sub(r"kubernetes:[0-9.]+@", "kubernetes:1.6.0@", pin)
+        init = self.tmp / "miniflux/init.yml"
+        init.write_text(init.read_text().replace(pin, other))
+        self.assertIn(
+            f"lib/kubernetes is pinned at different sources: {other} (miniflux), {pin} (cert-manager, valkey, valkeyparent) (RCP-48)",
+            self.errors(self.tmp / "cert-manager"),
+        )
+
+    def test_other_recipes_with_the_same_pin_pass(self):
+        self.assertNotIn("RCP-48", self.errors(self.tmp / "cert-manager"))
+
+    def test_recipe_alone_passes(self):
+        init = self.tmp / "cert-manager/init.yml"
+        init.write_text(re.sub(r"kubernetes:[0-9.]+@", "kubernetes:1.6.0@", init.read_text()))
+        self.assertIn("RCP-48", self.errors(self.tmp / "cert-manager"))
+        for name in ("valkey", "miniflux", "valkeyparent"):
+            shutil.rmtree(self.tmp / name)
+        self.assertNotIn("RCP-48", self.errors(self.tmp / "cert-manager"))
+
     def test_requires_entries(self):
         self.requires(self.parent, "Requires: `cert-manager`, `gateway-api`")
         self.assertNotIn("RCP-54", self.errors())
