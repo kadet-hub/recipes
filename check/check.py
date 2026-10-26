@@ -2,7 +2,7 @@
 
   check lint <name>
   check <name> --level renders|deploys
-  check <name> --level renders --compiled <out> --rendered <file>   (RCP-34)
+  check <name> --level renders --compiled <out> [--rendered <file>]   (RCP-34)
 
 Run from the repository root through uv: uv run --locked --project check check/check.py ...
 Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
@@ -28,7 +28,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.9.0"
+VERSION = "0.11.0"
 # The image the release notes of the kind version in .github/actions/tools
 # list for its Kubernetes version; Renovate moves both together (RCP-30).
 # renovate: datasource=docker depName=kindest/node
@@ -510,7 +510,8 @@ def cmd_lint(recipe, work, compiled=None, rendered=None):
     for other, other_objs in parts.items():
         errors += lint.lint_output(other, other_objs, {o["metadata"]["name"] for o in other_objs})
     if source[0] == "compose":
-        fetch_compose(source[1])
+        if not compiled:
+            fetch_compose(source[1])
         return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_compose_output(own), notes
     if source[0] == "design":
         return errors + lint.lint_output(recipe.name, own, set()) + lint.lint_design_output(own, source[1]), notes
@@ -543,13 +544,14 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None):
     namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
     chart = None
     if kind == "compose":
-        if level != "deploys":
-            say(f"{level}: a compose source is proven at level deploys only (RCP-38)")
+        if level == "migrates":
+            say("migrates: a compose source has no level migrates (RCP-38)")
             return report, True
-        say(f"compose: https://github.com/{source[0]}/blob/{source[1]}/{source[2]}, {source[3]} verified")
+        say(f"compose: https://github.com/{source[0]}/blob/{source[1]}/{source[2]}, {source[3]} "
+            + ("not verified by check" if compiled else "verified"))
     elif kind == "design":
-        if level != "deploys":
-            say(f"{level}: a designed recipe is proven at level deploys only (RCP-44)")
+        if level == "migrates":
+            say("migrates: a designed recipe has no level migrates (RCP-44)")
             return report, True
         say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
     elif kind == "manifest":
@@ -604,13 +606,18 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
             say(f"included {other}: `{o['kind']}/{o['metadata']['name']}`")
 
     if kind in ("compose", "design"):
-        # RCP-38, RCP-44: lint checked RBAC and selectors; one cluster, the recipe deployed for real.
+        # RCP-38, RCP-44: lint checked RBAC and selectors; one cluster, at renders the apply of RCP-26 with
+        # nothing to compare, at deploys the recipe deployed for real.
         cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
+        namespaces = {namespace} | {o["metadata"]["namespace"] for o in every if o["metadata"].get("namespace")}
         try:
-            prepare(cluster, {namespace} | {o["metadata"]["namespace"] for o in every if o["metadata"].get("namespace")},
-                    namespace)
-            say("smoke: " + (deploy(cluster, every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
-            say("deploys: passed")
+            if level == "renders":
+                prove_side(cluster, every, namespaces, namespace, set(), set(), prereqs)
+                say("renders: passed")
+            else:
+                prepare(cluster, namespaces, namespace)
+                say("smoke: " + (deploy(cluster, every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
+                say("deploys: passed")
         finally:
             if not keep:
                 cluster.delete()
@@ -683,11 +690,15 @@ def main(argv=None):
         mode, name = "check", args.args[0]
     else:
         parser.error("usage: check lint <name> | check <name> --level <level>")
-    if (args.compiled or args.rendered) and (mode == "lint" or args.level != "renders" or not (args.compiled and args.rendered)):
-        parser.error("--compiled and --rendered go together, with check <name> --level renders (RCP-34)")
     recipe = Path(name.rstrip("/")).resolve()
     if not (recipe / "init.yml").is_file():
         parser.error(f"{name}: not a recipe directory")
+    if args.compiled or args.rendered:
+        source = (recipe / "README.md").is_file() and lint.readme_fields(recipe)[0]
+        unrendered = bool(source) and source[0] in ("compose", "design")
+        if mode == "lint" or args.level != "renders" or not args.compiled or bool(args.rendered) == unrendered:
+            parser.error("--compiled goes with check <name> --level renders, and --rendered with it unless"
+                         " the recipe is a compose source or designed (RCP-34)")
     work = Path(tempfile.mkdtemp(prefix="check-"))
     try:
         if mode == "lint":

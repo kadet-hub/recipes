@@ -244,5 +244,65 @@ class GivenOutputs(unittest.TestCase):
         self.assertEqual(self.ran, [])
 
 
+class GivenCompile(unittest.TestCase):
+    """RCP-34, RCP-38, RCP-44: a compose recipe (miniflux) and a designed one (mysql) at renders on a given
+    compiled output: lint, then the apply of RCP-26 on one cluster, and nothing compared."""
+
+    IMAGES = {
+        "miniflux": "docker.io/miniflux/miniflux:2.3.4@sha256:" + "0" * 64,
+        "mysql": "container-registry.oracle.com/mysql/community-server:9.7.4"
+                 "@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb",
+    }
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.ran = []
+        for target in ("check.run", "subprocess.run", "subprocess.Popen", "urllib.request.urlopen"):
+            mock.patch(target, side_effect=lambda *a, **kw: self.ran.append(a)).start()
+        mock.patch("check.Cluster.delete").start()
+        self.prove = mock.patch("check.prove_side", return_value=([], {})).start()
+        self.compare = mock.patch("compare.compare").start()
+        self.deploy = mock.patch("check.deploy").start()
+        self.addCleanup(mock.patch.stopall)
+
+    def main(self, name, *objs, args=()):
+        labels = {"name": name}
+        deployment = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": name, "namespace": name},
+                      "spec": {"selector": {"matchLabels": labels}, "template": {
+                          "metadata": {"labels": labels}, "spec": {"containers": [{"name": name, "image": self.IMAGES[name]}]}}}}
+        write_all(self.tmp / f"out/compiled/{name}/manifests.yml", deployment, *objs)
+        report = self.tmp / "report.txt"
+        with contextlib.redirect_stdout(io.StringIO()):
+            status = check.main([str(RECIPES / name), "--compiled", str(self.tmp / "out"), "--report", str(report), *args])
+        return status, report.read_text().splitlines()
+
+    def test_applies_and_compares_nothing(self):
+        for name in self.IMAGES:
+            with self.subTest(name=name):
+                self.prove.reset_mock()
+                status, lines = self.main(name)
+                self.assertEqual(status, 0, lines)
+                self.assertIn("renders: passed", lines)
+                (call,) = self.prove.call_args_list
+                self.assertEqual(([o["metadata"]["name"] for o in call.args[1]], call.args[4]), ([name], set()))
+        self.compare.assert_not_called()
+        self.deploy.assert_not_called()
+        self.assertEqual(self.ran, [])
+
+    def test_lint_fails_on_rbac(self):
+        role = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": {"name": "miniflux", "namespace": "miniflux"}}
+        status, lines = self.main("miniflux", role)
+        self.assertEqual(status, 1)
+        self.assertIn("lint: Role.rbac.authorization.k8s.io/miniflux/miniflux: RBAC object, the source grants no API access (RCP-38)", lines)
+        self.prove.assert_not_called()
+
+    def test_rendered_is_rejected(self):
+        for name in self.IMAGES:
+            with self.subTest(name=name), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                self.main(name, args=("--rendered", str(self.tmp / "rendered.yaml")))
+        self.prove.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

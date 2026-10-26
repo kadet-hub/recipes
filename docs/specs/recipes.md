@@ -1,12 +1,12 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.9.0 implements renders and deploys, for charts
-        from OCI and HTTP repositories and for release manifests (RCP-59),
-        for compose sources and designed recipes deploys (RCP-38, RCP-44,
-        RCP-58), included recipes and prerequisites (RCP-47 to RCP-50,
-        RCP-54, RCP-55), and renders from given outputs (RCP-34);
-        migrates (RCP-14), RCP-21, RCP-22 and RCP-32 are not implemented;
+Status: Draft. check 0.11.0 implements renders and deploys, for charts
+        from OCI and HTTP repositories, for release manifests (RCP-59) and
+        for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
+        included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
+        RCP-55), and renders from given outputs (RCP-34);
+        migrates (RCP-14) and RCP-21 are not implemented;
         RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
@@ -209,6 +209,17 @@ neither. It watches no BackendTLSPolicy or TLSRoute
 only HTTP and HTTPS listeners, so `check` could not prove a route in either
 mode. A target that needs TLS up to Keycloak leaves the option out and
 exposes `<name>-service` on port 8443 itself.
+
+DEC-18: `nextcloud` renders no backup, formerly OQ-11. Its README says in
+a section "Backups" what a target backs up and how (RCP-64). Every part of
+a backup needs something the cluster provides. The database needs an object
+store with credentials and the Barman Cloud Plugin, which no recipe
+installs. The claims need a CSI driver with a VolumeSnapshotClass or a
+file-level tool such as Velero. `check` has none of these, so a backup the
+recipe rendered could not be proven at `deploys`. Rendering the database
+backup as an option of `postgresql` was considered. It would add the plugin
+as a prerequisite (DEC-13) and the object store as Required parameters
+(RCP-40) for a part that no check exercises.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -525,8 +536,9 @@ from `PATH`; CI installs them pinned (RCP-28).
 | `deploys` | `renders`, and a fresh install becomes ready and passes `tests/smoke` | kind |
 | `migrates` | `deploys`, and a running Helm release is replaced by the recipe while `tests/smoke` keeps passing | kind |
 
-For a compose source and a designed recipe, `deploys` proves the recipe
-side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
+For a compose source and a designed recipe, `renders`, also as part of
+`deploys`, proves the recipe side only (RCP-38, RCP-44), and there is no
+`migrates` level.
 
 - RCP-8: Each side MUST be compared on its own fresh kind cluster. Every
   namespace either side names MUST exist before the dry run, and the
@@ -649,6 +661,19 @@ side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
   - Test: CI `select` job
   - Since: #2
 
+- RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
+  needs every other job of the run and fails when one of them failed or
+  was cancelled. A skipped job passes, since a pull request that changes no
+  recipe skips `lint` and `check`.
+
+  The `lint` and `check` jobs are a matrix whose names carry the recipe, so
+  no fixed job name could be a required check without `ci`. The `main`
+  ruleset requires `ci`, so an approved pull request with a failed proof
+  stays blocked.
+
+  - Test: CI `ci` job; manual: `gh api repos/kadet-hub/recipes/rulesets`
+  - Since: #47
+
 ## Compose sources
 
 A compose recipe maps the services of one compose file, pinned by
@@ -709,17 +734,23 @@ What the table does not map is a gap, and so is each of these:
   fail on an RBAC object in the compiled recipe, on a workload whose
   selector does not select its own pods, and on a Service,
   PodDisruptionBudget or NetworkPolicy whose selector selects no pods.
-  `check` MUST then apply the recipe for real on one fresh kind cluster,
-  wait for the rollout of every workload and run `tests/smoke`, as RCP-26
-  describes.
+  `check` MUST then apply the recipe on one fresh kind cluster as RCP-26
+  describes for the level it runs at. At `deploys` that is for real, with
+  the rollout of every workload and `tests/smoke`. At `renders` it
+  compares nothing, as there is no reference.
 
   These are the parts of `renders` that need no reference. A compose file
   grants no Kubernetes API access, so a Role or binding in its recipe
   would grant something the source never had. The `next` compile
   (RCP-24) runs unchanged.
 
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: #8
+  `check --level renders` is for the registry gate, which proves every
+  recipe at `renders` (REC-9 there). The README's level and the level CI
+  runs (RCP-13) stay `deploys`.
+
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
+    `renders`: `check/tests/test_check.py`
+  - Since: #8; `renders`: #45
 
 - RCP-39: The `tests/smoke` of a compose recipe MUST check what the compose
   file sets up: every published port answers through its Service, every
@@ -834,15 +865,17 @@ back over DNS.
 
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
-  object, every selector selecting pods, then a deploy on one fresh kind
-  cluster and `tests/smoke`.
+  object, every selector selecting pods, then one fresh kind cluster, with
+  a deploy and `tests/smoke` at `deploys` and the apply of RCP-26 without
+  a comparison at `renders`.
 
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
   would compare it. The `next` compile (RCP-24) runs unchanged.
 
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: #14
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
+    `renders`: `check/tests/test_check.py`
+  - Since: #14; `renders`: #45
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
@@ -1030,8 +1063,9 @@ both compile entries run that version.
   of the parent's record. A fix in `valkey` therefore means a `valkey`
   release followed by a `nextcloud` release.
 
-  - Test: the registry gate (REC-16); manual: release review
-  - Since: not implemented
+  - Test: the registry gate (REC-16); manual: release review for the
+    major-version clause
+  - Since: the registry gate, kadet-hub/registry#390
 
 ### Prerequisites
 
@@ -1273,7 +1307,7 @@ files. The rest waits for later recipes or options (OQ-12):
 | Office | not rendered | Collabora publishes `oci://ghcr.io/collaboraonline/charts/collabora-online`; ONLYOFFICE-based servers such as Euro-Office also need RabbitMQ |
 | imaginary | not rendered | the chart's `imaginary.enabled` can become an option; previews work without it |
 | Metrics | not rendered | the chart's `metrics.enabled` can become an option |
-| Backups | not rendered | a second step after the first version (OQ-11) |
+| Backups | not rendered | the object store, the snapshot class and the backup tool belong to the cluster; the README says how (DEC-18, RCP-64) |
 | More replicas | not rendered | the chart's `Recreate` strategy and ReadWriteOnce claims allow one pod |
 
 The target sets `applications.nextcloud.host`,
@@ -1282,6 +1316,46 @@ The target sets `applications.nextcloud.host`,
 `applications.nextcloud.admin.password` and `applications.valkey.password`
 (RCP-51). `applications.nextcloud.gateway.section`, the listener's
 `sectionName`, is optional.
+
+### Backups
+
+The recipe renders no backup (DEC-18). The admin manual's backup guide for
+version 35 lists what to retain: the config, custom apps, theme and data
+folders and the database (`admin_manual/maintenance/backup.rst` of
+nextcloud/documentation `stable35`). In this recipe the config, custom apps
+and themes are sub paths of the claim `nextcloud-nextcloud`, and the data
+directory is the claim `nextcloud-nextcloud-data`.
+
+The guide puts the instance into maintenance mode first, so that the
+database and the files describe the same state. The Barman Cloud Plugin
+archives WAL continuously, so the Cluster can be restored to a time inside
+the maintenance window.
+
+The `cloudnative-pg` generator 1.1.0 renders the database backup. A target
+adds `object_stores`, `scheduled_backups` and
+`clusters.postgresql.backup.object_store` to `generators.cloudnative-pg`.
+The plugin and the Secret with the object store credentials are the
+target's. The README's snippet compiles with `tests/target.yml` and renders
+the ObjectStore, the ScheduledBackup and the plugin entry in the Cluster's
+`plugins`.
+
+Valkey needs no backup. The image configures it from `REDIS_HOST` as
+`memcache.distributed` and `memcache.locking` and as the PHP session store
+(`redis.config.php` and `entrypoint.sh` of nextcloud/docker `35/apache`).
+Losing it empties the cache, drops the file locks and logs users out. The
+recipe's claim and `appendonly yes` only carry that state across a restart.
+
+- RCP-64: The README of `nextcloud` MUST have a section "Backups" that
+  names what a target backs up and how: the database through the Barman
+  Cloud Plugin, the two claims, and maintenance mode around the backup. It
+  MUST say that Valkey needs no backup.
+
+  The recipe renders none of it (DEC-18), so the README is the only place
+  that tells a target which objects hold state.
+
+  - Test: manual: review; compile of the README's snippet with
+    `tests/target.yml`
+  - Since: #43
 
 ### Proof
 
@@ -1960,15 +2034,17 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
 
 - RCP-32: The first paragraph of a recipe's README, after the heading, MUST
   describe the recipe in at most 300 characters, without control or
-  bidirectional formatting characters.
+  bidirectional formatting characters, and MUST NOT end with a colon.
 
-  The registry's index takes it as the recipe's description (REC-13), and
-  the catalog shows it in lists and in `/llms.txt`. cert-manager's first
-  paragraph currently runs into the `Source` line with a colon and needs
-  splitting.
+  The paragraph is the first non-empty block of lines after the first line
+  that starts with `#`, with whitespace collapsed to single spaces. The
+  length counts that text. The registry's index takes it as the recipe's
+  description (REC-13), and the catalog shows it in lists and in
+  `/llms.txt`. A description that ends in a colon announces text the index
+  does not carry.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #46
 
 - RCP-33: A recipe's class files MUST be the files RCP-36 lints. No file of
   the recipe MAY end in `.py`.
@@ -1984,7 +2060,8 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
 
 - RCP-34: `check <name> --level renders` MUST accept the compiled output of
   the recipe and the rendered chart, or the release manifest, as input, and
-  then run neither Kapitan nor helm.
+  then run neither Kapitan nor helm. For a compose source or a designed
+  recipe it MUST take the compiled output alone.
 
   The registry gate compiles and renders in its gVisor sandbox and gives
   `check` only the two outputs (DEC-21 there), so a chart that attacks
@@ -2013,15 +2090,18 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   with the release name and namespace of RCP-23, or the release manifest
   as downloaded. `check` leaves out the hooks itself (RCP-25).
 
-  The two flags go together and only with `--level renders`. With them
-  `check` pulls no generator, chart or manifest and does not compile with
-  Kapitan `next` (RCP-24). The generator attestations (RCP-27) and the
-  chart or manifest digest (RCP-23) are then the gate's to verify (REC-6,
-  REC-7 there), and the report says the outputs were given. Linting the
-  output, the comparison and the proof on kind run as without the flags.
+  `check` rejects the flags at another level, `--compiled` alone for a
+  chart or a release manifest, and `--rendered` for a compose source or a
+  designed recipe, which have nothing to render. With the flags `check`
+  pulls no generator, chart, manifest or compose file and does not compile
+  with Kapitan `next` (RCP-24). The generator attestations (RCP-27) and
+  the digest of the chart, manifest or compose file (RCP-23) are then the
+  gate's to verify (REC-6, REC-7 there), and the report says the outputs
+  were given. Linting the output, the comparison and the proof on kind run
+  as without the flags.
 
   - Test: `check/tests/test_check.py`; the registry's `gate-selftest`
-  - Since: #41
+  - Since: #41; compose sources and designed recipes: #45
 
 ## Security
 
@@ -2211,8 +2291,9 @@ argument as a literal `${...}` and reads nothing.
   that commit's `check/check.py`. Nothing else is published. The gate pins
   the tag's commit SHA and runs `check` from that commit.
 
-  - Test: manual: the skill names a `check` version
-  - Since: not implemented
+  - Test: manual: the `to-recipe` skill names `check-v0.10.0`
+  - Since: tags `check-v0.9.0` and `check-v0.10.0`; the skill pins
+    `check-v0.10.0` since kapitan-recipes 0.3.0, Moep90/agent-skills#9
 
 Kapitan trusts its inventory: a class may run any binary through an
 `external` entry. Recipes change that model, because their classes come
@@ -2248,8 +2329,9 @@ feature's design (OQ-6).
   cert-manager is published, by digest through the registry's consumer
   workflow.
 - AC-8 (RCP-31, RCP-32, RCP-34, RCP-35, RCP-40): `check lint` fails on a
-  README whose first paragraph exceeds 300 characters, on one without the
-  section "Required parameters" and on a vendored file without `.LICENSE`;
+  README whose first paragraph exceeds 300 characters or ends with a
+  colon, on one without the section "Required parameters" and on a vendored
+  file without `.LICENSE`;
   `check cert-manager --level renders` with a compiled output and a chart
   render given reports the same result as without them; a tag pushed by a
   non-admin is rejected.
@@ -2327,6 +2409,11 @@ feature's design (OQ-6).
   gets `/realms/master` and a token through the Gateway of `check` with
   the route's host name. keycloak's `tests/target.yml` without the option
   `route` compiles to the same files as at #41.
+- AC-24 (RCP-34, RCP-38, RCP-44): `check`'s tests run miniflux and mysql
+  at `renders` on a given compiled output: lint fails on an RBAC object,
+  otherwise the apply of RCP-26 runs on one cluster and nothing is
+  compared, and `--rendered` is rejected. `check miniflux --level renders`
+  and `check mysql --level renders` pass.
 
 ## Open questions
 
@@ -2362,13 +2449,6 @@ feature's design (OQ-6).
 - OQ-10: Should Renovate propose the newest commit of a compose source's
   repository, so the SHA-256 check of RCP-23 shows when the file changed?
   RCP-16 covers charts only.
-- OQ-11: How are the database and Nextcloud's data backed up, in the
-  second step after the first version? The `cloudnative-pg` generator
-  renders backups through the Barman Cloud Plugin to an object store, which
-  adds the plugin as a prerequisite and the object store as Required
-  parameters. The data
-  claim needs volume snapshots or a file-level backup such as Velero, and
-  Nextcloud's backup guide puts the instance into maintenance mode first.
 - OQ-12: Do notify_push, an office server and imaginary become recipes
   that `nextcloud` includes, options of `nextcloud`, or recipes of their
   own that the target combines with it?
@@ -2380,9 +2460,9 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |

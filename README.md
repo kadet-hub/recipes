@@ -121,3 +121,30 @@ every recipe in the fetch inventory:
   ]
 }
 ```
+
+## Adding a recipe
+
+The `to-recipe` skill of the `kapitan-recipes` plugin
+([Moep90/agent-skills](https://github.com/Moep90/agent-skills)) migrates a
+chart, a Kustomize base, a compose file or a published image into a recipe
+directory and proves it with the pinned `check`. Before opening a pull
+request, run in a clone of this repository:
+
+```sh
+uv run --locked --project check check/check.py lint <name>
+uv run --locked --project check check/check.py <name> --level renders
+uv run --locked --project check check/check.py <name> --level deploys
+```
+
+`renders` and `deploys` need Docker, kind and kubectl. Skip `deploys` for a
+recipe at level `renders`. A recipe whose `Requires:` line names
+`gateway-api` needs cloud-provider-kind, which touches every kind cluster on
+the host, so prove that part in CI.
+
+Pull requests come from forks. CI checks every changed recipe at its
+README's level, and the `deploys` proof of a fork waits for a maintainer's
+approval (RCP-20). A pull request merges only after the `ci` job passed and
+a maintainer approved it (RCP-65). The rules `check lint` and the registry
+gate apply are in [docs/specs/recipes.md](docs/specs/recipes.md): the README
+lines and the 300-character description (RCP-23, RCP-32), the shipped files
+and their licenses (RCP-33, RCP-42), and generator pins by digest.
