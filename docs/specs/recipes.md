@@ -1,11 +1,10 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.10.0 implements renders and deploys, for charts
-        from OCI and HTTP repositories, for release manifests (RCP-59) and
-        for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
-        included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
-        RCP-55), and renders from given outputs (RCP-34);
+Status: Draft. check 0.10.0 implements renders and deploys for every
+        recipe on its Kapitan output alone (DEC-19), included recipes and
+        prerequisites (RCP-47 to RCP-50, RCP-54, RCP-55), and renders from
+        a given compiled output (RCP-34);
         migrates (RCP-14), RCP-21, RCP-22 and RCP-32 are not implemented;
         RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
@@ -44,8 +43,8 @@ Some operators ship as one YAML file attached to a GitHub release, which
 
 A recipe is that rebuilt application, maintained and proven in one place,
 so that users include a recipe the way they would install a chart. This
-repository holds the recipes, the one comparison script that proves them,
-and the CI that runs it.
+repository holds the recipes, the script `check` that validates their
+Kapitan output, and the CI that runs it.
 
 Some applications need other applications next to them. Nextcloud needs a
 database and a cache in its namespace, which its chart brings as subcharts,
@@ -53,8 +52,8 @@ and the database needs an operator that runs once per cluster.
 
 ## Decisions
 
-DEC-1: This repository holds the recipe sources, the comparison script
-`check` and the CI. Publishing goes through kadet-hub/registry like a
+DEC-1: This repository holds the recipe sources, the script `check` and
+the CI. Publishing goes through kadet-hub/registry like a
 generator: a tagged recipe is registered there, and the release workflow
 publishes it as an OCI artifact with an attestation and an entry in the
 index. The registry side is its spec
@@ -100,7 +99,8 @@ output is a heuristic translation itself, so agreeing with it proves
 nothing about the compose file. `migrates` replaces a Helm release in the
 cluster, and a compose stack runs outside it. The proof is therefore
 behaviour: the recipe deploys and its smoke test exercises what the
-compose file sets up.
+compose file sets up. Revised in #45: `check` compares no recipe with its
+source (DEC-19), and a compose recipe still has to reach `deploys`.
 
 DEC-9: The source type follows from the form of the README's `Source` line
 (RCP-23): `oci://` is a chart, a GitHub file URL a compose file, a GitHub
@@ -129,7 +129,7 @@ follows it. With no objects to compare with, the proof is behaviour, as
 for a compose source (DEC-8). A chart maintained by a third party was
 rejected as a source. A proof against it would carry that party's choices
 into the recipe and tie the recipe to a chart the project does not
-maintain.
+maintain. Revised in #45 as DEC-8.
 
 DEC-12: The parent leaves an included recipe as it is. It writes nothing
 below the included recipe's keys, which RCP-18 already enforces, and
@@ -174,8 +174,8 @@ MongoDB's resources (Designed recipes).
 DEC-15: A manifest that a project attaches to a GitHub release is a source
 like a chart, pinned by the release's tag and the file's SHA-256 (Release
 manifests). The file holds the objects as the project installs them, so
-`renders` compares the recipe with them as with a rendered chart, and helm
-does not run. The project's Kustomize base was considered as the source.
+a recipe is migrated from them as from a rendered chart (DEC-19). The
+project's Kustomize base was considered as the source.
 kustomize would be one more tool in `check` and in the registry gate, and
 the RabbitMQ Cluster Operator's base does not name the operator image,
 which its release build sets. A Kapitan `https` dependency that brings the
@@ -209,6 +209,22 @@ backup as an option of `postgresql` was considered. It would add the plugin
 as a prerequisite (DEC-13) and the object store as Required parameters
 (RCP-40) for a part that no check exercises.
 
+DEC-19: `check` validates only a recipe's Kapitan output against
+Kubernetes (Proof). It pulls no chart, release manifest or compose file,
+renders nothing and compares the output with nothing. Showing that a
+recipe reproduces its chart, compose file, Kustomize base or image is the
+migration's job, which the `to-recipe` skill does. The `Source` line stays
+as metadata for the skill, Renovate (RCP-16) and the registry. Pins stay
+checked: images by digest (RCP-6), generators by digest and attestation
+(RCP-27) and vendored files by their SHA-256 comment (RCP-17).
+
+Up to #44 `check` also compared a chart or release manifest recipe with its
+rendered source on a second kind cluster (RCP-9 to RCP-12, RCP-25,
+RCP-59). That needed helm and the source download in every run, and in the
+registry gate a sandboxed render (REC-7 there). The recipe sections below
+that cite those requirements describe the comparison that shaped the
+recipe when it was migrated.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -223,10 +239,10 @@ Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/
   vendor/           # vendored files, each with <file>.LICENSE (RCP-35)
   README.md
   tests/
-    values.yaml     # chart source: the values the proof renders the chart with
+    values.yaml     # chart source: the values tests/target.yml stands for
     target.yml      # the target the proof compiles the recipe with
     smoke           # deploys level: proves the application works
-check/              # the comparison script and its tests
+check/              # check and its tests
 ```
 
 In a consumer's project, a recipe lives at
@@ -263,18 +279,18 @@ as `.controller` (Kapitan 0.36.3, `inventory/backends/omegaconf`).
 
 - RCP-3: Every object name a recipe renders MUST start with the recipe's
   name or, from a chart or a release manifest, a name the source uses.
+  `check lint` MUST check it for a compose source and a designed recipe.
 
-  `check lint` compiles `tests/target.yml` and renders the chart with
-  `tests/values.yaml`, or reads the release manifest, to compare the names.
   A compose file or an image names no Kubernetes objects, so there every
-  name starts with the recipe's.
+  name starts with the recipe's. Only the source tells which names a chart
+  or release manifest uses, so the migration checks those (DEC-19).
 
   Recipes share the `components` and `generators.kubernetes.rbac`
   namespaces of the inventory, so two recipes in one target must not
   collide.
 
-  - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #2, #8, #14
+  - Test: `check lint`; `check/tests/test_lint.py`, `check/tests/test_check.py`
+  - Since: #2, #8, #14; chart and release manifest names: #45
 
 ## Writing a recipe
 
@@ -389,71 +405,48 @@ belong in the recipe.
 
 ## Proof
 
-`check <name>` renders the source chart pinned by version and digest with
-`tests/values.yaml`, compiles the recipe with the same values, and compares
-the two. Helm hooks that only run inside `helm install` and test pods are
-listed in the recipe's README and left out of the comparison.
+`check <name>` compiles the recipe's `tests/target.yml`, lints the output
+and applies it to a fresh kind cluster as its level asks (RCP-26). It reads
+no upstream source (DEC-19).
 
 `check` applies every object server-side. A client-side apply stores the
 object as an annotation, and the API rejects that for CRDs above 256 KiB,
 such as CloudNativePG's `clusters` and `poolers`. Null fields are dropped
-before an apply, on both sides alike. A null leaves a field unset in a
-manifest, and a server-side apply rejects it where the schema has no
-`nullable`, as CloudNativePG's `cluster` chart renders
-`bootstrap.initdb: null`.
+before an apply. A null leaves a field unset in a manifest, and a
+server-side apply rejects it where the schema has no `nullable`.
 
 `check` is one Python CLI in `check/`, run with
 `uv run --locked --project check check/check.py`. Its lock pins Kapitan
 0.36.3 with omegaconf 2.4.0.dev4, the install the consumers guide gives
 users, and PyYAML. The kind node image and the Kapitan `next` image are
-pinned by digest in `check/check.py`. helm, kubectl, kind, oras and gh come
-from `PATH`; CI installs them pinned (RCP-28).
+pinned by digest in `check/check.py`. kubectl, kind, oras and gh come from
+`PATH`; CI installs them pinned (RCP-28).
 
 - RCP-23: A recipe's README MUST contain the line ``Level: `<level>` `` and
   one `Source` line. For a chart it is
-  ``Source: `oci://<chart>:<version>@sha256:<digest>` ``, and `check`
-  pulls the chart by that digest and fails unless the chart's version is
-  `<version>`. For a chart from an HTTP repository it is
+  ``Source: `oci://<chart>:<version>@sha256:<digest>` ``. For a chart from
+  an HTTP repository it is
   ``Source: `https://<repository>/<chart>:<version>@sha256:<digest>` ``,
   where `https://<repository>` is the URL `helm repo add` takes and
-  `<digest>` the SHA-256 of the chart's archive. `check` reads the
-  repository's `index.yaml`, downloads the archive its entry for `<chart>`
-  and `<version>` names, and fails unless the archive's SHA-256 is
-  `<digest>` and its `Chart.yaml` names `<chart>` and `<version>`. For a
-  compose file it is
+  `<digest>` the SHA-256 of the chart's archive. For a compose file it is
   ``Source: `https://github.com/<owner>/<repo>/blob/<commit>/<path>@sha256:<digest>` ``
-  with the full commit SHA, and `check` fetches the file at that commit
-  and fails unless its SHA-256 is `<digest>`. For a release manifest it is
+  with the full commit SHA. For a release manifest it is
   ``Source: `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>@sha256:<digest>` ``,
-  and `check` downloads the release asset and fails unless its SHA-256 is
-  `<digest>`. For a designed recipe it is
+  with the SHA-256 of the release asset. For a designed recipe it is
   ``Source: `<registry>/<repository>:<tag>@sha256:<digest>` ``, the
   project's image with its registry host, and `check lint` fails unless a
   container of the compiled recipe runs exactly that image. The release
   name is the recipe's name, and the namespace is `parameters.namespace`
   of `tests/target.yml`.
 
-  `tests/target.yml` is the recipe's side of `tests/values.yaml`: it
-  includes the recipe and the options those values switch on. Compose
-  files outside GitHub are not supported yet.
+  `check lint` checks the form of the line, and `check` fetches nothing it
+  names (DEC-19). `tests/target.yml` is the recipe's side of
+  `tests/values.yaml`: it includes the recipe and the options those values
+  switch on. Compose files outside GitHub are not supported yet.
 
-  An HTTP repository has no digest that a client checks. Its `index.yaml`
-  maps a version to an archive URL, and the repository's owner can change
-  both. helm 4.3.1 keys its download cache by the entry's `digest` but
-  does not compare it with the archive (`pkg/downloader/chart_downloader.go`).
-  It checks only a provenance file, with `--verify`, and external-dns
-  publishes none. Kapitan 0.36.3's `helm` dependency takes `source`,
-  `chart_name` and `version`, runs `helm pull --untar --repo`, keeps no
-  archive and checks no digest (`dependency_manager/base.py`). `check`
-  therefore downloads the archive itself and compares its SHA-256, which
-  is also the `digest` that helm writes into the index entry. A recipe has
-  no `helm` dependency (RCP-17), so neither a consumer's fetch inventory
-  nor its compile fetches the chart. Only `check` and the registry gate
-  (REC-7 there) do.
-
-  - Test: `check lint`; `check/tests/test_lint.py`; release manifest
-    download and HTTP repository: `check/tests/test_check.py`
-  - Since: #2, #8, #14; release manifest: #22, #25; HTTP repository: #23
+  - Test: `check lint`; `check/tests/test_lint.py`
+  - Since: #2, #8, #14; release manifest: #22, #25; HTTP repository: #23;
+    not fetched: #45
 
 - RCP-24: `check` MUST compile every recipe with Kapitan 0.36.3 from its
   lock, and that compile alone decides the level. It MUST also compile the
@@ -487,25 +480,24 @@ from `PATH`; CI installs them pinned (RCP-28).
   - Test: manual: Renovate dry run
   - Since: #3; release age exempted: this change
 
-- RCP-25: `check` MUST leave out every chart object with the annotation
-  `helm.sh/hook`, and MUST fail unless the README names each of them as
-  `` `<Kind>/<name>` ``.
+- RCP-25: Removed in #45. `check` renders no chart, so it leaves out no
+  hooks (DEC-19). The hooks a README lists document the migration.
 
-  - Test: CI `check` job, report lines `hook left out`
-  - Since: #2
+  - Since: #2; removed: #45
 
 - RCP-26: At level `renders`, `check` MUST apply for real only Namespaces,
   CRDs, ServiceAccounts and RBAC objects, and every other object only with
   a server-side dry run. At level `deploys` it MUST apply the recipe for
-  real on the recipe's cluster, wait for the rollout of every Deployment,
+  real on its cluster (RCP-8), wait for the rollout of every Deployment,
   StatefulSet and DaemonSet, and run `tests/smoke` with `KUBECONFIG` set to
-  that cluster. The smoke test's exit status decides.
+  that cluster. The smoke test's exit status decides. Both hold for every
+  recipe, whatever its source.
 
   `renders` then starts no pod from a pull request, so it needs no
   approval on forks (RCP-20).
 
-  - Test: CI `check` job
-  - Since: #2
+  - Test: `check/tests/test_check.py`; CI `check` job
+  - Since: #2; every source alike: #45
 
 - RCP-27: `check` MUST pull each generator a recipe pins only after
   verifying it as the consumers guide describes: the attestation of the
@@ -517,126 +509,43 @@ from `PATH`; CI installs them pinned (RCP-28).
 
 | Level | What is proven | Cluster |
 |---|---|---|
-| `renders` | Same objects after server-side dry run and normalization, selectors select the same objects, same permissions for every subject | kind, API server only |
+| `renders` | The compile passes `check lint`, and the API server accepts every object: Namespaces, CRDs, ServiceAccounts and RBAC for real, the rest in a server-side dry run | kind, API server only |
 | `deploys` | `renders`, and a fresh install becomes ready and passes `tests/smoke` | kind |
 | `migrates` | `deploys`, and a running Helm release is replaced by the recipe while `tests/smoke` keeps passing | kind |
 
-For a compose source and a designed recipe, `renders`, also as part of
-`deploys`, proves the recipe side only (RCP-38, RCP-44), and there is no
-`migrates` level.
+A compose source and a designed recipe have no `migrates` level.
 
-- RCP-8: Each side MUST be compared on its own fresh kind cluster. Every
-  namespace either side names MUST exist before the dry run, and the
-  target namespace MUST be the context's namespace.
+- RCP-8: `check` MUST apply the recipe to one fresh kind cluster. Every
+  namespace the recipe names MUST exist before the dry run, and the target
+  namespace MUST be the context's namespace.
 
   A dry run merges with objects that already exist, which can hide a
-  missing field on both sides. `kubectl apply -n` rejects objects that name
-  another namespace, such as cert-manager's leader election Roles in
+  missing field. `kubectl apply -n` rejects objects that name another
+  namespace, such as cert-manager's leader election Roles in
   `kube-system`, so the namespace is set in the context instead.
 
-  - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2
+  - Test: `check/tests/test_check.py`; CI `check` job
+  - Since: #2; one cluster: #45
 
-- RCP-9: Normalization MUST drop exactly these fields and nothing else:
-  `uid`, `resourceVersion`, `creationTimestamp`, `managedFields`,
-  `generation`, `status`, the annotation
-  `kubectl.kubernetes.io/last-applied-configuration`, labels and
-  annotations whose key starts with `helm.sh/` or `meta.helm.sh/`, the labels
-  `app.kubernetes.io/managed-by` and `app.kubernetes.io/version`, the labels
-  that only identify an object (`app`, `name`, `app.kubernetes.io/name`,
-  `app.kubernetes.io/instance`, `app.kubernetes.io/component`,
-  `app.kubernetes.io/part-of`, `chart`, `release`, `heritage`, `component`),
-  and image digests on the recipe side. Secrets the chart generates are
-  compared by key.
+- RCP-9: Removed in #45 with the comparison (DEC-19). It listed the fields
+  normalization dropped.
 
-  Keeping the identifying labels would force a recipe to copy the chart's
-  label scheme. What selects on them is checked by RCP-10 instead. Every
-  other label and annotation stays, because ingress controllers, meshes
-  and monitoring read them.
+  - Since: #2; removed: #45
 
-  Strimzi's chart puts `chart`, `release` and `heritage` on every object,
-  set from the chart's name and version, the release name and `Helm`, as
-  charts scaffolded by older versions of `helm create` do. Its
-  `component` label names the template, such as `deployment` or
-  `service-account`, like `app.kubernetes.io/component`. The `kubernetes`
-  generator renders only the `name` label on ServiceAccounts and
-  ConfigMaps, so a recipe cannot carry these labels, and `heritage: Helm`
-  would name a manager that does not manage the object.
+- RCP-10: Removed in #45 with the comparison (DEC-19). It compared what the
+  selectors of both sides select.
 
-  - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; `chart`, `release`, `heritage`, `component`: #29
+  - Since: #2; removed: #45
 
-- RCP-10: Every selector on both sides MUST select the same objects, judged
-  on the labels before normalization: a workload's selector its own pods, a
-  Service's endpoints the pods of the same workload, and a NetworkPolicy,
-  PodDisruptionBudget or ServiceMonitor the same pods or Services as on the
-  chart side.
+- RCP-11: Removed in #45 with the comparison (DEC-19). It compared RBAC by
+  `kubectl auth can-i --list` per subject.
 
-  - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2
+  - Since: #2; removed: #45
 
-- RCP-11: RBAC MUST be compared by what it grants. `check` collects every
-  subject a binding on either side names and diffs
-  `kubectl auth can-i --list` for each one, in every namespace either side
-  binds a Role in, with sorted verbs. ClusterRoles that aggregate into the
-  built-in roles are covered by a test user bound to `view`, `edit` and
-  `admin`.
+- RCP-12: Removed in #45 with the comparison (DEC-19). It listed the
+  classes of accepted differences.
 
-  A group is listed as a test user in that group. `check` lists only once
-  the built-in roles carry the rules aggregated into them. Labels that
-  aggregate into roles kind does not have, such as OpenShift's
-  `cluster-reader`, are reported as not tested.
-
-  RBAC object names do not take part in the comparison. The `kubernetes`
-  generator rejects `:` in names, so a recipe renames objects like
-  `cert-manager-controller-approve:cert-manager-io` and lists the renames
-  in its README.
-
-  A RoleBinding without a namespace binds in the target namespace, where
-  RCP-8 applies it. `helm template` leaves the namespace of an object out
-  when the chart's template does, as the Keycloak Operator's chart does for
-  its RoleBinding to `view`.
-
-  - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; RoleBinding without a namespace: this change
-
-- RCP-12: After normalization the object diff MUST be empty, except for
-  differences of the classes below. `check` reports each remaining
-  difference with its class.
-
-  | Class | Example | Why it is accepted |
-  |---|---|---|
-  | Selector scheme | the generator selects on `name`, the chart on `app.kubernetes.io/*` | RCP-10 proves the same selection |
-  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, a container's empty `securityContext`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
-  | Port by name | `targetPort: http-metrics` against `9402` | resolves to the same container port |
-  | Derived name | container named after the component, webhook configuration `<ns>-<component>`, sorted container ports | names the generator derives, no change in behaviour |
-
-  The two cert-manager runs ended with exactly these differences. A class
-  is added here only with the run that needs it.
-
-  `check` accepts a difference only where its class holds: a selector
-  difference where RCP-10 found the same selection, `true` where the other
-  side is unset and the pod's ServiceAccount does not disable the token,
-  `{}` as a container's `securityContext` where the other side has none,
-  `Always` as a cert-manager Certificate's `privateKey.rotationPolicy`
-  where the other side leaves it unset, a port name that resolves to the other side's number in the selected pods
-  or the same pod, a first container named after its workload, container
-  ports that are the same set sorted by name, and a webhook configuration
-  named `<namespace>-...` with the same webhooks.
-
-  The `kubernetes` generator renders `securityContext: {}` on a container
-  that sets no `security_context`. The Keycloak Operator's chart sets none.
-
-  The `certmanager` generator 1.0.2 renders `privateKey.rotationPolicy:
-  Always` on every Certificate, and the RabbitMQ Cluster Operator's
-  manifest sets no `privateKey`. cert-manager 1.18 made `Always` the
-  default behind the feature gate `DefaultPrivateKeyRotationPolicyAlways`,
-  which is on by default, and its release notes announce the gate as GA
-  for 1.19. A recipe whose report shows this difference therefore requires
-  cert-manager 1.18 or later with that gate on, and its README says so.
-
-  - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30
+  - Since: #2; removed: #45
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
@@ -706,23 +615,13 @@ What the table does not map is a gap, and so is each of these:
   fail on an RBAC object in the compiled recipe, on a workload whose
   selector does not select its own pods, and on a Service,
   PodDisruptionBudget or NetworkPolicy whose selector selects no pods.
-  `check` MUST then apply the recipe on one fresh kind cluster as RCP-26
-  describes for the level it runs at. At `deploys` that is for real, with
-  the rollout of every workload and `tests/smoke`. At `renders` it
-  compares nothing, as there is no reference.
 
-  These are the parts of `renders` that need no reference. A compose file
-  grants no Kubernetes API access, so a Role or binding in its recipe
-  would grant something the source never had. The `next` compile
-  (RCP-24) runs unchanged.
+  A compose file grants no Kubernetes API access, so a Role or binding in
+  its recipe would grant something the source never had. `check` applies
+  the recipe as any other (RCP-26).
 
-  `check --level renders` is for the registry gate, which proves every
-  recipe at `renders` (REC-9 there). The README's level and the level CI
-  runs (RCP-13) stay `deploys`.
-
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
-    `renders`: `check/tests/test_check.py`
-  - Since: #8; `renders`: #45
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
+  - Since: #8; applied as any recipe: #45
 
 - RCP-39: The `tests/smoke` of a compose recipe MUST check what the compose
   file sets up: every published port answers through its Service, every
@@ -739,15 +638,15 @@ A release manifest is a file of Kubernetes objects attached to a GitHub
 release, the file a project's install guide applies with
 `kubectl apply -f <url>`. The recipe rebuilds those objects with kadet-hub
 generators, and its `Source` line pins the file by the release's tag and
-SHA-256 (RCP-23). At `renders` the file's objects take the place of the
-rendered chart. The file has no values and no release name, and its
+SHA-256 (RCP-23). In the migration the file's objects take the place of
+the rendered chart. The file has no values and no release name, and its
 objects name their own namespaces. The recipe therefore has no
 `tests/values.yaml`, and `tests/target.yml` compiles it as the file
 installs it.
 
 A release asset can be replaced under its tag unless the release is
-immutable, so `check` fails on a file with another SHA-256. GitHub's API
-reports each asset's SHA-256 as `digest`.
+immutable, so the `Source` line pins its SHA-256. GitHub's API reports
+each asset's SHA-256 as `digest`.
 
 The RabbitMQ Cluster Operator, MPL-2.0, is the first. rabbitmq/cluster-operator
 publishes no chart, and its install guide applies `cluster-operator.yml`
@@ -764,14 +663,10 @@ and RBAC, a mutating and a validating webhook configuration, and two
 cert-manager Certificates with their Issuer, so the recipe
 `rabbitmq-cluster-operator` requires `cert-manager` (Prerequisites).
 
-- RCP-59: At `renders`, `check` MUST compare a recipe from a release
-  manifest with the manifest's objects as RCP-8 to RCP-12 compare a chart
-  recipe with the rendered chart.
+- RCP-59: Removed in #45 with the comparison (DEC-19). It compared a
+  release manifest recipe with the manifest's objects.
 
-  helm does not render the file, so RCP-25 has no hooks to leave out.
-
-  - Test: CI `check` job
-  - Since: #22, this change
+  - Since: #22; removed: #45
 
 ## Designed recipes
 
@@ -835,19 +730,16 @@ recipe's check read an A record that external-dns wrote. Without
 external-dns, `tests/smoke` writes the record through the API and reads it
 back over DNS.
 
-- RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
-  `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
-  object, every selector selecting pods, then one fresh kind cluster, with
-  a deploy and `tests/smoke` at `deploys` and the apply of RCP-26 without
-  a comparison at `renders`.
+- RCP-44: A designed recipe MUST be at level `deploys`. `check lint` MUST
+  check it as RCP-38 describes for a compose recipe: no RBAC object, every
+  selector selecting pods.
 
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
   would compare it. The `next` compile (RCP-24) runs unchanged.
 
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
-    `renders`: `check/tests/test_check.py`
-  - Since: #14; `renders`: #45
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
+  - Since: #14; applied as any recipe: #45
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
@@ -981,22 +873,20 @@ both compile entries run that version.
   describes. An object belongs to an included recipe when the compile of
   that recipe's own `tests/target.yml` renders an object of the same kind
   and name, and to the parent otherwise. RCP-3 applies to the objects of
-  each recipe. At `renders`, `check` MUST leave the objects of included recipes
-  out of the comparison and list each as
-  `` included <recipe>: `<Kind>/<name>` ``. At `deploys` it MUST apply them
-  together with the parent's.
+  each recipe. `check` MUST list each object of an included recipe as
+  `` included <recipe>: `<Kind>/<name>` `` and apply it together with the
+  parent's.
 
-  The parent's `tests/values.yaml` switches the chart's subcharts off and
-  points the chart at the included recipes' Services and Secrets, so the
-  chart side renders the parent's objects only. Each included recipe is
-  proven by its own `check`. At `deploys` the parent's `tests/smoke`
-  exercises the whole stack. Ownership by name prefix was the first
+  Each included recipe is also proven by its own `check`. At `deploys` the
+  parent's `tests/smoke` exercises the whole stack. Ownership by name
+  prefix was the first
   version of this rule. It fails for an included recipe that keeps a name
   its chart renders, such as a Cluster that keeps the name of the
   kadet-hub/examples recipe it replaces.
 
   - Test: `check/tests/test_check.py`; CI `check` job
-  - Since: #15; implemented: #31; designed parents: #38
+  - Since: #15; implemented: #31; designed parents: #38; applied at
+    `renders` too: #45
 
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
@@ -1083,18 +973,18 @@ proof that requires `gateway-api`.
 
 - RCP-55: Before the proof, `check` MUST install the prerequisites of the
   recipe, of its included recipes and, in turn, of those prerequisites on
-  every kind cluster it creates. Each is installed once, after the
-  prerequisites it requires. A prerequisite recipe is compiled from its
+  the kind cluster. Each is installed once, after the prerequisites it
+  requires. A prerequisite recipe is compiled from its
   own `tests/target.yml`. At `renders` only its Namespaces, CRDs,
   ServiceAccounts and RBAC objects are applied, as RCP-26 applies the
   recipe's. At `deploys` all of it is applied and its rollouts are waited
   for, and an apply the API server rejects is repeated for up to a minute,
   as is the recipe's own apply after them.
 
-  The chart side needs the prerequisites too: a dry run of a CloudNativePG
-  Cluster or an HTTPRoute fails without its CRD. The RabbitMQ operator's
-  Certificates need cert-manager's CRDs at `renders` and its webhook at
-  `deploys`. That webhook refused them for a few seconds after its rollout
+  A dry run of a CloudNativePG Cluster or an HTTPRoute fails without its
+  CRD. The RabbitMQ operator's Certificates need cert-manager's CRDs at
+  `renders` and its webhook at `deploys`. That webhook refused them for a
+  few seconds after its rollout
   had reported done in kadet-hub/examples CI (EX-6 there), which the
   repeated apply covers.
 
@@ -1592,8 +1482,9 @@ recipes (DEC-14):
 | `kafka` | `quay.io/strimzi/kafka:1.3.0-kafka-4.3.1@sha256:1f189b1f0f32684302d8b018b1d21b411e2469a9c465fbdc18fa3599cb5bbdad` | one Kafka cluster with its node pool, requires `strimzi` |
 
 The example resources were considered as the source of `kafka`. They would
-need a source form of their own, and `check` would compare the recipe with
-an example that it deviates from on purpose, such as the plain listener.
+need a source form of their own, and a migration would compare the recipe
+with an example that it deviates from on purpose, such as the plain
+listener.
 
 ### The operator
 
@@ -1868,13 +1759,13 @@ first command.
   - Since: #5 (commit SHA); not implemented (digest)
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
-  derived from has a new release. The pull request runs `check` at
-  `renders`, so the diff of the new chart against the recipe is visible.
+  derived from has a new release.
 
   Renovate moves the README's `Source` line to the new version and its
   digest. The recipe's images, vendored files and values stay at the old
-  version, so `check` fails and its report is the diff a maintainer
-  works from. The images take their tag from
+  version. `check` reads no `Source` line (DEC-19), so the pull request
+  passes as before, and moving the recipe to the new chart is a migration
+  of its own. The images take their tag from
   `applications.<name>.version`, which Renovate cannot read, so it does
   not update them on its own.
 
@@ -1963,12 +1854,13 @@ first command.
   date. Assets of equal size are tried in the order the API lists them, so
   for the RabbitMQ Cluster Operator it may take `cluster-operator-ghcr-io.yml`
   for `cluster-operator.yml` (Release manifests). Should the two differ in
-  a later release, `check` fails on the proposed SHA-256 (RCP-23).
+  a later release, the proposed SHA-256 can be the other file's, which
+  `check` does not see (DEC-19).
 
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
     keycloak: #26; release manifests: #22, #25; kafka: #34; HTTP
-    repository: #23; rabbitmq: #36
+    repository: #23; rabbitmq: #36; no `check` of the source: #45
 
 ### Releasing
 
@@ -2027,20 +1919,18 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   - Since: #6, #7
 
 - RCP-34: `check <name> --level renders` MUST accept the compiled output of
-  the recipe and the rendered chart, or the release manifest, as input, and
-  then run neither Kapitan nor helm. For a compose source or a designed
-  recipe it MUST take the compiled output alone.
+  the recipe as input, and then run no Kapitan.
 
-  The registry gate compiles and renders in its gVisor sandbox and gives
-  `check` only the two outputs (DEC-21 there), so a chart that attacks
-  `helm template` (OQ-7) or a generator stays inside the sandbox. In this
-  repository's CI `check` keeps compiling and rendering itself.
+  The registry gate compiles in its gVisor sandbox and gives `check` only
+  the output (DEC-21 there), so a generator that attacks the compile stays
+  inside the sandbox. In this repository's CI `check` keeps compiling
+  itself.
 
   The gate runs the pinned `check` release (RCP-22) as:
 
   ```sh
   uv run --locked --project check check/check.py <recipes>/<name> \
-    --level renders --compiled <out> --rendered <file>
+    --level renders --compiled <out>
   ```
 
   `<recipes>` holds the recipe's directory at the recipe's commit, and next
@@ -2053,23 +1943,14 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   recipe's own `tests/target.yml`, whose `kapitan.vars.target` is the
   recipe's name. `check` fails when one is missing.
 
-  `<file>` is the unfiltered output of
-  `helm template <name> <chart> -n <namespace> -f tests/values.yaml --include-crds`,
-  with the release name and namespace of RCP-23, or the release manifest
-  as downloaded. `check` leaves out the hooks itself (RCP-25).
-
-  `check` rejects the flags at another level, `--compiled` alone for a
-  chart or a release manifest, and `--rendered` for a compose source or a
-  designed recipe, which have nothing to render. With the flags `check`
-  pulls no generator, chart, manifest or compose file and does not compile
-  with Kapitan `next` (RCP-24). The generator attestations (RCP-27) and
-  the digest of the chart, manifest or compose file (RCP-23) are then the
-  gate's to verify (REC-6, REC-7 there), and the report says the outputs
-  were given. Linting the output, the comparison and the proof on kind run
-  as without the flags.
+  `check` rejects `--compiled` at another level. With it `check` pulls no
+  generator and does not compile with Kapitan `next` (RCP-24). The
+  generator attestations (RCP-27) are then the gate's to verify (REC-6
+  there), and the report says the output was given. Linting the output
+  and the apply on kind run as without the flag.
 
   - Test: `check/tests/test_check.py`; the registry's `gate-selftest`
-  - Since: #41; compose sources and designed recipes: #45
+  - Since: #41; compiled output only: #45
 
 ## Security
 
@@ -2239,21 +2120,20 @@ argument as a literal `${...}` and reads nothing.
   webhook, hostPath volume, privileged container or host namespace.
   Such pull requests MUST NOT merge automatically.
 
-  `renders` compares the recipe with the chart. A compromised chart
-  release passes it. This diff is what a reviewer can still catch.
+  `check` does not read the chart (DEC-19), so a compromised chart release
+  reaches the recipe through its migration. This diff is what a reviewer
+  can still catch.
 
   - Test: `check` tests; Renovate configuration
   - Since: not implemented
 
 - RCP-22: `check` MUST be released with its own version tag
-  `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version
-  instead of writing its own normalization.
+  `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version.
 
   An agent reads chart templates, `NOTES.txt` and `values.yaml`, which the
-  chart author controls. A comparison the agent writes itself can be
-  steered by text in them. A diff against a pinned script cannot, and an
-  injected extra object then shows up as a difference outside RCP-12. The
-  registry gate pins a `check` release in the same way (REC-5, REC-9).
+  chart author controls. Rules the agent writes itself can be steered by
+  text in them, a pinned `check` cannot. The registry gate pins a `check`
+  release in the same way (REC-5, REC-9).
 
   The release is a tag on a commit of `main`, and `X.Y.Z` is `VERSION` in
   that commit's `check/check.py`. Nothing else is published. The gate pins
@@ -2274,10 +2154,7 @@ feature's design (OQ-6).
 - AC-1 (RCP-1 to RCP-7): `check lint` fails on a recipe with
   `default_config`, with a `manifests` pass-through, with an image without
   digest, with a long flow-style line, and passes on cert-manager.
-- AC-2 (RCP-8 to RCP-12): `check`'s tests run the comparison on fixtures
-  that differ by a dropped label, an unchanged selector that no longer
-  matches, a lost RoleBinding to a group, and an accepted difference of
-  each class, and fail or pass accordingly.
+- AC-2: Removed in #45 with RCP-9 to RCP-12.
 - AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
   --level migrates` in CI. Met so far up to `deploys`.
 - AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
@@ -2298,9 +2175,8 @@ feature's design (OQ-6).
 - AC-8 (RCP-31, RCP-32, RCP-34, RCP-35, RCP-40): `check lint` fails on a
   README whose first paragraph exceeds 300 characters, on one without the
   section "Required parameters" and on a vendored file without `.LICENSE`;
-  `check cert-manager --level renders` with a compiled output and a chart
-  render given reports the same result as without them; a tag pushed by a
-  non-admin is rejected.
+  `check cert-manager --level renders` with a compiled output given reports
+  the same result as without it; a tag pushed by a non-admin is rejected.
 - AC-10 (RCP-1, RCP-23, RCP-37 to RCP-39): `check lint` fails on a compose
   recipe at level `renders`, on a compose `Source` line without a full
   commit SHA, and on a fixture with a RoleBinding or a Service whose
@@ -2354,19 +2230,16 @@ feature's design (OQ-6).
   pins, every tool and action pin and the `check` lock, and finds no
   update set to merge automatically. With mysql one patch release back, it
   proposes the next 9.7 release and no 26.x.
-- AC-19 (RCP-16, RCP-23, RCP-34, RCP-59): `check`'s tests fail the
-  download of a release manifest whose SHA-256 differs from the `Source`
-  line and pass it when it matches. `rabbitmq-cluster-operator` passes
-  `check` at its README's level in CI, and a local Renovate dry run
-  extracts its `Source` line with `github-release-attachments`.
+- AC-19 (RCP-16, RCP-23): `rabbitmq-cluster-operator` passes `check` at
+  its README's level in CI, and a local Renovate dry run extracts its
+  `Source` line with `github-release-attachments`.
 - AC-20 (RCP-54, RCP-55): `check lint` fails on a recipe that requires
   itself and on two recipes that require each other. The report of
   `check rabbitmq --level deploys` lists `cert-manager` as installed before
   `rabbitmq-cluster-operator`.
-- AC-22 (RCP-9, RCP-16, RCP-55, RCP-58): `check`'s tests drop the labels
-  `chart`, `release`, `heritage` and `component`. `check lint` accepts a
-  Kafka whose `spec.kafka.image` is the `Source` image and fails on one
-  that names it only as the Topic Operator's image. `check strimzi --level
+- AC-22 (RCP-16, RCP-55, RCP-58): `check lint` accepts a Kafka whose
+  `spec.kafka.image` is the `Source` image and fails on one that names it
+  only as the Topic Operator's image. `check strimzi --level
   deploys` and `check kafka --level deploys` pass in CI, and the report of
   the latter lists `strimzi` as installed. A local Renovate dry run puts
   both `Source` lines into one update.
@@ -2375,11 +2248,16 @@ feature's design (OQ-6).
   gets `/realms/master` and a token through the Gateway of `check` with
   the route's host name. keycloak's `tests/target.yml` without the option
   `route` compiles to the same files as at #41.
-- AC-24 (RCP-34, RCP-38, RCP-44): `check`'s tests run miniflux and mysql
-  at `renders` on a given compiled output: lint fails on an RBAC object,
-  otherwise the apply of RCP-26 runs on one cluster and nothing is
-  compared, and `--rendered` is rejected. `check miniflux --level renders`
-  and `check mysql --level renders` pass.
+- AC-24 (RCP-3, RCP-8, RCP-26, RCP-34, RCP-49): `check`'s tests run a
+  chart, an HTTP chart, a release manifest, a compose and a designed recipe
+  at `renders` on a given compiled output, and valkey on its own compile.
+  Each is linted and applied once on one cluster, with the objects of its
+  included recipes. None runs helm or downloads its `Source`. `--rendered`
+  is not a flag. At `deploys` the recipe is deployed on one cluster without
+  the `renders` apply. `check lint` fails on a compose object whose name
+  lacks the recipe's prefix and accepts it from a chart.
+  `check <name> --level renders` passes on kind for valkey,
+  rabbitmq-cluster-operator, miniflux and mysql.
 
 ## Open questions
 
@@ -2400,8 +2278,8 @@ feature's design (OQ-6).
   described remote inventories in 2021. Kapitan 0.36.3 loads the inventory
   with `ignore_class_not_found` during `--fetch` and has an unused
   `reset_inv()`, but neither takes effect.
-- OQ-5: Does Renovate's chart update only report the diff (RCP-16), or does
-  an agent run `to-recipe` on the new chart and propose the changed recipe?
+- OQ-5: Does an agent run `to-recipe` on the new chart of a Renovate pull
+  request (RCP-16) and propose the changed recipe?
 
 - OQ-6: Which limits does Kapitan need once classes can come from a third
   party, for example confining `from_file` and the `output_path` of a
@@ -2409,11 +2287,11 @@ feature's design (OQ-6).
   Kapitan maintainers together with OQ-2.
 - OQ-7: Not checked yet: how far the consumer workflow's gVisor sandbox
   contains a recipe that breaks RCP-17, and whether `helm template` itself
-  can be attacked by a chart while `check` renders it. `template` has no
-  cluster access, which limits functions like `lookup`, but that is not
+  can be attacked by a chart while a migration renders it. `template` has
+  no cluster access, which limits functions like `lookup`, but that is not
   verified.
 - OQ-10: Should Renovate propose the newest commit of a compose source's
-  repository, so the SHA-256 check of RCP-23 shows when the file changed?
+  repository, so the SHA-256 of RCP-23 shows when the file changed?
   RCP-16 covers charts only.
 - OQ-12: Do notify_push, an office server and imaginary become recipes
   that `nextcloud` includes, options of `nextcloud`, or recipes of their
@@ -2429,10 +2307,10 @@ feature's design (OQ-6).
 |---|---|
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
-| `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
+| `check/check.py` | CLI, compile, kind cluster, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
-| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
+| `check/compare.py` | Object and selector helpers of `check lint` (RCP-38) |
+| `check/tests/` | AC-1, AC-5, AC-9, AC-10, AC-13, AC-21, AC-24 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
