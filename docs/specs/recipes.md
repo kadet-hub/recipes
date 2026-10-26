@@ -1142,8 +1142,15 @@ proof that requires `gateway-api`.
   had reported done in kadet-hub/examples CI (EX-6 there), which the
   repeated apply covers.
 
-  - Test: CI `check` job, report lines `requires`
-  - Since: #15; implemented: #31
+  `check` waits for every CRD it applies to be Established before the next
+  apply, for up to a minute. `kubectl wait --for condition=Established`
+  fails instead of waiting while a new CRD's `status.conditions` is still
+  null, which failed `check rabbitmq-cluster-operator --level deploys` once
+  on `main`, so `check` reads the conditions itself.
+
+  - Test: CI `check` job, report lines `requires`; `check/tests/test_check.py`
+    (`Established`)
+  - Since: #15; implemented: #31; CRD wait: this change
 
 - RCP-56: The `tests/smoke` of a recipe that renders a route MUST reach the
   application through that route.
