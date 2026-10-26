@@ -1,11 +1,11 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.9.0 implements renders and deploys, for charts
-        from OCI and HTTP repositories and for release manifests (RCP-59),
-        for compose sources and designed recipes deploys (RCP-38, RCP-44,
-        RCP-58), included recipes and prerequisites (RCP-47 to RCP-50,
-        RCP-54, RCP-55), and renders from given outputs (RCP-34);
+Status: Draft. check 0.10.0 implements renders and deploys, for charts
+        from OCI and HTTP repositories, for release manifests (RCP-59) and
+        for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
+        included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
+        RCP-55), and renders from given outputs (RCP-34);
         migrates (RCP-14), RCP-21, RCP-22 and RCP-32 are not implemented;
         RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
@@ -521,8 +521,9 @@ from `PATH`; CI installs them pinned (RCP-28).
 | `deploys` | `renders`, and a fresh install becomes ready and passes `tests/smoke` | kind |
 | `migrates` | `deploys`, and a running Helm release is replaced by the recipe while `tests/smoke` keeps passing | kind |
 
-For a compose source and a designed recipe, `deploys` proves the recipe
-side of `renders` only (RCP-38, RCP-44), and there is no `migrates` level.
+For a compose source and a designed recipe, `renders`, also as part of
+`deploys`, proves the recipe side only (RCP-38, RCP-44), and there is no
+`migrates` level.
 
 - RCP-8: Each side MUST be compared on its own fresh kind cluster. Every
   namespace either side names MUST exist before the dry run, and the
@@ -705,17 +706,23 @@ What the table does not map is a gap, and so is each of these:
   fail on an RBAC object in the compiled recipe, on a workload whose
   selector does not select its own pods, and on a Service,
   PodDisruptionBudget or NetworkPolicy whose selector selects no pods.
-  `check` MUST then apply the recipe for real on one fresh kind cluster,
-  wait for the rollout of every workload and run `tests/smoke`, as RCP-26
-  describes.
+  `check` MUST then apply the recipe on one fresh kind cluster as RCP-26
+  describes for the level it runs at. At `deploys` that is for real, with
+  the rollout of every workload and `tests/smoke`. At `renders` it
+  compares nothing, as there is no reference.
 
   These are the parts of `renders` that need no reference. A compose file
   grants no Kubernetes API access, so a Role or binding in its recipe
   would grant something the source never had. The `next` compile
   (RCP-24) runs unchanged.
 
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: #8
+  `check --level renders` is for the registry gate, which proves every
+  recipe at `renders` (REC-9 there). The README's level and the level CI
+  runs (RCP-13) stay `deploys`.
+
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
+    `renders`: `check/tests/test_check.py`
+  - Since: #8; `renders`: #45
 
 - RCP-39: The `tests/smoke` of a compose recipe MUST check what the compose
   file sets up: every published port answers through its Service, every
@@ -830,15 +837,17 @@ back over DNS.
 
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
-  object, every selector selecting pods, then a deploy on one fresh kind
-  cluster and `tests/smoke`.
+  object, every selector selecting pods, then one fresh kind cluster, with
+  a deploy and `tests/smoke` at `deploys` and the apply of RCP-26 without
+  a comparison at `renders`.
 
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
   would compare it. The `next` compile (RCP-24) runs unchanged.
 
-  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job
-  - Since: #14
+  - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
+    `renders`: `check/tests/test_check.py`
+  - Since: #14; `renders`: #45
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
@@ -2019,7 +2028,8 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
 
 - RCP-34: `check <name> --level renders` MUST accept the compiled output of
   the recipe and the rendered chart, or the release manifest, as input, and
-  then run neither Kapitan nor helm.
+  then run neither Kapitan nor helm. For a compose source or a designed
+  recipe it MUST take the compiled output alone.
 
   The registry gate compiles and renders in its gVisor sandbox and gives
   `check` only the two outputs (DEC-21 there), so a chart that attacks
@@ -2048,15 +2058,18 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
   with the release name and namespace of RCP-23, or the release manifest
   as downloaded. `check` leaves out the hooks itself (RCP-25).
 
-  The two flags go together and only with `--level renders`. With them
-  `check` pulls no generator, chart or manifest and does not compile with
-  Kapitan `next` (RCP-24). The generator attestations (RCP-27) and the
-  chart or manifest digest (RCP-23) are then the gate's to verify (REC-6,
-  REC-7 there), and the report says the outputs were given. Linting the
-  output, the comparison and the proof on kind run as without the flags.
+  `check` rejects the flags at another level, `--compiled` alone for a
+  chart or a release manifest, and `--rendered` for a compose source or a
+  designed recipe, which have nothing to render. With the flags `check`
+  pulls no generator, chart, manifest or compose file and does not compile
+  with Kapitan `next` (RCP-24). The generator attestations (RCP-27) and
+  the digest of the chart, manifest or compose file (RCP-23) are then the
+  gate's to verify (REC-6, REC-7 there), and the report says the outputs
+  were given. Linting the output, the comparison and the proof on kind run
+  as without the flags.
 
   - Test: `check/tests/test_check.py`; the registry's `gate-selftest`
-  - Since: #41
+  - Since: #41; compose sources and designed recipes: #45
 
 ## Security
 
@@ -2362,6 +2375,11 @@ feature's design (OQ-6).
   gets `/realms/master` and a token through the Gateway of `check` with
   the route's host name. keycloak's `tests/target.yml` without the option
   `route` compiles to the same files as at #41.
+- AC-24 (RCP-34, RCP-38, RCP-44): `check`'s tests run miniflux and mysql
+  at `renders` on a given compiled output: lint fails on an RBAC object,
+  otherwise the apply of RCP-26 runs on one cluster and nothing is
+  compared, and `--rendered` is rejected. `check miniflux --level renders`
+  and `check mysql --level renders` pass.
 
 ## Open questions
 
@@ -2414,7 +2432,7 @@ feature's design (OQ-6).
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
