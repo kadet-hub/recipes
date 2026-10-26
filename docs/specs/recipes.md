@@ -1,12 +1,12 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.10.0 implements renders and deploys, for charts
+Status: Draft. check 0.11.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
         RCP-55), and renders from given outputs (RCP-34);
-        migrates (RCP-14), RCP-21, RCP-22 and RCP-32 are not implemented;
+        migrates (RCP-14) and RCP-21 are not implemented;
         RCP-15 only up to publication.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
@@ -1035,8 +1035,9 @@ both compile entries run that version.
   of the parent's record. A fix in `valkey` therefore means a `valkey`
   release followed by a `nextcloud` release.
 
-  - Test: the registry gate (REC-16); manual: release review
-  - Since: not implemented
+  - Test: the registry gate (REC-16); manual: release review for the
+    major-version clause
+  - Since: the registry gate, kadet-hub/registry#390
 
 ### Prerequisites
 
@@ -2004,15 +2005,17 @@ are the `owners` of the registry entry, set by the maintainer (REC-3).
 
 - RCP-32: The first paragraph of a recipe's README, after the heading, MUST
   describe the recipe in at most 300 characters, without control or
-  bidirectional formatting characters.
+  bidirectional formatting characters, and MUST NOT end with a colon.
 
-  The registry's index takes it as the recipe's description (REC-13), and
-  the catalog shows it in lists and in `/llms.txt`. cert-manager's first
-  paragraph currently runs into the `Source` line with a colon and needs
-  splitting.
+  The paragraph is the first non-empty block of lines after the first line
+  that starts with `#`, with whitespace collapsed to single spaces. The
+  length counts that text. The registry's index takes it as the recipe's
+  description (REC-13), and the catalog shows it in lists and in
+  `/llms.txt`. A description that ends in a colon announces text the index
+  does not carry.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: not implemented
+  - Since: #46
 
 - RCP-33: A recipe's class files MUST be the files RCP-36 lints. No file of
   the recipe MAY end in `.py`.
@@ -2259,8 +2262,9 @@ argument as a literal `${...}` and reads nothing.
   that commit's `check/check.py`. Nothing else is published. The gate pins
   the tag's commit SHA and runs `check` from that commit.
 
-  - Test: manual: the skill names a `check` version
-  - Since: not implemented
+  - Test: manual: the `to-recipe` skill names `check-v0.10.0`
+  - Since: tags `check-v0.9.0` and `check-v0.10.0`; the skill pins
+    `check-v0.10.0` since kapitan-recipes 0.3.0, Moep90/agent-skills#9
 
 Kapitan trusts its inventory: a class may run any binary through an
 `external` entry. Recipes change that model, because their classes come
@@ -2296,8 +2300,9 @@ feature's design (OQ-6).
   cert-manager is published, by digest through the registry's consumer
   workflow.
 - AC-8 (RCP-31, RCP-32, RCP-34, RCP-35, RCP-40): `check lint` fails on a
-  README whose first paragraph exceeds 300 characters, on one without the
-  section "Required parameters" and on a vendored file without `.LICENSE`;
+  README whose first paragraph exceeds 300 characters or ends with a
+  colon, on one without the section "Required parameters" and on a vendored
+  file without `.LICENSE`;
   `check cert-manager --level renders` with a compiled output and a chart
   render given reports the same result as without them; a tag pushed by a
   non-admin is rejected.
@@ -2430,7 +2435,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
