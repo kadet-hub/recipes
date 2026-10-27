@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.12.0 implements renders and deploys, for charts
+Status: Draft. check 0.13.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -370,6 +370,26 @@ belong in the recipe.
 
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #2
+
+- RCP-66: A class file MUST write each image reference as one literal
+  `<registry>/<repository>:<tag>@sha256:<digest>`, or `<repository>:<tag>`
+  where the source pins no digest. Its tag MUST NOT come from an
+  interpolation such as `${applications.<name>.version}`.
+
+  Until this change the recipes kept the tag in
+  `applications.<name>.version` and the digest in the image line. A reader
+  found the version in `init.yml` and the digest in another file, and
+  Renovate could read neither. A target that raised the version without
+  the digest got the new tag in its manifests, while the kubelet pulled
+  the old image by digest.
+
+  `check lint` fails on a string of a class file that holds `@sha256:` and
+  `${`. A reference without a digest, such as Strimzi's
+  `STRIMZI_DEFAULT_BUILDAH_IMAGE`, is not recognized as one, so the rule
+  covers it only by review.
+
+  - Test: `check lint`; `check/tests/test_lint.py` (`Lint.test_image_tag_from_interpolation`) (partial: references without a digest)
+  - Since: this change
 
 - RCP-7: A recipe MUST NOT copy a whole object through a pass-through
   section, such as the `kubernetes` generator's `manifests`.
@@ -1926,9 +1946,9 @@ first command.
   Renovate moves the README's `Source` line to the new version and its
   digest. The recipe's images, vendored files and values stay at the old
   version, so `check` fails and its report is the diff a maintainer
-  works from. The images take their tag from
-  `applications.<name>.version`, which Renovate cannot read, so it does
-  not update them on its own.
+  works from. The images follow the chart, so Renovate does not update
+  them on their own; the maintainer moves each one in its single line
+  (RCP-66).
 
   Renovate opens and updates the pull requests for `Source` lines only on
   Mondays from 00:00 to 06:00 Europe/Berlin, so a recipe's source moves at
@@ -1940,8 +1960,12 @@ first command.
   maintainer who needs it sooner moves the pin by hand.
 
   For a designed recipe Renovate moves the image of the `Source` line in
-  the same way, and `check lint` fails until the recipe runs the new image
-  (RCP-23). A package rule keeps the image on the release line the README
+  the same way. The class line that runs that image carries the comment
+  `# renovate: Source` above it, and Renovate moves that line in the same
+  pull request, because both name the same image. `check lint` fails when
+  the two differ (RCP-23). kafka's `applications.kafka.version` and
+  `metadata_version` are Kafka settings of the `Kafka` resource, not image
+  tags, so they stay and are raised by hand. A package rule keeps the image on the release line the README
   names. For mysql that is MySQL's 9.7 LTS line: from 26.7 on, Oracle
   numbers the Innovation releases by calendar, so the rule allows versions
   below 10. For mongodb it is MongoDB's 9.0 major release. MongoDB supports
@@ -2484,7 +2508,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
