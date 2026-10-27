@@ -353,7 +353,7 @@ belong in the recipe.
   other. The warning asks for the mapping without stopping a proof.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: this change
+  - Since: #50
 
 - RCP-5: A value that is derivable from another inventory value MUST be
   written as an interpolation or with a built-in resolver, such as
@@ -389,7 +389,7 @@ belong in the recipe.
   covers it only by review.
 
   - Test: `check lint`; `check/tests/test_lint.py` (`Lint.test_image_tag_from_interpolation`) (partial: references without a digest)
-  - Since: this change
+  - Since: #50
 
 - RCP-7: A recipe MUST NOT copy a whole object through a pass-through
   section, such as the `kubernetes` generator's `manifests`.
