@@ -2462,6 +2462,12 @@ feature's design (OQ-6).
   otherwise the apply of RCP-26 runs on one cluster and nothing is
   compared, and `--rendered` is rejected. `check miniflux --level renders`
   and `check mysql --level renders` pass.
+- AC-25 (RCP-16, RCP-66): `check lint` fails on a class file whose image
+  takes its tag from `${...}` and passes the literal reference. Every
+  recipe compiles to the same files as at #49. A local Renovate dry run
+  puts a designed recipe's `Source` line and its `# renovate: Source`
+  class line into one branch, as it did for rabbitmq's
+  `4.4.0-management`.
 
 ## Open questions
 
