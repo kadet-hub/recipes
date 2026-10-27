@@ -22,6 +22,3 @@ parameters:
           # SHA-256 bad8879419bac5393b52f2dfff43b0915048e9ae2abab25f926f2f00b20bb132
           - inventory/classes/recipes/external-dns-powerdns/vendor/dnsrecords.externaldns.k8s.io.yaml
         output_path: manifests/
-  applications:
-    external-dns-powerdns:
-      version: 0.23.0

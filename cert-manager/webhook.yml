@@ -8,7 +8,7 @@ parameters:
   components:
     cert-manager-webhook:
       application: cert-manager
-      image: quay.io/jetstack/cert-manager-webhook:${applications.cert-manager.version}@sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae
+      image: quay.io/jetstack/cert-manager-webhook:v1.21.2@sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae
       args:
         verbosity: --v=${applications.cert-manager.log_level}
         secure-port: --secure-port=10250

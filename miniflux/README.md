@@ -40,7 +40,7 @@ not contain characters a URL reserves, such as `@`, `/`, `:` or `?`.
 
 | Compose | Inventory |
 |---|---|
-| `miniflux/miniflux` image tag | `applications.miniflux.version`, together with the digest in `components.miniflux.image` |
+| `miniflux/miniflux` image tag | `components.miniflux.image`, tag and digest |
 | `POSTGRES_USER`, `POSTGRES_DB` and the same names in `DATABASE_URL` | `applications.miniflux.database.user`, `applications.miniflux.database.name` |
 | `POSTGRES_PASSWORD` and the password in `DATABASE_URL` | `applications.miniflux.database.password` |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | `applications.miniflux.admin.username`, `applications.miniflux.admin.password` |

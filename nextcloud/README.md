@@ -64,7 +64,7 @@ compile stops with `Interpolation key '<key>' not found`.
 
 | Chart value | Inventory |
 |---|---|
-| `image.tag` | `applications.nextcloud.version`, together with the digest in `components.nextcloud.image` |
+| `image.tag` | `components.nextcloud.image`, tag and digest |
 | `nextcloud.host`, `nextcloud.trustedDomains`, `httpRoute.hostnames` | `applications.nextcloud.host` |
 | `nextcloud.username` | `applications.nextcloud.admin.username`, `admin` by default |
 | `nextcloud.password` | `applications.nextcloud.admin.password` |

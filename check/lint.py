@@ -356,6 +356,9 @@ def lint_files(recipe):
             errors.append(f"{f}: names a ref backend with ?{{ (RCP-19)")
         for m in FORBIDDEN_RESOLVER.finditer(text):
             errors.append(f"{f}: uses the resolver {m.group(1)} (RCP-17)")
+        for n, line in enumerate(text.splitlines(), 1):
+            if "@sha256:" in line and "${" in line:
+                errors.append(f"{f}:{n}: image reference takes its tag from an interpolation (RCP-66)")
         try:
             errors += _flow_errors(f, text)
             doc = yaml.safe_load(text) or {}

@@ -22,7 +22,6 @@ parameters:
         output_type: yml
   applications:
     postgresql:
-      version: 18.6
       cluster: postgresql-cluster
       database: app
       owner: app

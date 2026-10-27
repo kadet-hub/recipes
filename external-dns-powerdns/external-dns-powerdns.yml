@@ -2,7 +2,7 @@ parameters:
   components:
     external-dns-powerdns:
       application: external-dns-powerdns
-      image: registry.k8s.io/external-dns/external-dns:v${applications.external-dns-powerdns.version}@sha256:1854499e2b08cee47c40a08e356bff20dcb192dbcfde8378fc3f900f12cad5a3
+      image: registry.k8s.io/external-dns/external-dns:v0.23.0@sha256:1854499e2b08cee47c40a08e356bff20dcb192dbcfde8378fc3f900f12cad5a3
       update_strategy:
         type: Recreate
       service_account:

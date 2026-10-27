@@ -69,6 +69,13 @@ class Lint(unittest.TestCase):
         deployment["spec"]["template"]["spec"]["containers"][0]["args"] = ["--acme-http01-solver-image=quay.io/x:v1"]
         self.assertIn("image quay.io/x:v1 is not pinned", lint.lint_output("cert-manager", [deployment], set())[0])
 
+    def test_image_tag_from_interpolation(self):  # RCP-66
+        image = "quay.io/jetstack/cert-manager-controller:${applications.cert-manager.version}@" + DIGEST
+        errors = self.errors_with(f"parameters:\n  components:\n    cert-manager-extra:\n      application: cert-manager\n      image: {image}\n")
+        self.assertIn("broken.yml:5: image reference takes its tag from an interpolation (RCP-66)", errors)
+        literal = f"parameters:\n  components:\n    cert-manager-extra:\n      application: cert-manager\n      image: quay.io/x:v1@{DIGEST}\n"
+        self.assertNotIn("RCP-66", self.errors_with(literal))
+
     def test_rendered_name_outside_the_recipe(self):
         objs = [{"kind": "ClusterRole", "metadata": {"name": "admin-extra"}}, {"kind": "Role", "metadata": {"name": "chart-role"}}]
         self.assertEqual(

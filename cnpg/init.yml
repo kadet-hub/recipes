@@ -12,6 +12,3 @@ parameters:
           - lib/kubernetes
         output_path: manifests/
         output_type: yml
-  applications:
-    cnpg:
-      version: 1.30.1

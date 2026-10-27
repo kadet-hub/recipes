@@ -16,4 +16,5 @@ parameters:
             kafka:
               # Strimzi runs this image in place of the one its version map
               # names, so it moves together with the strimzi recipe.
-              image: quay.io/strimzi/kafka:${applications.kafka.strimzi_version}-kafka-${applications.kafka.version}@sha256:1f189b1f0f32684302d8b018b1d21b411e2469a9c465fbdc18fa3599cb5bbdad
+              # renovate: Source
+              image: quay.io/strimzi/kafka:1.3.0-kafka-4.3.1@sha256:1f189b1f0f32684302d8b018b1d21b411e2469a9c465fbdc18fa3599cb5bbdad

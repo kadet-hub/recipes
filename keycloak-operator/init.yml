@@ -14,9 +14,8 @@ parameters:
         output_type: yml
   applications:
     keycloak-operator:
-      version: 26.8.1
       # The default image of a Keycloak resource that sets none.
-      keycloak_image: quay.io/keycloak/keycloak:${applications.keycloak-operator.version}@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+      keycloak_image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
       # The chart's build annotations, as 26.8.1 renders them. They change
       # with each rebuild of the release.
       annotations:

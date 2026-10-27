@@ -12,6 +12,3 @@ parameters:
           - lib/rabbitmq
         output_path: manifests/
         output_type: yml
-  applications:
-    rabbitmq:
-      version: 4.3.6

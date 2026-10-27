@@ -5,7 +5,8 @@ parameters:
         keycloak:
           name: ${applications.keycloak.name}
           instances: 1
-          image: quay.io/keycloak/keycloak:${applications.keycloak.version}@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
+          # renovate: Source
+          image: quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b
           spec:
             # With an image set, the operator starts it with --optimized,
             # and the project's image is not built for PostgreSQL.

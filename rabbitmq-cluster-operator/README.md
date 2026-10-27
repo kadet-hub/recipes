@@ -50,7 +50,7 @@ No parameter has to be set.
 
 | Setting | Inventory |
 |---|---|
-| operator version, 2.23.1 | `applications.rabbitmq-cluster-operator.version`, together with the digest in `components.rabbitmq-cluster-operator.image` |
+| operator version, 2.23.1 | `components.rabbitmq-cluster-operator.image`, tag and digest |
 | replicas, 1 | `components.rabbitmq-cluster-operator.replicas` |
 | resources | `components.rabbitmq-cluster-operator.resources` |
 | operator arguments | `components.rabbitmq-cluster-operator.args.<key>` |

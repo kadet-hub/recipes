@@ -2,7 +2,7 @@ parameters:
   components:
     rabbitmq-cluster-operator:
       application: rabbitmq-cluster-operator
-      image: ghcr.io/rabbitmq/cluster-operator:${applications.rabbitmq-cluster-operator.version}@sha256:a6794c3912978fdba7b8e1bb9f0327ec40dacf77469854bc42c48ca39dceb642
+      image: ghcr.io/rabbitmq/cluster-operator:2.23.1@sha256:a6794c3912978fdba7b8e1bb9f0327ec40dacf77469854bc42c48ca39dceb642
       command:
         - /manager
       args:

@@ -43,7 +43,7 @@ No parameter has to be set.
 | Chart value | Inventory |
 |---|---|
 | `namespace` (release namespace) | `namespace` |
-| `operator.image` | `applications.keycloak-operator.version`, together with the digest in `components.keycloak-operator.image` |
+| `operator.image` | `components.keycloak-operator.image`, tag and digest |
 | `operator.envs.RELATED_IMAGE_KEYCLOAK`, `operator.envs.kc.operator.keycloak.image` | `applications.keycloak-operator.keycloak_image`, the image of a `Keycloak` resource that sets none |
 | `operator.envs.QUARKUS_OPERATOR_SDK_CONTROLLERS_<controller>_NAMESPACES` | `components.keycloak-operator.env.QUARKUS_OPERATOR_SDK_CONTROLLERS_<controller>_NAMESPACES`, a comma-separated list of namespaces in place of `JOSDK_ALL_NAMESPACES` |
 | `operator.replicas` | `components.keycloak-operator.replicas` |

@@ -18,6 +18,3 @@ parameters:
           # from https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.3.0/strimzi-crds-1.3.0.yaml
           - inventory/classes/recipes/strimzi/vendor/strimzi-crds.yaml
         output_path: manifests/
-  applications:
-    strimzi:
-      version: 1.3.0

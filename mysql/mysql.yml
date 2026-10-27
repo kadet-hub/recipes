@@ -4,7 +4,8 @@ parameters:
       application: mysql
       type: statefulset
       # linux/amd64 only: the arm64 build is the tag <version>-aarch64.
-      image: container-registry.oracle.com/mysql/community-server:${applications.mysql.version}@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb
+      # renovate: Source
+      image: container-registry.oracle.com/mysql/community-server:9.7.4@sha256:cb9cfddeccbbd9922bf927cd67bdb58067b357a1fc75d132988d1f5cc4cb17bb
       security_profile: restricted
       workload_security_context:
         runAsUser: 27

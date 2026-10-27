@@ -6,7 +6,7 @@ parameters:
       # webhook certificates.
       labels:
         app.kubernetes.io/name: cloudnative-pg
-      image: ghcr.io/cloudnative-pg/cloudnative-pg:${applications.cnpg.version}@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07
+      image: ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07
       command:
         - /manager
       args:
@@ -18,7 +18,7 @@ parameters:
       env:
         # The chart passes the image by tag; the operator gives it to the
         # instance pods' bootstrap container.
-        OPERATOR_IMAGE_NAME: ghcr.io/cloudnative-pg/cloudnative-pg:${applications.cnpg.version}
+        OPERATOR_IMAGE_NAME: ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1
         OPERATOR_NAMESPACE:
           fieldRef: {fieldPath: metadata.namespace}
         MONITORING_QUERIES_CONFIGMAP: cnpg-default-monitoring

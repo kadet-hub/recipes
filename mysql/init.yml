@@ -14,7 +14,6 @@ parameters:
         output_type: yml
   applications:
     mysql:
-      version: 9.7.4
       # The target sets password, the password of user, and root_password.
       database: app
       user: app

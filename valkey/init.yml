@@ -14,7 +14,6 @@ parameters:
         output_type: yml
   applications:
     valkey:
-      version: 9.1.2
       # The target sets password, the password of the ACL user default.
       config: |
         appendonly yes

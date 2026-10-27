@@ -70,7 +70,7 @@ your choice. Without it the compile stops with
 
 | Chart value | Inventory |
 |---|---|
-| `image.tag` | `applications.external-dns-powerdns.version`, together with the digest in `components.external-dns-powerdns.image` |
+| `image.tag` | `components.external-dns-powerdns.image`, tag and digest |
 | `domainFilters` | `applications.powerdns.zone`, which sets the zone of `powerdns` too |
 | `txtOwnerId` | `components.external-dns-powerdns.args.txt-owner-id` |
 | `policy` | `components.external-dns-powerdns.args.policy` |

@@ -26,6 +26,3 @@ parameters:
           # from https://github.com/rabbitmq/cluster-operator/blob/v2.23.1/config/crd/bases/rabbitmq.com_rabbitmqclusters.yaml
           - inventory/classes/recipes/rabbitmq-cluster-operator/vendor/rabbitmq.com_rabbitmqclusters.yaml
         output_path: manifests/
-  applications:
-    rabbitmq-cluster-operator:
-      version: 2.23.1

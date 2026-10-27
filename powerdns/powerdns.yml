@@ -3,7 +3,8 @@ parameters:
     powerdns:
       application: powerdns
       type: statefulset
-      image: docker.io/powerdns/pdns-auth-51:${applications.powerdns.version}@sha256:77ff4efdbb9ec30e9309c8a1cbed6121a67fa3be25c848bbbfa756fc75bf9a27
+      # renovate: Source
+      image: docker.io/powerdns/pdns-auth-51:5.1.5@sha256:77ff4efdbb9ec30e9309c8a1cbed6121a67fa3be25c848bbbfa756fc75bf9a27
       security_profile: restricted
       # The image runs as the user pdns, UID 953 in its /etc/passwd. The
       # sysctl lets it bind port 53 without NET_BIND_SERVICE.

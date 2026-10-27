@@ -72,7 +72,7 @@ No parameter has to be set.
 | `cluster.initdb.owner`, `app` | `applications.postgresql.owner` |
 | `cluster.storage.size`, 8Gi | `applications.postgresql.storage` |
 | `cluster.instances`, 3 | `applications.postgresql.instances` |
-| `cluster.imageName` | `applications.postgresql.version`, together with the digest in `generators.cloudnative-pg.clusters.postgresql.image_name` |
+| `cluster.imageName` | `generators.cloudnative-pg.clusters.postgresql.image_name`, tag and digest |
 
 The database and owner take effect only when the Cluster is created. The
 logical replication queries are the chart's, Apache-2.0, with the license

@@ -7,12 +7,12 @@ parameters:
   components:
     cert-manager:
       application: cert-manager
-      image: quay.io/jetstack/cert-manager-controller:${applications.cert-manager.version}@sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8
+      image: quay.io/jetstack/cert-manager-controller:v1.21.2@sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8
       args:
         verbosity: --v=${applications.cert-manager.log_level}
         cluster-resource-namespace: --cluster-resource-namespace=$(POD_NAMESPACE)
         leader-election-namespace: --leader-election-namespace=${applications.cert-manager.leader_election_namespace}
-        acme-http01-solver-image: --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:${applications.cert-manager.version}@sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
+        acme-http01-solver-image: --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.21.2@sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
         max-concurrent-challenges: --max-concurrent-challenges=60
       service:
         type: ClusterIP

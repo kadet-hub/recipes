@@ -15,7 +15,6 @@ parameters:
         output_type: yml
   applications:
     miniflux:
-      version: 2.3.4
       # The target sets database.password and admin.password.
       database:
         user: miniflux

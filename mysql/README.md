@@ -59,7 +59,7 @@ your choice. Without them the compile stops with
 
 | Setting | Inventory |
 |---|---|
-| MySQL version | `applications.mysql.version`, together with the digest in `components.mysql.image` |
+| MySQL version | `components.mysql.image`, tag and digest |
 | database and its user, `app` | `applications.mysql.database`, `applications.mysql.user` |
 | volume size, 8Gi | `components.mysql.volume_claims.data.spec.resources.requests.storage` |
 | resources | `components.mysql.resources` |

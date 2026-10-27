@@ -60,7 +60,7 @@ ref with the backend of your choice. Without it the compile stops with
 
 | Setting | Inventory |
 |---|---|
-| PowerDNS version | `applications.powerdns.version`, together with the digest in `components.powerdns.image` |
+| PowerDNS version | `components.powerdns.image`, tag and digest |
 | zone, `example.internal` | `applications.powerdns.zone` |
 | volume size, 1Gi | `components.powerdns.volume_claims.data.spec.resources.requests.storage` |
 | resources | `components.powerdns.resources` |

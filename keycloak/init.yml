@@ -23,7 +23,6 @@ parameters:
         output_type: yml
   applications:
     keycloak:
-      version: 26.8.1
       name: keycloak
       # The target sets host, the host name Keycloak serves, and issuer, the
       # name and kind of the cert-manager issuer of its certificate.

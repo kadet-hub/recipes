@@ -59,6 +59,17 @@
       "datasourceTemplate": "github-release-attachments"
     },
     {
+      "description": "RCP-16: the class line that runs a designed recipe's Source image, marked # renovate: Source, moves with the Source line",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: Source\\n\\s*[\\w-]+: (?<depName>[a-z0-9.-]+\\.[a-z]+/[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})\\n"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
       "description": "RCP-30: the generators a recipe pins, as github>kadet-hub/renovate-config matches them in inventories",
       "customType": "regex",
       "managerFilePatterns": [
@@ -84,9 +95,13 @@
       "minimumReleaseAge": "0 days"
     },
     {
-      "description": "RCP-16: Source lines of recipe READMEs move once a week",
+      "description": "RCP-16: Source lines of recipe READMEs, and the class lines that run a designed recipe's Source image, move once a week",
       "matchFileNames": [
-        "*/README.md"
+        "*/README.md",
+        "*/*.yml"
+      ],
+      "matchPackageNames": [
+        "!ghcr.io/kadet-hub/**"
       ],
       "timezone": "Europe/Berlin",
       "schedule": [

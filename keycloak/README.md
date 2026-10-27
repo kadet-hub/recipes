@@ -127,7 +127,7 @@ attaches to, whose listener must admit routes from the target's namespace.
 
 | Setting | Inventory |
 |---|---|
-| Keycloak version | `applications.keycloak.version`, together with the digest in `generators.keycloak.instances.keycloak.image` |
+| Keycloak version | `generators.keycloak.instances.keycloak.image`, tag and digest |
 | name of the `Keycloak` resource, `keycloak` | `applications.keycloak.name` |
 | the Cluster and its database | `applications.postgresql`, which `postgresql`'s README lists |
 | instances, 1 | `generators.keycloak.instances.keycloak.instances` |

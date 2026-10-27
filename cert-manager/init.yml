@@ -16,7 +16,6 @@ parameters:
         output_type: yml
   applications:
     cert-manager:
-      version: v1.21.2
       log_level: 2
       leader_election_namespace: kube-system
       component_defaults:

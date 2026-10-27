@@ -6,10 +6,10 @@ parameters:
       # Pinned by digest in the container and in the three variables that
       # run it as the Topic Operator, the User Operator and the Kafka init
       # container.
-      operator_image: quay.io/strimzi/operator:${applications.strimzi.version}@sha256:4deb564fa329afa4046c550a6f8f1a6d00be3b9297e556969acabe6647b6676f
+      operator_image: quay.io/strimzi/operator:1.3.0@sha256:4deb564fa329afa4046c550a6f8f1a6d00be3b9297e556969acabe6647b6676f
       # The chart appends the Kafka version to the tag of each Kafka image,
       # so these stay by tag.
-      kafka_image: quay.io/strimzi/kafka:${applications.strimzi.version}-kafka
+      kafka_image: quay.io/strimzi/kafka:1.3.0-kafka
       kafka_images: |
         4.2.0=${applications.strimzi.kafka_image}-4.2.0
         4.2.1=${applications.strimzi.kafka_image}-4.2.1
@@ -43,8 +43,8 @@ parameters:
         STRIMZI_DEFAULT_USER_OPERATOR_IMAGE: ${applications.strimzi.operator_image}
         STRIMZI_DEFAULT_KAFKA_INIT_IMAGE: ${applications.strimzi.operator_image}
         STRIMZI_DEFAULT_KAFKA_BRIDGE_IMAGE: quay.io/strimzi/kafka-bridge:1.2.0
-        STRIMZI_DEFAULT_BUILDAH_IMAGE: quay.io/strimzi/buildah:${applications.strimzi.version}
-        STRIMZI_DEFAULT_MAVEN_BUILDER: quay.io/strimzi/maven-builder:${applications.strimzi.version}
+        STRIMZI_DEFAULT_BUILDAH_IMAGE: quay.io/strimzi/buildah:1.3.0
+        STRIMZI_DEFAULT_MAVEN_BUILDER: quay.io/strimzi/maven-builder:1.3.0
         STRIMZI_OPERATOR_NAMESPACE:
           fieldRef:
             fieldPath: metadata.namespace

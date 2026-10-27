@@ -68,7 +68,7 @@ No parameter has to be set.
 
 | Setting | Inventory |
 |---|---|
-| Kafka version, 4.3.1 | `applications.kafka.version`, together with `metadata_version` and the digest in `generators.strimzi.kafkas.kafka.spec.kafka.image` |
+| Kafka version, 4.3.1 | `applications.kafka.version` and `metadata_version`, together with the tag in `generators.strimzi.kafkas.kafka.spec.kafka.image` |
 | nodes, 3 | `generators.strimzi.kafkas.kafka.node_pools.kafka-dual.replicas` |
 | volume size, 10Gi | `generators.strimzi.kafkas.kafka.node_pools.kafka-dual.storage` |
 | resources | `generators.strimzi.kafkas.kafka.node_pools.kafka-dual.resources` |

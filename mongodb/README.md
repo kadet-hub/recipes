@@ -59,7 +59,7 @@ with `Interpolation key 'applications.mongodb.password' not found`.
 
 | Setting | Inventory |
 |---|---|
-| MongoDB version | `applications.mongodb.version`, together with the digest in `components.mongodb.image` |
+| MongoDB version | `components.mongodb.image`, tag and digest |
 | root user, `root` | `components.mongodb.env.MONGODB_INITDB_ROOT_USERNAME` |
 | volume size, 8Gi | `components.mongodb.volume_claims.data.spec.resources.requests.storage` |
 | resources | `components.mongodb.resources` |

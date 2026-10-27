@@ -35,7 +35,7 @@ No parameter has to be set.
 | Chart value | Inventory |
 |---|---|
 | `namespace` (release namespace) | `namespace` |
-| `image.tag` of all images | `applications.cert-manager.version`, together with the digests in the `image` lines and `components.cert-manager.args.acme-http01-solver-image` |
+| `image.tag` of all images | the `image` lines and `components.cert-manager.args.acme-http01-solver-image`, tag and digest each |
 | `global.logLevel` | `applications.cert-manager.log_level` |
 | `global.leaderElection.namespace` | `applications.cert-manager.leader_election_namespace` |
 | `replicaCount`, `webhook.replicaCount`, `cainjector.replicaCount` | `components.cert-manager.replicas`, `components.cert-manager-webhook.replicas`, `components.cert-manager-cainjector.replicas` |

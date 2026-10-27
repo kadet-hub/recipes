@@ -14,5 +14,4 @@ parameters:
         output_type: yml
   applications:
     mongodb:
-      version: 9.0.4
       # The target sets password, the password of the user root.

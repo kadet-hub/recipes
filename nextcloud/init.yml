@@ -16,7 +16,6 @@ parameters:
         output_type: yml
   applications:
     nextcloud:
-      version: 35.0.2
       # The target sets host, admin.password, gateway.name and
       # gateway.namespace.
       admin:

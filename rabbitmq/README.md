@@ -67,7 +67,7 @@ credentials in the Secret `rabbitmq-default-user`.
 
 | Setting | Inventory |
 |---|---|
-| RabbitMQ version, 4.3.6 | `applications.rabbitmq.version`, together with the digest in `generators.rabbitmq.rabbitmqcluster.rabbitmq.spec.image` |
+| RabbitMQ version, 4.3.6 | `generators.rabbitmq.rabbitmqcluster.rabbitmq.spec.image`, tag and digest |
 | nodes, 3 | `generators.rabbitmq.rabbitmqcluster.rabbitmq.spec.replicas` |
 | volume size, 10Gi, the operator's default | `generators.rabbitmq.rabbitmqcluster.rabbitmq.spec.persistence.storage` |
 | resources, 250m CPU and 1Gi memory requested, 1Gi memory limit | `generators.rabbitmq.rabbitmqcluster.rabbitmq.spec.resources` |

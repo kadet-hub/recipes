@@ -41,7 +41,7 @@ No parameter has to be set.
 | Chart value | Inventory |
 |---|---|
 | `namespace` (release namespace) | `namespace` |
-| `defaultImageTag`, `image.tag` | `applications.strimzi.version`, together with the digest in `applications.strimzi.operator_image` |
+| `defaultImageTag`, `image.tag` | `applications.strimzi.operator_image`, tag and digest, and the tags of `applications.strimzi.kafka_image`, `STRIMZI_DEFAULT_BUILDAH_IMAGE` and `STRIMZI_DEFAULT_MAVEN_BUILDER` |
 | `watchNamespaces`, `watchAnyNamespace` | `components.strimzi-cluster-operator.env.STRIMZI_NAMESPACE`, a comma-separated list of namespaces in place of `*`. The ClusterRoleBindings stay. |
 | `replicas` | `components.strimzi-cluster-operator.replicas` |
 | `resources` | `components.strimzi-cluster-operator.resources` |

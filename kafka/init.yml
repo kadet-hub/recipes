@@ -15,4 +15,3 @@ parameters:
   applications:
     kafka:
       version: 4.3.1
-      strimzi_version: 1.3.0

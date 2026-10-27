@@ -46,7 +46,7 @@ No parameter has to be set.
 | Chart value | Inventory |
 |---|---|
 | `namespace` (release namespace) | `namespace` |
-| `image.tag` | `applications.cnpg.version`, together with the digest in `components.cnpg-cloudnative-pg.image` |
+| `image.tag` | `components.cnpg-cloudnative-pg.image`, tag and digest |
 | `replicaCount` | `components.cnpg-cloudnative-pg.replicas` |
 | `config.maxConcurrentReconciles` | `components.cnpg-cloudnative-pg.args.max-concurrent-reconciles` |
 | `additionalArgs` | `components.cnpg-cloudnative-pg.args.<key>` |
