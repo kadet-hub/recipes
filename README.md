@@ -86,7 +86,10 @@ generators, is planned (OQ-3 in the spec).
 ### Verifying the generator
 
 Kapitan's `--fetch` checks neither the digest nor the attestation of the
-generator. The recipe's `init.yml` pins it as
+generator. [krab](https://github.com/kapicorp/krab) checks the digest: it
+writes nothing when the manifest or a layer does not match the pinned
+`sha256`. It does not check the attestation either. The recipe's `init.yml`
+pins it as
 `ghcr.io/kadet-hub/<generator>:<version>@sha256:<digest>`. Verify it as the
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md)
 describes under "Verifying by hand": `gh attestation verify` the latest
