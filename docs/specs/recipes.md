@@ -353,7 +353,7 @@ belong in the recipe.
   other. The warning asks for the mapping without stopping a proof.
 
   - Test: `check lint`; `check/tests/test_lint.py`
-  - Since: #50
+  - Since: #12
 
 - RCP-5: A value that is derivable from another inventory value MUST be
   written as an interpolation or with a built-in resolver, such as
