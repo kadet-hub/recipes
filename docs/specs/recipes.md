@@ -2277,6 +2277,32 @@ argument as a literal `${...}` and reads nothing.
   - Test: CI `test` and `lint` jobs
   - Since: #2
 
+- RCP-68: CI MUST fail when pip-audit reports an advisory for a package in
+  `check/uv.lock`, or zizmor a finding in `.github/`.
+
+  The job `deps` runs on every pull request and in the weekly run of `ci`,
+  so an advisory published after a merge fails the next Monday run. It
+  exports the whole lock with hashes, and pip-audit looks up every pinned
+  version in PyPI's vulnerability data. With `--strict` a package it cannot
+  look up fails the job too. There is no ignore list, so an advisory
+  without a fixed release fails every pull request until a fix is released.
+  When an upstream cap holds the fix back, RCP-67 lifts it.
+
+  pip-audit is the lock's group `audit`, pinned by version and hash, and
+  Renovate moves it with the other packages (RCP-30). zizmor is a release
+  asset pinned like actionlint. It runs with the job's read-only token, so
+  its online audits also check that each pinned action commit belongs to
+  the action's repository and that no pinned action has a known advisory.
+  A finding that does not apply is ignored on its line with
+  `# zizmor: ignore[<audit>]` and the reason.
+
+  The images a recipe pins are not gated here. kadet-hub/registry is to
+  show their advisories on each recipe's catalog page.
+
+  - Test: CI `deps` job; manual: the job's commands on a copy of the lock
+    with cryptography 48.0.1 fail
+  - Since: #53
+
 - RCP-30: Renovate MUST propose updates for every pin of RCP-28, the
   packages in `check/uv.lock`, the kind node image and the generators a
   recipe pins, and MUST NOT merge any update automatically.
@@ -2582,8 +2608,8 @@ feature's design (OQ-6).
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
-| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML |
-| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28 |
+| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68) |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
 | `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |

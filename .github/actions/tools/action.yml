@@ -28,7 +28,7 @@ runs:
         # renovate: datasource=github-release-attachments depName=kubernetes-sigs/cloud-provider-kind
         CLOUD_PROVIDER_KIND_VERSION: v0.12.0
         CLOUD_PROVIDER_KIND_SHA256: 5716aca8f01a85172c12f3b6329c70f151bec02c91b6f600c9f230845ee138e6
-      run: |
+      run: | # zizmor: ignore[github-env] it appends only $RUNNER_TEMP/bin to GITHUB_PATH
         set -euo pipefail
         bin=$RUNNER_TEMP/bin
         mkdir -p "$bin" "$RUNNER_TEMP/dl"

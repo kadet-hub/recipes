@@ -13,6 +13,9 @@ env:
   # renovate: datasource=github-release-attachments depName=rhysd/actionlint
   ACTIONLINT_VERSION: v1.7.12
   ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+  # renovate: datasource=github-release-attachments depName=zizmorcore/zizmor
+  ZIZMOR_VERSION: v1.31.1
+  ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
 
 jobs:
   test:
@@ -89,7 +92,7 @@ jobs:
         with:
           version: 0.13.5
           enable-cache: false
-      - uses: ./.github/actions/tools
+      - uses: ./.github/actions/tools # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/; the workspace is the main checkout
       - env:
           GH_TOKEN: ${{ github.token }}
           RECIPE: ${{ matrix.recipe.name }}
@@ -118,7 +121,7 @@ jobs:
         with:
           version: 0.13.5
           enable-cache: false
-      - uses: ./.github/actions/tools
+      - uses: ./.github/actions/tools # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/; the workspace is the main checkout
       - env:
           GH_TOKEN: ${{ github.token }}
           RECIPE: ${{ matrix.recipe.name }}
@@ -129,9 +132,37 @@ jobs:
           { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+  # Advisories in check's lock and findings in the workflows (RCP-68).
+  deps:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - name: pip-audit
+        run: |
+          uv export --locked --project check --all-groups --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uv run --locked --project check --only-group audit pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+      - name: zizmor
+        # Runs after a pip-audit failure too: the two gates are independent.
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSLo zizmor.tgz "https://github.com/zizmorcore/zizmor/releases/download/$ZIZMOR_VERSION/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$ZIZMOR_SHA256  zizmor.tgz" | sha256sum -c --quiet
+          tar -xzf zizmor.tgz zizmor
+          ./zizmor --format plain .github
+
   # The one required check of the main ruleset (RCP-65).
   ci:
-    needs: [test, select, lint, check]
+    needs: [test, select, lint, check, deps]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
