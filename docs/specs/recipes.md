@@ -1946,18 +1946,27 @@ first command.
   Renovate moves the README's `Source` line to the new version and its
   digest. The recipe's images, vendored files and values stay at the old
   version, so `check` fails and its report is the diff a maintainer
-  works from. The images follow the chart, so Renovate does not update
-  them on their own; the maintainer moves each one in its single line
-  (RCP-66).
+  works from. The images follow the chart, so Renovate moves none of them
+  to a new tag; the maintainer moves each one in its single line (RCP-66).
 
-  Renovate opens and updates the pull requests for `Source` lines only on
-  Mondays from 00:00 to 06:00 Europe/Berlin, so a recipe's source moves at
-  most once a week and a maintainer reviews the week's chart and image
-  updates together. `updateNotScheduled: false` keeps Renovate from pushing
-  to an open pull request outside that window. Where Renovate gets release
-  timestamps, the repository's three days of release age apply as well. A
-  security fix can therefore wait up to a week plus three days; a
-  maintainer who needs it sooner moves the pin by hand.
+  When upstream rebuilds a pinned image tag, Renovate proposes the tag's
+  new digest for every image line of a class file. A package rule keeps
+  those lines on their tag, which moves by hand with the chart or, for a
+  designed recipe, with the `Source` line. Docker Hub gives no release
+  timestamps for repositories with more than 1000 tags, such as
+  `library/nextcloud` and `library/postgres`, so a digest update needs
+  none. A dry run on 2026-10-29 proposed new digests for the nextcloud,
+  postgresql and miniflux database images, and no new tag.
+
+  Renovate opens and updates the pull requests for `Source` lines and class
+  image lines only on Mondays from 00:00 to 06:00 Europe/Berlin, so a
+  recipe's source moves at most once a week and a maintainer reviews the
+  week's chart and image updates together. `updateNotScheduled: false`
+  keeps Renovate from pushing to an open pull request outside that window.
+  Where Renovate gets release timestamps, the repository's three days of
+  release age apply as well. GitHub raises no vulnerability alerts for
+  images or charts, so a security fix in one can wait up to a week plus
+  three days. A maintainer who needs it sooner moves the pin by hand.
 
   For a designed recipe Renovate moves the image of the `Source` line in
   the same way. The class line that runs that image carries the comment
@@ -2044,7 +2053,7 @@ first command.
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
     keycloak: #26; release manifests: #22, #25; kafka: #34; HTTP
-    repository: #23; rabbitmq: #36
+    repository: #23; rabbitmq: #36; digests of rebuilt tags: #55
 
 ### Releasing
 
@@ -2283,14 +2292,28 @@ argument as a literal `${...}` and reads nothing.
   releases removed `ListMergeMode`, which Kapitan 0.36.3 needs
   (kapicorp/kapitan#1621).
 
-  Renovate pushes only `renovate/` branches. The `branches` ruleset of
-  this repository admits only the admin role to every branch but `main`.
-  Until it excludes `renovate/**` and a `renovate branches` ruleset
-  admits Renovate and the admin role there, as REV-3 does in
-  kadet-hub/registry, Renovate cannot push.
+  Lock file maintenance refreshes `check/uv.lock` once a week, in
+  Renovate's default window before 04:00 UTC on Monday. It is the only
+  update for packages that `check/pyproject.toml` does not name, such as
+  cryptography, which Kapitan and its dependencies require. It runs
+  `uv lock --upgrade`, which takes the newest releases without the three
+  days.
 
-  - Test: manual: Renovate dry run
-  - Since: #3
+  A GitHub vulnerability alert gets its pull request at once, outside the
+  weekly windows and without the release age. That is Renovate's default
+  for `vulnerabilityAlerts`, which overrides the package rules, so
+  `renovate.json` sets nothing for it. Renovate acts only on alerts for
+  packages it extracts: the direct dependencies in `check/pyproject.toml`
+  and the action pins. An alert for a transitive package such as
+  cryptography waits for lock file maintenance or a maintainer.
+
+  Renovate pushes only `renovate/` branches. The `branches` ruleset admits
+  only the admin role to every branch but `main` and `renovate/**`, and
+  the `renovate branches` ruleset admits Renovate and the admin role to
+  `renovate/**`, as REV-3 does in kadet-hub/registry.
+
+  - Test: manual: Renovate dry run; `gh api repos/kadet-hub/recipes/rulesets`
+  - Since: #3; lock file maintenance: #55
 
 - RCP-57: Every pull request MUST request a review from `neat-bot`. That
   review MUST NOT be a condition for merging.

@@ -9,6 +9,9 @@
   "minimumReleaseAge": "3 days",
   "minimumReleaseAgeBehaviour": "timestamp-required",
   "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
   "customManagers": [
     {
       "description": "RCP-30: tool versions marked with a renovate comment; release-asset and image pins carry their checksum along",
@@ -70,6 +73,18 @@
       "datasourceTemplate": "docker"
     },
     {
+      "description": "RCP-16: every image line of a class file, for a new digest of its tag when upstream rebuilds it",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "[\\w-]*image(?:_name)?: (?:--[\\w-]+=)?(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depTypeTemplate": "image"
+    },
+    {
       "description": "RCP-30: the generators a recipe pins, as github>kadet-hub/renovate-config matches them in inventories",
       "customType": "regex",
       "managerFilePatterns": [
@@ -95,7 +110,7 @@
       "minimumReleaseAge": "0 days"
     },
     {
-      "description": "RCP-16: Source lines of recipe READMEs, and the class lines that run a designed recipe's Source image, move once a week",
+      "description": "RCP-16: Source lines of recipe READMEs and image lines of class files move once a week",
       "matchFileNames": [
         "*/README.md",
         "*/*.yml"
@@ -108,6 +123,28 @@
         "* 0-5 * * 1"
       ],
       "updateNotScheduled": false
+    },
+    {
+      "description": "RCP-16: an image line of a class file moves only to a new digest of its tag; the tag follows the chart, or the Source line for a designed recipe",
+      "matchDepTypes": [
+        "image"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "RCP-16: Docker Hub gives no release timestamps for repositories with more than 1000 tags, such as library/nextcloud and library/postgres, so a new digest of an image line's tag needs none; the weekly window bundles the rebuilds",
+      "matchDepTypes": [
+        "image"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
       "description": "RCP-16: mysql stays on MySQL's 9.7 LTS line; from 26.7 the Innovation releases use calendar versions",
