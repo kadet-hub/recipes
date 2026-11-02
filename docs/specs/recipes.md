@@ -731,7 +731,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   - Test: CI `check` job, one leg per minor, report line `node image`;
     `check/tests/test_check.py`; manual: Renovate dry run once the URL
     carries a tag
-  - Since: this change
+  - Since: #59
 
 - RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
   needs every other job of the run and fails when one of them failed or
@@ -2407,7 +2407,7 @@ argument as a literal `${...}` and reads nothing.
   `renovate/**`, as REV-3 does in kadet-hub/registry.
 
   - Test: manual: Renovate dry run; `gh api repos/kadet-hub/recipes/rulesets`
-  - Since: #3; lock file maintenance: #55
+  - Since: #3; lock file maintenance: #55; `kubernetes-versions.json` commit: #59
 
 - RCP-57: Every pull request MUST request a review from `neat-bot`. That
   review MUST NOT be a condition for merging.
