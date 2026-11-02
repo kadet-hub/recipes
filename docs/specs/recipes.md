@@ -2361,8 +2361,9 @@ argument as a literal `${...}` and reads nothing.
 
 - RCP-30a: Renovate MUST merge its own pull request once every check on it
   passed, unless it is a major update, lock file maintenance, a digest
-  update of a GitHub Action, the `next` pin (RCP-29), or moves a `Source`
-  line or a `# renovate: Source` class line (RCP-16, RCP-21).
+  update of a GitHub Action, the `next` pin (RCP-29), the
+  `kubernetes-versions.json` commit (RCP-70), or moves a `Source` line or a
+  `# renovate: Source` class line (RCP-16, RCP-21).
 
   Renovate merges without GitHub's auto-merge (`platformAutomerge: false`),
   so it waits for every check, and through a bypass of the `main` ruleset in
@@ -2370,10 +2371,12 @@ argument as a literal `${...}` and reads nothing.
   takes the newest releases without the three days of release age. A digest
   update of an action under an unchanged version is a moved tag, the
   pattern of a hijacked action. A source update is a new chart or image
-  that RCP-21 leaves to a reviewer.
+  that RCP-21 leaves to a reviewer. A new `kubernetes-versions.json` can add a
+  Kubernetes minor and drop the oldest, which decides what the recipes
+  support.
 
   - Test: manual: `renovate.json` `automerge` rules; `gh api repos/kadet-hub/recipes/rulesets` lists Integration 2740 with `bypass_mode: pull_request` on `main`
-  - Since: #56
+  - Since: #56, #59
 
   `renovate.json` follows kadet-hub/examples. A tool pin carries a
   `# renovate:` comment, a release asset its SHA-256 and an image its
