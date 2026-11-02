@@ -722,16 +722,13 @@ For a compose source and a designed recipe, `renders`, also as part of
   policy supports for kubectl. The legs of the oldest minor show whether
   the kubectl commands of `check` and the smoke tests still work there.
 
-  renovate-config has not tagged the file yet, because its update and tag
-  workflows run without the GitHub App's private key. The URL in `select`
-  therefore names the commit without the `# kubernetes-versions-<date>`
-  comment that the preset matches. Renovate moves it only once a tag
-  exists and the comment is added.
+  The URL in `select` names the commit followed by the comment
+  `# kubernetes-versions-<date>`, the tag on that commit, which the preset
+  matches.
 
   - Test: CI `check` job, one leg per minor, report line `node image`;
-    `check/tests/test_check.py`; manual: Renovate dry run once the URL
-    carries a tag
-  - Since: #59
+    `check/tests/test_check.py`; manual: Renovate dry run
+  - Since: #59, #61
 
 - RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
   needs every other job of the run and fails when one of them failed or
@@ -2704,7 +2701,7 @@ feature's design (OQ-6).
 | First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
-| Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e`: 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
+| Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e` (`kubernetes-versions-2026-11-02`): 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |

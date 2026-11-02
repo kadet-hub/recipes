@@ -76,9 +76,7 @@ jobs:
       # The Kubernetes minors check runs on, with their node images and kind (RCP-70).
       - id: kubernetes
         env:
-          # shortcut: renovate-config has no kubernetes-versions-* tag yet, so Renovate cannot move this
-          # commit; append " # <tag>" to the URL once it has one.
-          URL: https://raw.githubusercontent.com/kadet-hub/renovate-config/843255e023682724c3325f287bafbf061a1c8b6f/kubernetes-versions.json
+          URL: https://raw.githubusercontent.com/kadet-hub/renovate-config/843255e023682724c3325f287bafbf061a1c8b6f/kubernetes-versions.json # kubernetes-versions-2026-11-02
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 "$URL" | jq -r '"kind=\(.kind | tojson)", "kubernetes=\(.kubernetes | tojson)"' | tee -a "$GITHUB_OUTPUT"
