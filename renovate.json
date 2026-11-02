@@ -6,6 +6,7 @@
     "github>kadet-hub/renovate-config"
   ],
   "automerge": false,
+  "platformAutomerge": false,
   "minimumReleaseAge": "3 days",
   "minimumReleaseAgeBehaviour": "timestamp-required",
   "internalChecksFilter": "strict",
@@ -236,6 +237,45 @@
         "!/^(docker\\.io|index\\.docker\\.io)//"
       ],
       "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": "RCP-30a: Renovate merges its own pull request once every check passed",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "RCP-30a: a Source line or its class image line (RCP-16, RCP-21) waits for a reviewer",
+      "matchFileNames": [
+        "*/README.md",
+        "*/*.yml"
+      ],
+      "matchPackageNames": [
+        "!ghcr.io/kadet-hub/**"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "RCP-30a: the next pin waits for a reviewer (RCP-29)",
+      "matchPackageNames": [
+        "ghcr.io/kadet-hub/kapitan"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "RCP-30a: a digest update of an action under the same version is a moved tag",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "automerge": false
     }
   ]
 }
