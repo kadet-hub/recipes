@@ -325,6 +325,22 @@ class GivenCompile(unittest.TestCase):
                 self.main(name, args=("--rendered", str(self.tmp / "rendered.yaml")))
         self.prove.assert_not_called()
 
+    def test_node_image(self):
+        """RCP-70: kind creates the cluster from the node image given, from its default without one."""
+        image = "kindest/node:v1.35.8@sha256:" + "0" * 64
+        for args, line in (((), "node image: kind default"), (("--node-image", image), f"node image: {image}")):
+            with self.subTest(args=args):
+                self.prove.reset_mock()
+                status, lines = self.main("mysql", args=args)
+                self.assertEqual(status, 0, lines)
+                self.assertIn(line, lines)
+                self.prove.call_args.args[0].create()
+                cmd = self.ran[-1][0]
+                if args:
+                    self.assertEqual(cmd[cmd.index("--image") + 1], image)
+                else:
+                    self.assertNotIn("--image", cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

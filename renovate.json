@@ -186,14 +186,6 @@
       "groupName": "strimzi"
     },
     {
-      "description": "RCP-30: kind and the node image of its release",
-      "matchDepNames": [
-        "kubernetes-sigs/kind",
-        "kindest/node"
-      ],
-      "groupName": "kind"
-    },
-    {
       "description": "Runners stay on ubuntu-24.04: actionlint 1.7.12 does not know newer labels",
       "matchDatasources": [
         "github-runners"
