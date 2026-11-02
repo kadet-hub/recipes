@@ -186,14 +186,6 @@
       "groupName": "strimzi"
     },
     {
-      "description": "RCP-30: kind and the node image of its release",
-      "matchDepNames": [
-        "kubernetes-sigs/kind",
-        "kindest/node"
-      ],
-      "groupName": "kind"
-    },
-    {
       "description": "Runners stay on ubuntu-24.04: actionlint 1.7.12 does not know newer labels",
       "matchDatasources": [
         "github-runners"
@@ -274,6 +266,16 @@
       ],
       "matchUpdateTypes": [
         "digest"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "RCP-30a: a new kubernetes-versions.json waits for a reviewer (RCP-70)",
+      "matchDatasources": [
+        "git-tags"
+      ],
+      "matchPackageNames": [
+        "https://github.com/kadet-hub/renovate-config"
       ],
       "automerge": false
     }

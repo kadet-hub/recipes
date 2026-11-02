@@ -28,11 +28,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.13.1"
-# The image the release notes of the kind version in .github/actions/tools
-# list for its Kubernetes version; Renovate moves both together (RCP-30).
-# renovate: datasource=docker depName=kindest/node
-KIND_NODE_IMAGE = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
+VERSION = "0.14.0"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
@@ -261,15 +257,16 @@ def drop_nulls(value):
 
 
 class Cluster:
-    def __init__(self, name, work):
+    def __init__(self, name, work, image=None):
         self.name = name
         self.kubeconfig = work / f"{name}.kubeconfig"
+        self.image = image
 
     def kubectl(self, *args, input=None):
         return run(["kubectl", "--kubeconfig", str(self.kubeconfig), *args], input=input)
 
     def create(self):
-        run(["kind", "create", "cluster", "--name", self.name, "--image", KIND_NODE_IMAGE,
+        run(["kind", "create", "cluster", "--name", self.name, *(["--image", self.image] if self.image else []),
              "--kubeconfig", str(self.kubeconfig), "--wait", "120s"])
 
     def delete(self):
@@ -534,7 +531,7 @@ def cmd_lint(recipe, work, compiled=None, rendered=None):
     return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart}), notes
 
 
-def cmd_check(recipe, level, work, keep, compiled=None, rendered=None):
+def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_image=None):
     report, failed = [], False
 
     def say(line=""):
@@ -549,6 +546,7 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None):
         for e in errors:
             say(f"lint: {e}")
         return report, True
+    say(f"node image: {node_image or 'kind default'}")
     (kind, source), _ = lint.readme_fields(recipe)
     namespace = yaml.safe_load((recipe / "tests/target.yml").read_text())["parameters"]["namespace"]
     chart = None
@@ -590,13 +588,13 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None):
             say(f"requires: {name}: generator: {n}, attestation and index verified")
     gateways = GatewayProvider(prereqs, work)
     try:
-        failed = proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled)
+        failed = proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled, node_image)
     finally:
         gateways.stop()
     return report, failed
 
 
-def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled=None):
+def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs, chart, failed, compiled=None, node_image=None):
     if compiled:
         say(f"kapitan next ({KAPITAN_NEXT}): not compiled, the compiled output is given (RCP-34)")
     elif next_error := compile_next(work / "project", work / "next"):
@@ -617,7 +615,7 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
     if kind in ("compose", "design"):
         # RCP-38, RCP-44: lint checked RBAC and selectors; one cluster, at renders the apply of RCP-26 with
         # nothing to compare, at deploys the recipe deployed for real.
-        cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work)
+        cluster = Cluster(f"check-{recipe.name}-{os.getpid()}"[:50], work, node_image)
         namespaces = {namespace} | {o["metadata"]["namespace"] for o in every if o["metadata"].get("namespace")}
         try:
             if level == "renders":
@@ -635,7 +633,7 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
     subjects = compare.rbac_subjects(chart) | compare.rbac_subjects(objs)
     rbac_ns = compare.rbac_namespaces(chart + objs, subjects, namespace)
     namespaces = {namespace} | {o["metadata"]["namespace"] for o in chart + every if o["metadata"].get("namespace")}
-    clusters = {side: Cluster(f"check-{recipe.name}-{side}-{os.getpid()}"[:50], work) for side in ("chart", "recipe")}
+    clusters = {side: Cluster(f"check-{recipe.name}-{side}-{os.getpid()}"[:50], work, node_image) for side in ("chart", "recipe")}
     try:
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             futures = {side: pool.submit(prove_side, clusters[side], side_objs, namespaces, namespace, subjects, rbac_ns, prereqs)
@@ -688,6 +686,7 @@ def main(argv=None):
     parser.add_argument("--level", choices=lint.LEVELS, default="renders")
     parser.add_argument("--report", type=Path, help="also write the report to this file")
     parser.add_argument("--keep", action="store_true", help="keep the kind clusters and the work directory")
+    parser.add_argument("--node-image", metavar="IMAGE", help="kind node image of the clusters, kind's default without it (RCP-70)")
     parser.add_argument("--compiled", type=Path, metavar="OUT",
                         help="Kapitan output path with compiled/<recipe>/ of the recipe, its included recipes and prerequisites (RCP-34)")
     parser.add_argument("--rendered", type=Path, metavar="FILE",
@@ -718,7 +717,7 @@ def main(argv=None):
                 print(f"lint: warning: {w}")
             print(f"lint: {recipe.name}: " + ("failed" if errors else "passed"))
             return 1 if errors else 0
-        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered)
+        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered, args.node_image)
         if args.report:
             args.report.write_text("\n".join(report) + "\n")
         return 1 if failed else 0

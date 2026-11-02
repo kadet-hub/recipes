@@ -47,6 +47,8 @@ jobs:
       contents: read
     outputs:
       recipes: ${{ steps.select.outputs.recipes }}
+      kind: ${{ steps.kubernetes.outputs.kind }}
+      kubernetes: ${{ steps.kubernetes.outputs.kubernetes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,6 +73,15 @@ jobs:
             fi
           done | jq -sc . | sed 's/^/recipes=/' >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
+      # The Kubernetes minors check runs on, with their node images and kind (RCP-70).
+      - id: kubernetes
+        env:
+          # shortcut: renovate-config has no kubernetes-versions-* tag yet, so Renovate cannot move this
+          # commit; append " # <tag>" to the URL once it has one.
+          URL: https://raw.githubusercontent.com/kadet-hub/renovate-config/843255e023682724c3325f287bafbf061a1c8b6f/kubernetes-versions.json
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 "$URL" | jq -r '"kind=\(.kind | tojson)", "kubernetes=\(.kubernetes | tojson)"' | tee -a "$GITHUB_OUTPUT"
 
   lint:
     needs: select
@@ -108,7 +119,8 @@ jobs:
       fail-fast: false
       matrix:
         recipe: ${{ fromJSON(needs.select.outputs.recipes) }}
-    name: check ${{ matrix.recipe.name }} --level ${{ matrix.recipe.level }}
+        kubernetes: ${{ fromJSON(needs.select.outputs.kubernetes) }}
+    name: check ${{ matrix.recipe.name }} --level ${{ matrix.recipe.level }} on ${{ matrix.kubernetes.minor }}
     # deploys and migrates run a fork's manifests on kind in this runner:
     # they wait for a maintainer's approval (RCP-20).
     environment: ${{ github.event.pull_request.head.repo.fork && matrix.recipe.level != 'renders' && 'fork-pull-request' || '' }}
@@ -122,13 +134,22 @@ jobs:
           version: 0.13.5
           enable-cache: false
       - uses: ./.github/actions/tools # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/; the workspace is the main checkout
+      # The kind release that built the node images (RCP-70).
+      - env:
+          KIND_VERSION: ${{ fromJSON(needs.select.outputs.kind).version }}
+          KIND_SHA256: ${{ fromJSON(needs.select.outputs.kind).sha256['linux-amd64'] }}
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/$KIND_VERSION/kind-linux-amd64"
+          echo "$KIND_SHA256  $RUNNER_TEMP/bin/kind" | sha256sum -c --quiet
+          chmod +x "$RUNNER_TEMP/bin/kind"
       - env:
           GH_TOKEN: ${{ github.token }}
           RECIPE: ${{ matrix.recipe.name }}
           LEVEL: ${{ matrix.recipe.level }}
+          NODE_IMAGE: ${{ matrix.kubernetes.node_image }}
         run: |
           status=0
-          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --report report.txt || status=$?
+          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --node-image "$NODE_IMAGE" --report report.txt || status=$?
           { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
 
