@@ -2305,7 +2305,23 @@ argument as a literal `${...}` and reads nothing.
 
 - RCP-30: Renovate MUST propose updates for every pin of RCP-28, the
   packages in `check/uv.lock`, the kind node image and the generators a
-  recipe pins, and MUST NOT merge any update automatically.
+  recipe pins.
+
+- RCP-30a: Renovate MUST merge its own pull request once every check on it
+  passed, unless it is a major update, lock file maintenance, a digest
+  update of a GitHub Action, the `next` pin (RCP-29), or moves a `Source`
+  line or a `# renovate: Source` class line (RCP-16, RCP-21).
+
+  Renovate merges without GitHub's auto-merge (`platformAutomerge: false`),
+  so it waits for every check, and through a bypass of the `main` ruleset in
+  `pull_request` mode, which allows no direct push. Lock file maintenance
+  takes the newest releases without the three days of release age. A digest
+  update of an action under an unchanged version is a moved tag, the
+  pattern of a hijacked action. A source update is a new chart or image
+  that RCP-21 leaves to a reviewer.
+
+  - Test: manual: `renovate.json` `automerge` rules; `gh api repos/kadet-hub/recipes/rulesets` lists Integration 2740 with `bypass_mode: pull_request` on `main`
+  - Since: this change
 
   `renovate.json` follows kadet-hub/examples. A tool pin carries a
   `# renovate:` comment, a release asset its SHA-256 and an image its
@@ -2519,11 +2535,11 @@ feature's design (OQ-6).
   and of an `init_containers` entry and still passes, does not warn when
   the recipe pins the generator below 1.7.0, and passes without a warning
   on cert-manager and valkey.
-- AC-7 (RCP-16, RCP-29, RCP-30): a local Renovate dry run on this
+- AC-7 (RCP-16, RCP-29, RCP-30, RCP-30a): a local Renovate dry run on this
   repository extracts the chart of every chart recipe, the image of every
   designed recipe, the `next` pin, the kind node image, the generator
-  pins, every tool and action pin and the `check` lock, and finds no
-  update set to merge automatically. With mysql one patch release back, it
+  pins, every tool and action pin and the `check` lock, and sets none of
+  the updates RCP-30a excludes to merge automatically. With mysql one patch release back, it
   proposes the next 9.7 release and no 26.x.
 - AC-19 (RCP-16, RCP-23, RCP-34, RCP-59): `check`'s tests fail the
   download of a release manifest whose SHA-256 differs from the `Source`
