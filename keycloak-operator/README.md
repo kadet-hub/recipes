@@ -5,7 +5,7 @@ optionally its CRDs, rendered by the kadet-hub `kubernetes` generator 1.9.0.
 Derived from the Keycloak project's operator chart, which the `keycloak`
 recipe requires.
 
-Source: `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:650f7e1021def78ff799aa5ada703818a1a7d0e3cb6ee7eba6d5e1b557656a17`
+Source: `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:779b9309eb6fb3710110b2a92af2ca34b845c1f156fdbfef994efa7158e4fc71`
 
 Level: `deploys`
 

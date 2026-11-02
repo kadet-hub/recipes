@@ -1447,8 +1447,8 @@ resources. Keycloak therefore moves from kadet-hub/examples as two recipes
 
 | Recipe | Source | Role |
 |---|---|---|
-| `keycloak-operator` | `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:650f7e1021def78ff799aa5ada703818a1a7d0e3cb6ee7eba6d5e1b557656a17`, from keycloak/keycloak, Apache-2.0 | prerequisite of `keycloak`: the operator, its RBAC and, as option `crds`, its four CRDs |
-| `keycloak` | `quay.io/keycloak/keycloak:26.8.1@sha256:a78d6b79572168cb25886b80a8b5b8d4ed4390743e3eecb810538683e209dd6b` | one `Keycloak` resource and its certificate and, as option `route`, an HTTPRoute; includes `postgresql`, requires `keycloak-operator`, `cert-manager` and `gateway-api` |
+| `keycloak-operator` | `oci://quay.io/keycloak/keycloak-operator-helm:26.8.1@sha256:779b9309eb6fb3710110b2a92af2ca34b845c1f156fdbfef994efa7158e4fc71`, from keycloak/keycloak, Apache-2.0 | prerequisite of `keycloak`: the operator, its RBAC and, as option `crds`, its four CRDs |
+| `keycloak` | `quay.io/keycloak/keycloak:26.8.1@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332` | one `Keycloak` resource and its certificate and, as option `route`, an HTTPRoute; includes `postgresql`, requires `keycloak-operator`, `cert-manager` and `gateway-api` |
 
 ### The operator
 
