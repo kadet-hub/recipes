@@ -1,13 +1,14 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.13.1 implements renders and deploys, for charts
+Status: Draft. check 0.14.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
         RCP-55), and renders from given outputs (RCP-34);
         migrates (RCP-14) and RCP-21 are not implemented;
-        RCP-15 only up to publication.
+        RCP-15 only up to publication; RCP-30 not yet for the
+        kubernetes-versions.json commit of RCP-70.
 Code: <name>/, check/, .github/, renovate.json, README.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
@@ -220,6 +221,15 @@ recipe rendered could not be proven at `deploys`. Rendering the database
 backup as an option of `postgresql` was considered. It would add the plugin
 as a prerequisite (DEC-13) and the object store as Required parameters
 (RCP-40) for a part that no check exercises.
+
+DEC-19: The Kubernetes minors `check` runs on come from
+`kubernetes-versions.json` of kadet-hub/renovate-config, fetched at a
+pinned commit (RCP-70). renovate-config computes the three minors upstream
+supports from upstream sources, with the node images and the kind release
+that built them, for every kadet-hub repository. Three `kindest/node` pins
+in `check/check.py` were considered. Renovate would move each pin's patch
+and digest, but it cannot add a new minor and drop the oldest, so that step
+would be a manual edit that nothing prompts.
 
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
@@ -440,9 +450,10 @@ manifest, and a server-side apply rejects it where the schema has no
 `check` is one Python CLI in `check/`, run with
 `uv run --locked --project check check/check.py`. Its lock pins Kapitan
 0.36.3 with omegaconf 2.4.0.dev4, the install the consumers guide gives
-users, and PyYAML. The kind node image and the Kapitan `next` image are
-pinned by digest in `check/check.py`. helm, kubectl, kind, oras and gh come
-from `PATH`; CI installs them pinned (RCP-28).
+users, and PyYAML. The Kapitan `next` image is pinned by digest in
+`check/check.py`, and `--node-image` sets the kind node image (RCP-70).
+helm, kubectl, kind, oras and gh come from `PATH`; CI installs them pinned
+(RCP-28).
 
 - RCP-23: A recipe's README MUST contain the line ``Level: `<level>` `` and
   one `Source` line. For a chart it is
@@ -680,6 +691,47 @@ For a compose source and a designed recipe, `renders`, also as part of
 
   - Test: CI `select` job
   - Since: #2
+
+- RCP-70: CI MUST run `check` for every recipe of RCP-13 once per
+  Kubernetes minor in `kubernetes-versions.json` of
+  kadet-hub/renovate-config, on that minor's node image and with the kind
+  release the file names. `check` MUST name the node image in its report.
+
+  The file lists the three minors upstream supports. Each has the newest
+  patch that the latest kind release has a node image for, pinned by
+  digest, and the file names that kind release with the SHA-256 of its
+  binary (KV-1 to KV-6 in renovate-config's
+  [spec](https://github.com/kadet-hub/renovate-config/blob/main/docs/specs/kubernetes-versions.md)).
+  The `select` job fetches it at a commit of renovate-config, and the
+  `check` job is a matrix of recipe and minor. Renovate moves the commit
+  through the preset `github>kadet-hub/renovate-config`, which
+  `renovate.json` extends, so a new minor replaces the oldest in one pull
+  request.
+
+  `renders` runs once per minor as well, because its dry run and the
+  answers of `kubectl auth can-i` come from the node image's API server.
+  `lint` starts no cluster and runs once.
+
+  kind comes from the file, not from `.github/actions/tools`. kind's
+  release notes bind a node image to the kind release that built it, and a
+  kind pin of its own would let Renovate move kind without the images.
+  Without `--node-image`, kind creates the clusters from its default image.
+
+  kubectl stays on its pin of RCP-28, the newest minor. Against the oldest
+  minor that is two minors apart, one more than the Kubernetes version skew
+  policy supports for kubectl. The legs of the oldest minor show whether
+  the kubectl commands of `check` and the smoke tests still work there.
+
+  renovate-config has not tagged the file yet, because its update and tag
+  workflows run without the GitHub App's private key. The URL in `select`
+  therefore names the commit without the `# kubernetes-versions-<date>`
+  comment that the preset matches. Renovate moves it only once a tag
+  exists and the comment is added.
+
+  - Test: CI `check` job, one leg per minor, report line `node image`;
+    `check/tests/test_check.py`; manual: Renovate dry run once the URL
+    carries a tag
+  - Since: this change
 
 - RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
   needs every other job of the run and fails when one of them failed or
@@ -2271,8 +2323,8 @@ argument as a literal `${...}` and reads nothing.
   `check lint` on every pull request. Every action MUST be pinned by commit
   SHA, and every tool CI downloads by version and SHA-256.
 
-  The tools are installed by `.github/actions/tools`, uv by
-  `astral-sh/setup-uv` with its cache off.
+  The tools are installed by `.github/actions/tools`, kind by the `check`
+  job (RCP-70), uv by `astral-sh/setup-uv` with its cache off.
 
   - Test: CI `test` and `lint` jobs
   - Since: #2
@@ -2304,8 +2356,8 @@ argument as a literal `${...}` and reads nothing.
   - Since: #53
 
 - RCP-30: Renovate MUST propose updates for every pin of RCP-28, the
-  packages in `check/uv.lock`, the kind node image and the generators a
-  recipe pins.
+  packages in `check/uv.lock`, the `kubernetes-versions.json` commit of
+  RCP-70 and the generators a recipe pins.
 
 - RCP-30a: Renovate MUST merge its own pull request once every check on it
   passed, unless it is a major update, lock file maintenance, a digest
@@ -2326,8 +2378,8 @@ argument as a literal `${...}` and reads nothing.
   `renovate.json` follows kadet-hub/examples. A tool pin carries a
   `# renovate:` comment, a release asset its SHA-256 and an image its
   digest. Renovate waits three days after a release whose registry
-  reports a release date. kind and its node image move in one pull
-  request. helm and kubectl are not GitHub release assets, so Renovate
+  reports a release date.
+  helm and kubectl are not GitHub release assets, so Renovate
   moves only their version, and the tools step fails until their SHA-256
   is set from the publisher's checksum file. Python stays on 3.13, which
   `requires-python` pins. omegaconf stays on 2.4.0.dev4, because later
@@ -2537,7 +2589,7 @@ feature's design (OQ-6).
   on cert-manager and valkey.
 - AC-7 (RCP-16, RCP-29, RCP-30, RCP-30a): a local Renovate dry run on this
   repository extracts the chart of every chart recipe, the image of every
-  designed recipe, the `next` pin, the kind node image, the generator
+  designed recipe, the `next` pin, the generator
   pins, every tool and action pin and the `check` lock, and sets none of
   the updates RCP-30a excludes to merge automatically. With mysql one patch release back, it
   proposes the next 9.7 release and no 26.x.
@@ -2573,6 +2625,11 @@ feature's design (OQ-6).
   puts a designed recipe's `Source` line and its `# renovate: Source`
   class line into one branch, as it did for rabbitmq's
   `4.4.0-management`.
+- AC-26 (RCP-65, RCP-70): on a pull request that changes `.github/`, the
+  `check` job runs every recipe once per minor of
+  `kubernetes-versions.json`, each report names that minor's node image,
+  and `ci` stays the one required check. `check`'s tests pass
+  `--node-image` to `kind create cluster` and no `--image` without it.
 
 ## Open questions
 
@@ -2620,15 +2677,15 @@ feature's design (OQ-6).
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `<name>/` | One recipe (RCP-1) |
-| `check/check.py` | CLI, sources, kind clusters, report; pins the kind node and Kapitan `next` images |
+| `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24 without a cluster |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68) |
-| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68 |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
-| `.github/actions/tools/` | Pinned helm, kubectl, kind, oras, gh, cloud-provider-kind (RCP-55) |
+| `.github/actions/tools/` | Pinned helm, kubectl, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
 
@@ -2644,6 +2701,7 @@ feature's design (OQ-6).
 | First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
+| Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e`: 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
