@@ -2321,7 +2321,7 @@ argument as a literal `${...}` and reads nothing.
   that RCP-21 leaves to a reviewer.
 
   - Test: manual: `renovate.json` `automerge` rules; `gh api repos/kadet-hub/recipes/rulesets` lists Integration 2740 with `bypass_mode: pull_request` on `main`
-  - Since: this change
+  - Since: #56
 
   `renovate.json` follows kadet-hub/examples. A tool pin carries a
   `# renovate:` comment, a release asset its SHA-256 and an image its
