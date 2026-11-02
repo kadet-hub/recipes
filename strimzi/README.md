@@ -74,8 +74,8 @@ by name to the pods it starts.
 
 `check strimzi --level deploys` with `tests/values.yaml`
 (`watchAnyNamespace: true` and the operator image by digest) and
-`tests/target.yml`, on kind `kindest/node:v1.37.0`. The objects outside
-RBAC differ only in these classes:
+`tests/target.yml`, on kind for each Kubernetes minor CI tests. The objects
+outside RBAC differ only in these classes:
 
 - Selector scheme: the Deployment selects on `name`, the chart on `name`
   and `strimzi.io/kind`. The pods carry both labels.

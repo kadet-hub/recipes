@@ -99,12 +99,12 @@ Apache-2.0 license next to each. external-dns reads them only with
 ## Proof
 
 `check external-dns-powerdns --level deploys` with `tests/values.yaml` and
-`tests/target.yml` on kind `kindest/node:v1.37.0`. The objects of
-`powerdns` are left out of the comparison and applied with the recipe. The
-Deployment and the Service select on `name`, the chart on
+`tests/target.yml` on kind for each Kubernetes minor CI tests. The objects
+of `powerdns` are left out of the comparison and applied with the recipe.
+The Deployment and the Service select on `name`, the chart on
 `app.kubernetes.io/name` and `instance`. The ClusterRoleBinding is named
-`external-dns-powerdns`, the chart's `external-dns-powerdns-viewer`.
-`check` compares what the ServiceAccount may do, not the names.
+`external-dns-powerdns`, the chart's `external-dns-powerdns-viewer`. `check`
+compares what the ServiceAccount may do, not the names.
 
 `tests/smoke` applies a Service annotated with `web.example.internal` and
 waits until PowerDNS answers its A record with the Service's cluster IP

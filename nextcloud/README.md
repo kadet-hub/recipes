@@ -174,12 +174,11 @@ cache, drops the locks and logs users out.
 ## Proof
 
 `check nextcloud --level deploys` with `tests/values.yaml` and
-`tests/target.yml`, on kind `kindest/node:v1.37.0`, with `cnpg` and
-`gateway-api` installed first. The objects of `postgresql` and `valkey` are
-left out of the comparison and applied with the recipe. The Deployment and
-the Service select on `name`, the chart on `app.kubernetes.io/name`,
-`instance` and `component`. `tests/target.yml` runs one PostgreSQL
-instance.
+`tests/target.yml`, on kind for each Kubernetes minor CI tests, with `cnpg`
+and `gateway-api` installed first. The objects of `postgresql` and `valkey`
+are left out of the comparison and applied with the recipe. The Deployment
+and the Service select on `name`, the chart on `app.kubernetes.io/name`,
+`instance` and `component`. `tests/target.yml` runs one PostgreSQL instance.
 
 `tests/smoke` waits for the Cluster and reads `status.php` through the
 Gateway of `check`, with the route's host name, until it reports

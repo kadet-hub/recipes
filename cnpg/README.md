@@ -72,9 +72,9 @@ license in `operator.yml.LICENSE`.
 ## Proof
 
 `check cnpg --level deploys` with `tests/values.yaml` and
-`tests/target.yml`, on kind `kindest/node:v1.37.0`. The objects differ in
-their selector scheme, the explicit `automountServiceAccountToken: true`
-of the pod and the ServiceAccount, and the container name, which the
+`tests/target.yml`, on kind for each Kubernetes minor CI tests. The objects
+differ in their selector scheme, the explicit `automountServiceAccountToken:
+true` of the pod and the ServiceAccount, and the container name, which the
 generator derives from the component. The permissions of the operator's
 ServiceAccount are equal.
 

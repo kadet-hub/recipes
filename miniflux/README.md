@@ -75,8 +75,8 @@ configuration and is not migrated.
 ## Proof
 
 `check miniflux --level deploys` with `tests/target.yml`, which sets the
-passwords of the compose file, on kind `kindest/node:v1.37.0`. A compose
-file has no Kubernetes objects to compare with, so the recipe is proven by
-deploying it (RCP-38). `tests/smoke` runs `pg_isready` in the database pod,
-expects `OK` from `/healthcheck` on the Service's port 80, and creates a
-category through the API with the admin account and reads it back.
+passwords of the compose file, on kind for each Kubernetes minor CI tests. A
+compose file has no Kubernetes objects to compare with, so the recipe is
+proven by deploying it (RCP-38). `tests/smoke` runs `pg_isready` in the
+database pod, expects `OK` from `/healthcheck` on the Service's port 80, and
+creates a category through the API with the admin account and reads it back.

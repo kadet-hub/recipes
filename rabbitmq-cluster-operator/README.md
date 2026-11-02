@@ -75,8 +75,8 @@ The roles keep the manifest's names.
 ## Proof
 
 `check rabbitmq-cluster-operator --level deploys` with `tests/target.yml`,
-on kind `kindest/node:v1.37.0`, with `cert-manager` installed first. The
-objects outside RBAC differ only in these classes:
+on kind for each Kubernetes minor CI tests, with `cert-manager` installed
+first. The objects outside RBAC differ only in these classes:
 
 - Selector scheme: the Deployment and both Services select on `name`, the
   manifest on `app.kubernetes.io/name` and, in the Services,

@@ -81,12 +81,12 @@ under `generators.rabbitmq` and which no recipe here installs.
 
 ## Proof
 
-`check rabbitmq --level deploys` with `tests/target.yml` on kind
-`kindest/node:v1.37.0`, with `cert-manager` and then
+`check rabbitmq --level deploys` with `tests/target.yml` on kind for each
+Kubernetes minor CI tests, with `cert-manager` and then
 `rabbitmq-cluster-operator` installed first. The image has no Kubernetes
 objects to compare with, so the recipe is proven by deploying it (RCP-44,
 RCP-58). `tests/smoke` is the check of the kadet-hub/examples recipe: all
 replicas are ready and `rabbitmq-diagnostics check_running` passes. Through
 the Service `rabbitmq` it then publishes a message to a quorum queue over
-the management API on 15672 and reads it back, gets the AMQP protocol
-header answered on 5672 and reads metrics on 15692.
+the management API on 15672 and reads it back, gets the AMQP protocol header
+answered on 5672 and reads metrics on 15692.

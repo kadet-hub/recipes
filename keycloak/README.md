@@ -157,8 +157,8 @@ default.
 
 ## Proof
 
-`check keycloak --level deploys` with `tests/target.yml`, on kind
-`kindest/node:v1.37.0`, with `keycloak-operator`, `cert-manager`,
+`check keycloak --level deploys` with `tests/target.yml`, on kind for each
+Kubernetes minor CI tests, with `keycloak-operator`, `cert-manager`,
 `gateway-api` and, through `postgresql`, `cnpg` installed first. The image
 has no Kubernetes objects to compare with, so the recipe is proven by
 deploying it (RCP-44, RCP-58). `tests/target.yml` adds the self-signed
