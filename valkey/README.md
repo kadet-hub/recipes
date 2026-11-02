@@ -91,10 +91,10 @@ same on the installed recipe. It is not rendered:
 ## Proof
 
 `check valkey --level deploys` with `tests/values.yaml` and
-`tests/target.yml`, on kind `kindest/node:v1.37.0`. The seven objects
-differ only in their selector scheme: the Deployment and the Service select
-on `name`, the chart on `app.kubernetes.io/name` and `instance`. Both select
-the same pods. The chart binds no role.
+`tests/target.yml`, on kind for each Kubernetes minor CI tests. The seven
+objects differ only in their selector scheme: the Deployment and the Service
+select on `name`, the chart on `app.kubernetes.io/name` and `instance`. Both
+select the same pods. The chart binds no role.
 
 `tests/smoke` sends PING, SET and GET as the user `default` with the
 password from the Secret, and expects PING without a password to be

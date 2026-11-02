@@ -83,12 +83,12 @@ the target sets belongs to the only Kafka.
 
 ## Proof
 
-`check kafka --level deploys` with `tests/target.yml` on kind
-`kindest/node:v1.37.0`, with `strimzi` installed first. The image has no
-Kubernetes objects to compare with, so the recipe is proven by deploying
-it (RCP-44, RCP-58). `tests/target.yml` adds the examples class's topic
-`orders` as the KafkaTopic `kafka-orders` and its user as
-`kafka-orders-app` (RCP-3). `tests/smoke` is the check of the
-kadet-hub/examples recipe: the Kafka, the topic and the user are Ready, and
-a client with the user's certificate writes a message to the topic and
-reads it back over mutual TLS through the Service `kafka-kafka-bootstrap`.
+`check kafka --level deploys` with `tests/target.yml` on kind for each
+Kubernetes minor CI tests, with `strimzi` installed first. The image has no
+Kubernetes objects to compare with, so the recipe is proven by deploying it
+(RCP-44, RCP-58). `tests/target.yml` adds the examples class's topic
+`orders` as the KafkaTopic `kafka-orders` and its user as `kafka-orders-app`
+(RCP-3). `tests/smoke` is the check of the kadet-hub/examples recipe: the
+Kafka, the topic and the user are Ready, and a client with the user's
+certificate writes a message to the topic and reads it back over mutual TLS
+through the Service `kafka-kafka-bootstrap`.

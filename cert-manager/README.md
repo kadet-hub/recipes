@@ -80,9 +80,8 @@ binding.
 ## Proof
 
 `check cert-manager --level deploys` with `tests/values.yaml`
-(`crds.enabled: true`) and `tests/target.yml`, on kind
-`kindest/node:v1.37.0`. The objects outside RBAC differ only in these
-classes:
+(`crds.enabled: true`) and `tests/target.yml`, on kind for each Kubernetes
+minor CI tests. The objects outside RBAC differ only in these classes:
 
 - Selector scheme: the Deployments and Services select on `name`, the chart
   on `app.kubernetes.io/name`, `instance` and `component`.

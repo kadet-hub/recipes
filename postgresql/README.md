@@ -85,10 +85,10 @@ in `cluster.yml.LICENSE`.
 ## Proof
 
 `check postgresql --level deploys` with `tests/values.yaml` and
-`tests/target.yml`, on kind `kindest/node:v1.37.0`, with `cnpg` installed
-first. `tests/values.yaml` sets the database and owner that CloudNativePG
-gives an empty `initdb`, so the chart renders them like the recipe.
-`tests/smoke` checks what the chart's ping test and the kadet-hub/examples
-recipe checked: the Cluster is ready, and the owner reaches its database
-through `postgresql-cluster-rw` with the credentials of
+`tests/target.yml`, on kind for each Kubernetes minor CI tests, with `cnpg`
+installed first. `tests/values.yaml` sets the database and owner that
+CloudNativePG gives an empty `initdb`, so the chart renders them like the
+recipe. `tests/smoke` checks what the chart's ping test and the
+kadet-hub/examples recipe checked: the Cluster is ready, and the owner
+reaches its database through `postgresql-cluster-rw` with the credentials of
 `postgresql-cluster-app`.

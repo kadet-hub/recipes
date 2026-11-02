@@ -68,7 +68,7 @@ and every entry starts with the recipe's name.
 ## Proof
 
 `check keycloak-operator --level deploys` with `tests/values.yaml` and
-`tests/target.yml`, on kind `kindest/node:v1.37.0`.
+`tests/target.yml`, on kind for each Kubernetes minor CI tests.
 
 `tests/smoke` creates a `Keycloak` resource in `default` and waits for the
 operator to create its StatefulSet with the default image.

@@ -81,10 +81,10 @@ the zones. A NetworkPolicy in the target narrows that down.
 
 ## Proof
 
-`check powerdns --level deploys` with `tests/target.yml` on kind
-`kindest/node:v1.37.0`. The image has no Kubernetes objects to compare
-with, so the recipe is proven by deploying it (RCP-44). `tests/smoke`
-writes an A record into `example.internal` through the API on the Service
+`check powerdns --level deploys` with `tests/target.yml` on kind for each
+Kubernetes minor CI tests. The image has no Kubernetes objects to compare
+with, so the recipe is proven by deploying it (RCP-44). `tests/smoke` writes
+an A record into `example.internal` through the API on the Service
 `powerdns`, with the key from the Secret, and reads it back through the
-Service over UDP and TCP on port 53. The kadet-hub/examples recipe checked
-a record that external-dns wrote.
+Service over UDP and TCP on port 53. The kadet-hub/examples recipe checked a
+record that external-dns wrote.

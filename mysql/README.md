@@ -76,8 +76,8 @@ networking off, so the port opens once the server is ready.
 
 ## Proof
 
-`check mysql --level deploys` with `tests/target.yml` on kind
-`kindest/node:v1.37.0`. The image has no Kubernetes objects to compare
+`check mysql --level deploys` with `tests/target.yml` on kind for each
+Kubernetes minor CI tests. The image has no Kubernetes objects to compare
 with, so the recipe is proven by deploying it (RCP-44). `tests/smoke` runs
 `select 1` as the user `app` in the database `app` through the Service
 `mysql`, the check of the kadet-hub/examples recipe.
