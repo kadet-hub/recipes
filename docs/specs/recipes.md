@@ -2738,7 +2738,7 @@ like the chart's own objects.
 
   - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
     each of the four parameters stops with `Interpolation key` and its name
-  - Since: this change
+  - Since: #70
 
 ### Proof
 
@@ -2747,9 +2747,9 @@ instance and sets the values `tests/values.yaml` gives the chart.
 
 - RCP-91: The `tests/smoke` of `gitea` MUST require that `/api/healthz`
   reports `pass` for `database:ping` and `cache:ping` through the endpoints
-  of the Service `gitea-http` and that
-  `/api/v1/version` reports the version of the image tag the Deployment
-  runs. As the admin account it MUST create a repository through
+  of the Service `gitea-http` and that `/api/v1/version` reports the
+  version of the image tag the Deployment runs. As the admin account it
+  MUST create a repository through
   `POST /api/v1/user/repos`, clone it over HTTP through `gitea-http` from a
   pod of its own, push one commit, and read the commit and the file back
   through the API. Valkey MUST then hold keys.
@@ -2758,10 +2758,12 @@ instance and sets the values `tests/values.yaml` gives the chart.
   `pass` alone would also hold without them. The push runs Gitea's
   hooks, which call its internal API with `INTERNAL_TOKEN`. The test pod
   runs Gitea's image, which carries `git`. Nothing but Gitea writes into
-  the test's Valkey, so a key there shows that Gitea uses it.
+  the test's Valkey, so a key there shows that Gitea uses it. On kind with
+  1.36.4 the keys were two cache entries `git-last-commit:...` of the
+  pushed commit and the hash `MacaronCache` next to them.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #70
 
 - AC-40 (RCP-90, RCP-91): `check gitea --level deploys` passes in CI on
   each Kubernetes minor, its report lists the objects of `postgresql` and
