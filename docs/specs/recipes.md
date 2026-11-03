@@ -901,14 +901,14 @@ What the table does not map is a gap, and so is each of these:
   of a directory the repository does not contain, which was a gap, and
   the image's `HEALTHCHECK`, all for paperless-ngx. Revised in #66: the
   project `name`, an `env_file` the repository does not contain, the
-  SELinux option and the settings directory, all for searxng. Revised in
-  this change: `cap_add` of optional capabilities, which was a gap, for
-  pihole (DEC-29).
+  SELinux option and the settings directory, all for searxng.
+  Revised in #68: `cap_add` of optional capabilities, which was a gap,
+  for pihole (DEC-29).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
-    `cap_add`: this change
+    `cap_add`: #68
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -2435,7 +2435,7 @@ not published either, as in the example.
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     the image's label
-  - Since: this change
+  - Since: #68
 
 - RCP-81: `pihole` MUST set `FTLCONF_webserver_api_password` from the
   Secret `pihole`, whose value is `applications.pihole.password`, which the
@@ -2448,7 +2448,7 @@ not published either, as in the example.
 
   - Test: `check pihole`; manual: compile of `tests/target.yml` without
     the password
-  - Since: this change
+  - Since: #68
 
 ### Proof
 
@@ -2471,7 +2471,7 @@ let a pod reach.
   denied, and the check does not depend on the blocklist download.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #68
 
 ## Migration
 
