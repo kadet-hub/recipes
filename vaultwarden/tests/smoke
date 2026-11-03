@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# What the compose example of Vaultwarden's README sets up (RCP-39, RCP-112):
+# from a pod of its own, through the Service vaultwarden on port 8000,
+# Vaultwarden answers /alive, reports the image's version and the domain,
+# refuses a wrong admin token, logs in with the test token, reports signups
+# off, and keeps a user invited through the admin API in its database on the
+# claim across a restart of its pod.
+set -euo pipefail
+# tests/target.yml sets the Argon2id PHC string of this token.
+token=smoke-admin-token
+email=smoke@example.com
+url=http://vaultwarden:8000
+image=$(kubectl get statefulset vaultwarden -o jsonpath='{.spec.template.spec.containers[0].image}')
+domain=$(kubectl get statefulset vaultwarden -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DOMAIN")].value}')
+# The Vaultwarden image brings curl, so the test pod needs no other image.
+kubectl run vaultwarden-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod vaultwarden-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/vaultwarden-smoke --for=condition=Ready --timeout=120s >/dev/null
+run() { kubectl exec -i vaultwarden-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs vaultwarden-0 --tail=40 >&2; exit 1; }
+
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready, and refuses connections until then.
+alive() {
+  for _ in $(seq 30); do run curl -fsS -o /dev/null "$url/alive" 2>/dev/null && return; sleep 2; done
+  fail "/alive does not answer through the Service vaultwarden"
+}
+alive
+tag=${image%@*}
+tag=${tag##*:}
+version=$(run curl -fsS "$url/api/version" | jq -r .)
+[[ $version == "$tag" ]] || fail "/api/version: $version, the image tag is $tag"
+run curl -fsS "$url/api/config" | jq -e --arg d "$domain" '.server.name == "Vaultwarden" and .environment.vault == $d' >/dev/null ||
+  fail "/api/config does not name $domain"
+
+# The session cookie VW_ADMIN lives in a jar in the test pod.
+login() { run curl -sS -o /dev/null -w '%{http_code}' -c /tmp/jar --data-urlencode "token=$1" "$url/admin"; }
+users() { run curl -fsS -b /tmp/jar "$url/admin/users"; }
+status=$(login wrong-token)
+[[ $status == 401 ]] || fail "admin login with a wrong token: $status"
+status=$(login "$token")
+[[ $status == 200 ]] || fail "admin login with the test token: $status"
+users | jq -e 'type == "array"' >/dev/null || fail "/admin/users is no list"
+# /api/config keeps registration open while invitations work without mail.
+run curl -fsS -b /tmp/jar -H 'Accept: application/json' "$url/admin/diagnostics/config" |
+  jq -e '.signups_allowed == false' >/dev/null || fail "signups are allowed"
+jq -nc --arg e "$email" '{email: $e}' |
+  run curl -fsS -o /dev/null -b /tmp/jar -H 'Content-Type: application/json' --data @- "$url/admin/invite"
+users | jq -e --arg e "$email" 'any(.[]; .email == $e)' >/dev/null || fail "$email not listed after the invite"
+
+# The new pod reads the user from db.sqlite3 on the claim vw-data.
+kubectl delete pod vaultwarden-0 --wait >/dev/null
+kubectl wait pod/vaultwarden-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/vaultwarden-0 --for=condition=Ready --timeout=300s >/dev/null
+alive
+status=$(login "$token")
+[[ $status == 200 ]] || fail "admin login after the restart: $status"
+users | jq -e --arg e "$email" 'any(.[]; .email == $e)' >/dev/null || fail "$email lost with the restart"
+echo "Vaultwarden $version answered through the Service vaultwarden, and $email, invited on the admin page, outlived a restart"

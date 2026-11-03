@@ -1,0 +1,44 @@
+parameters:
+  components:
+    vaultwarden:
+      application: vaultwarden
+      type: statefulset
+      image: docker.io/vaultwarden/server:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
+      ports:
+        http:
+          container_port: 80
+          service_port: 8000
+      service:
+        type: ClusterIP
+      env:
+        DOMAIN: ${applications.vaultwarden.domain}
+        # Not in the compose example: the admin page with its token (DEC-56),
+        # and no signups (DEC-55).
+        ADMIN_TOKEN:
+          secretKeyRef:
+            key: ADMIN_TOKEN
+        SIGNUPS_ALLOWED: "false"
+      secrets:
+        credentials:
+          string_data:
+            ADMIN_TOKEN:
+              value: ${applications.vaultwarden.admin_token}
+      # The image's HEALTHCHECK, which compose runs, with compose's 3 retries.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - /healthcheck.sh
+          period_seconds: 60
+          timeout_seconds: 10
+      volume_mounts:
+        vw-data:
+          mount_path: /data
+      volume_claims:
+        vw-data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
