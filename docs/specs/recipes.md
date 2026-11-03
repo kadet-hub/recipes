@@ -3151,7 +3151,7 @@ runs one replica, as the example does.
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     the image's label
-  - Since: this change
+  - Since: #75
 
 - RCP-111: `vaultwarden` MUST set `DOMAIN` from
   `applications.vaultwarden.domain` and `ADMIN_TOKEN` from the Secret
@@ -3171,7 +3171,7 @@ runs one replica, as the example does.
 
   - Test: CI `check` job; manual: a compile of `tests/target.yml` without
     each of the two parameters stops with `Interpolation key` and its name
-  - Since: this change
+  - Since: #75
 
 - RCP-112: The `tests/smoke` of `vaultwarden` MUST, from a pod of its own
   and through the Service `vaultwarden` on port 8000, get `/alive`,
@@ -3195,7 +3195,7 @@ runs one replica, as the example does.
   for up to a minute.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #75
 
 - AC-60 (RCP-110 to RCP-112): `check vaultwarden --level deploys` passes
   in CI on each Kubernetes minor, and its smoke test finds the invited user
