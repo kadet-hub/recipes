@@ -3434,7 +3434,7 @@ setup, and the README asks for the account before the exposure.
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     `gh api repos/louislam/uptime-kuma/git/ref/tags/<tag>`
-  - Since: this change
+  - Since: #76
 
 - RCP-121: `uptime-kuma` MUST set `UPTIME_KUMA_DB_TYPE` to `sqlite`
   (DEC-65) and MUST mount the claim `data` at `/app/data`.
@@ -3444,7 +3444,7 @@ setup, and the README asks for the account before the exposure.
   database type follows the inventory.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #76
 
 - RCP-122: The `tests/smoke` of `uptime-kuma` MUST, from a pod of its own
   and through the Service `uptime-kuma` on port 3001, require `entryPage`
@@ -3472,7 +3472,7 @@ setup, and the README asks for the account before the exposure.
   `kuma.db` on the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #76
 
 - AC-70 (RCP-120 to RCP-122): `check uptime-kuma --level deploys` passes
   in CI on each Kubernetes minor, and its smoke test sees the monitor UP
