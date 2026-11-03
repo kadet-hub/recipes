@@ -3539,7 +3539,7 @@ taken about seven minutes.
 
   - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
     each of the five parameters stops with `Interpolation key` and its name
-  - Since: tbd
+  - Since: #79
 
 - RCP-141: `netbox` MUST point NetBox at the Service, the database and the
   Secret of `postgresql` with `sslmode=require`, and its tasks and cache at
@@ -3547,7 +3547,7 @@ taken about seven minutes.
   `valkey-auth`.
 
   - Test: `check netbox`; `tests/smoke`
-  - Since: tbd
+  - Since: #79
 
 - RCP-142: The `tests/smoke` of `netbox` MUST get `/login/` and
   `/api/status/` through the Service `netbox`, and the status MUST report
@@ -3569,7 +3569,7 @@ taken about seven minutes.
   failed.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: tbd
+  - Since: #79
 
 - AC-90 (RCP-140 to RCP-142): `check netbox --level deploys` passes in CI
   on each Kubernetes minor, its report lists the objects of `postgresql`
