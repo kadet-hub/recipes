@@ -2917,7 +2917,7 @@ authentik.
   - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
     each of the three parameters stops with `Interpolation key` and its
     name
-  - Since: this change
+  - Since: #72
 
 ### Server, worker and outposts
 
@@ -2982,7 +2982,7 @@ chart has no hooks. The recipe is at level `deploys`.
   update of the pin.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #72
 
 ## Migration
 
