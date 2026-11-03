@@ -9,6 +9,8 @@ set -euo pipefail
 kubectl wait cluster/postgresql-cluster --for=condition=Ready --timeout=300s >/dev/null
 kubectl wait job/paperless-ngx-token --for=condition=Complete --timeout=300s >/dev/null
 pdf=$(mktemp --suffix .pdf)
+# kubectl cp keeps owner and mode, and the consumer reads as UID 1000.
+chmod 644 "$pdf"
 trap 'rm -f "$pdf"' EXIT
 # A one-page PDF with a text line, its xref offsets computed.
 python3 - "$pdf" <<'EOF'
@@ -33,19 +35,12 @@ out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(o
 open(sys.argv[1], "wb").write(out)
 EOF
 fail() { echo "$1" >&2; kubectl logs "$2" --tail=40 >&2; exit 1; }
-# The consumer starts after the web server, which the readiness probe sees.
-for _ in $(seq 60); do
-  kubectl exec paperless-ngx-0 -- grep -q 'Watching /usr/src/paperless/consume' /usr/src/paperless/data/log/paperless.log 2>/dev/null && break
-  sleep 2
-done
 kubectl cp "$pdf" paperless-ngx-0:/usr/src/paperless/consume/smoke.pdf
 kubectl port-forward service/paperless-ngx 18000:8000 >/dev/null &
 trap 'rm -f "$pdf"; kill $(jobs -p)' EXIT
 # Whole responses, as grep -q would end curl early under pipefail.
 count() { [[ $(curl -fsS -u admin:smoke-password "http://127.0.0.1:18000/api/documents/?$1") =~ '"count":'[1-9] ]]; }
-# A file that lands while the watcher starts waits for the consumer's
-# rescan, every 300 seconds.
-for _ in $(seq 110); do count content__icontains=kadet-hub 2>/dev/null && break; sleep 3; done
+for _ in $(seq 60); do count content__icontains=kadet-hub 2>/dev/null && break; sleep 3; done
 count content__icontains=kadet-hub || fail "smoke.pdf not found through the API" paperless-ngx-0
 # paperless-ai gives up on the API after 60 tries at start, which can pass
 # before paperless-ngx answers, and analyzes the documents at start: start

@@ -96,7 +96,9 @@ interface, or creates one from `PAPERLESS_ADMIN_USER`.
 `export` the one its document exporter writes backups to. In compose both
 are folders next to the compose file on the host. Here they are claims, so
 put files in with `kubectl cp` or mount storage that other systems reach,
-such as a scanner's network share, in their place.
+such as a scanner's network share, in their place. The consumer reads as
+UID 1000, and `kubectl cp` keeps a file's owner and mode, so a file must be
+readable by others, such as with mode 644.
 
 ## The option `ai`
 
