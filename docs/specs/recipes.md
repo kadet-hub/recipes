@@ -3375,6 +3375,79 @@ runs one replica, as the example does.
   `applications.vaultwarden.domain` or `admin_token` stops the compile
   with `Interpolation key` and that key.
 
+## Ollama
+
+Ollama runs language models and serves them through an HTTP API on port
+11434, its own and an OpenAI-compatible one below `/v1`. The project
+publishes no chart. Open WebUI's chart `open-webui` 17.5.0 renders Ollama
+through its subchart `ollama` 1.79.0 of otwld/ollama-helm, which OTWLD
+maintains, and turns it on by default. otwld/ollama-helm publishes the
+chart with chart-releaser in the HTTP repository
+`https://otwld.github.io/ollama-helm` and as a GitHub release asset, and
+pushes no OCI artifact, so the `Source` line takes the HTTP form of
+RCP-23. The archive is the one Open WebUI's chart carries in `charts/`,
+file by file. Chart and Ollama are MIT.
+
+DEC-75: `ollama` is a recipe of its own on the chart `ollama` 1.79.0, the
+version that `open-webui` 17.5.0 pins in its `Chart.lock`, and
+`open-webui` includes it (DEC-4). otwld/ollama-helm had released 1.94.0 by
+2026-11-03. Its newest version was considered. The chart that Open WebUI's
+chart renders would then differ from the recipe that replaces it, and the
+recipe would move ahead of the parent it serves. DEC-11 rejects a
+third-party chart as the source of a designed recipe, which this is not:
+the parent's own chart brings it as a subchart, the case of DEC-4.
+
+DEC-76: `ollama` runs Ollama 0.33.2, the chart's `appVersion`. No advisory
+in the GitHub Advisory Database for `github.com/ollama/ollama` on
+2026-11-03 names 0.33.2 or a release after 0.20.2 as affected. Ollama
+0.40.14, the newest release on 2026-11-03, was considered. It would move
+the image ahead of the chart without a fix that an advisory names, and a
+maintainer would have to move it by hand (RCP-16).
+
+`tests/values.yaml` keeps the chart's defaults and sets
+`image.repository: docker.io/ollama/ollama`, the chart's image with its
+registry host (RCP-66). The release name `ollama` equals the chart's name,
+so the Deployment, Service and ServiceAccount are all `ollama`. Models live
+in the `emptyDir` `ollama-data` at `/root/.ollama`, the chart's default
+without `persistentVolume.enabled`, so a new pod pulls them again. The
+image carries the CUDA and ROCm libraries and is 3383 MB compressed for
+amd64 and 2780 MB for arm64 (sums of the layer sizes in the registry
+manifests, MB = 10^6 bytes). The recipe requests no GPU, and GPUs are not
+tested, because kind has none.
+
+Ollama's API has no authentication, so every pod that reaches the Service
+`ollama` can pull, delete and run models. The chart's Ingress, HTTPRoute,
+Gateway, Knative service, autoscaler and model pulls at start are off by
+default and not part of the recipe. The ServiceAccount `ollama` has no
+Role. The chart's Helm test `ollama-test-connection` is left out (RCP-25).
+
+- RCP-130: `ollama` MUST render the chart's Deployment, Service and
+  ServiceAccount `ollama` with `docker.io/ollama/ollama:0.33.2` pinned to
+  its index, models in the `emptyDir` `ollama-data` and no GPU.
+
+  - Test: `check ollama`
+  - Since: this change
+
+- RCP-131: The `tests/smoke` of `ollama` MUST require `Ollama is running`
+  from `/` through the Service and the version of the image tag from
+  `/api/version`. It MUST pull `smollm:135m` through `/api/pull`, find it
+  in `/api/tags` with the digest of its manifest, and get a reply from
+  `/api/generate` with `done: true`. It MUST print how long the pull and
+  the generation took.
+
+  `smollm:135m` is 92 MB and Apache-2.0, the smallest of the chat models
+  compared on 2026-11-03: `smollm2:135m` has 271 MB, `gemma3:270m` 292 MB
+  and `qwen2.5:0.5b` 398 MB (layer sizes in registry.ollama.ai). Ollama
+  pulls by name only, so the digest in `/api/tags` shows that the test ran
+  the model it names.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-80 (RCP-130, RCP-131): `check ollama --level deploys` passes in CI on
+  each Kubernetes minor, and its smoke test reports the time of the pull
+  and of the generation.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -4225,3 +4298,4 @@ feature's design (OQ-6).
 | immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-103, RCP-104) |
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.14.0, level `deploys` (RCP-95, RCP-96) |
 | vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.14.0, level `deploys` (RCP-110 to RCP-112) |
+| ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.14.0, level `deploys` (RCP-130, RCP-131) |
