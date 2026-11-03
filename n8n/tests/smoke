@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# RCP-86: n8n-main answers /healthz and /healthz/readiness through its Service,
+# and each worker /healthz/readiness, which needs its connections to PostgreSQL
+# and Valkey. Through /rest the owner account is set up and logs in. A
+# workflow with a production webhook is activated and called: in queue mode
+# n8n-main queues the execution in Valkey and a worker runs it. After a
+# restart of n8n-main, whose home is an emptyDir, the owner logs in again and
+# the webhook answers again, both read from PostgreSQL.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+status() { kubectl get --raw "/api/v1/namespaces/$ns/$1" | jq -er '.status == "ok"' >/dev/null; }
+status services/n8n-main:http/proxy/healthz
+status services/n8n-main:http/proxy/healthz/readiness
+workers=$(kubectl get pods -l name=n8n-worker -o jsonpath='{.items[*].metadata.name}')
+for pod in $workers; do
+  status "pods/$pod:5678/proxy/healthz/readiness"
+done
+
+work=$(mktemp -d)
+forward() {
+  kubectl port-forward service/n8n-main 15678:5678 >/dev/null &
+  pf=$!
+  for _ in $(seq 30); do
+    curl -fsS -o /dev/null http://localhost:15678/healthz 2>/dev/null && return
+    sleep 2
+  done
+  return 1
+}
+forward
+trap 'kill $pf; rm -rf "$work"' EXIT
+url=http://localhost:15678
+# n8n binds a session to the browser-id header it was issued with.
+rest() { curl -fsS -b "$work/cookies" -c "$work/cookies" -H 'browser-id: smoke' -H 'Content-Type: application/json' "$@"; }
+email=owner@example.com
+password=Smoke-Passw0rd
+jq -n --arg email "$email" --arg password "$password" '{$email, $password, firstName: "Smoke", lastName: "Owner"}' |
+  rest -d @- "$url/rest/owner/setup" | jq -e --arg email "$email" '.data.email == $email' >/dev/null
+login() {
+  rm -f "$work/cookies"
+  jq -n --arg email "$email" --arg password "$password" '{emailOrLdapLoginId: $email, $password}' |
+    rest -d @- "$url/rest/login" | jq -e --arg email "$email" '.data.email == $email' >/dev/null
+  rest "$url/rest/login" | jq -e --arg email "$email" '.data.email == $email and .data.isOwner' >/dev/null
+}
+login
+
+workflow=$(jq -n '{
+  name: "smoke",
+  nodes: [{
+    id: "8f3c2d6e-1b4a-4c5d-9e7f-0a1b2c3d4e5f",
+    name: "Webhook",
+    type: "n8n-nodes-base.webhook",
+    typeVersion: 2,
+    position: [0, 0],
+    webhookId: "3b9d7c1a-5e2f-4a6b-8c0d-1e2f3a4b5c6d",
+    parameters: {httpMethod: "GET", path: "smoke", responseMode: "lastNode", options: {}}
+  }],
+  connections: {},
+  settings: {executionOrder: "v1"}
+}' | rest -d @- "$url/rest/workflows")
+id=$(jq -r .data.id <<<"$workflow")
+jq '{versionId: .data.versionId}' <<<"$workflow" | rest -d @- "$url/rest/workflows/$id/activate" >/dev/null
+# n8n-main registers the webhooks of active workflows after it reports ready.
+webhook() {
+  probe=$RANDOM answer=
+  for _ in $(seq 30); do
+    answer=$(curl -fsS --max-time 30 "$url/webhook/smoke?probe=$probe" 2>/dev/null) && break
+    sleep 2
+  done
+  jq -e --arg probe "$probe" '.query.probe == $probe' <<<"$answer" >/dev/null
+}
+webhook
+
+kubectl rollout restart deployment/n8n-main >/dev/null
+kubectl rollout status deployment/n8n-main --timeout=600s >/dev/null
+kill $pf
+forward
+login
+webhook
+echo "healthz and readiness of n8n-main and ${workers// /, }, owner setup and login, webhook run by a worker, login and webhook after a restart of n8n-main"

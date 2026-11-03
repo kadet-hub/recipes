@@ -315,6 +315,15 @@ as with `type: LoadBalancer`, is left to the target, because whether a
 load balancer serves TCP and UDP on one address depends on its
 implementation.
 
+DEC-31: `n8n` runs n8n in queue mode, the default of n8n's chart, with the
+included recipe `valkey` as the queue (n8n). n8n-main receives webhook
+calls and the editor's requests and queues each execution, and the
+Deployment `n8n-worker` runs them. Standalone mode, `queueMode.enabled:
+false`, was considered. It would run one Deployment without Valkey, but
+`tests/values.yaml` would then prove a configuration the chart does not
+default to, and a release installed with the chart's defaults would change
+how it runs its executions when the recipe replaces it.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -2476,6 +2485,131 @@ let a pod reach.
   - Test: CI `check` job, report line `smoke`
   - Since: #68
 
+## n8n
+
+n8n is a workflow automation tool. A workflow starts from a trigger, such
+as a webhook call or a schedule, and runs nodes that call web services,
+databases and scripts. `n8n` deploys it from the chart `n8n` 1.18.0 of
+n8n-io/n8n-hosting, which n8n publishes at
+`oci://ghcr.io/n8n-io/n8n-helm-chart/n8n` and describes as its official
+chart. On 2026-11-03 the repository's newest release was 1.18.0 of
+2026-10-28. Next to it was the release candidate 2.0.0-rc.1 of 2026-10-27,
+which the recipe does not take.
+
+The chart is MIT. n8n is under the Sustainable Use License 1.0, which
+allows use and changes of n8n only for internal business purposes and for
+non-commercial or personal use. Files with `.ee.` in their name need an n8n
+Enterprise License (`LICENSE.md` of n8n-io/n8n). The OSI does not approve
+the license as open source. This spec and the registry do not restrict the
+license of an upstream image: `mongodb` runs MongoDB's SSPL-1.0 image, and
+the registry matches `policy/licenses.txt` only against the `LICENSE` of
+the repository a recipe comes from (REC-4 there). The recipe ships no n8n
+code and names the image only, so it is Apache-2.0 like every recipe here.
+Its README names n8n's license for the user who runs the image.
+
+### The image
+
+The chart's `appVersion` is n8n 2.45.5, and its default image
+`docker.n8n.io/n8nio/n8n`. docker.n8n.io sends clients to Docker Hub for
+their tokens and serves Docker Hub's repository `n8nio/n8n`. On 2026-11-03
+it answered every anonymous request with 429 and `ratelimit-remaining: 0`,
+while Docker Hub served the same tag to the same client with 99 of 100
+pulls left. This suggests, without confirmation from n8n, that all
+clients of docker.n8n.io share one anonymous quota. `tests/values.yaml`
+therefore sets `image.repository: docker.io/n8nio/n8n`, and the recipe
+pins that tag's index for amd64 and arm64. Keeping docker.n8n.io was
+considered. Every
+proof of `check` would then depend on a quota that other users of
+docker.n8n.io use up.
+
+Every advisory of n8n-io/n8n published by 2026-11-03 that reaches the 2.x
+line names 2.45.5 or an earlier 2.x release as fixed, except
+GHSA-365g-vjw2-grx8. That one covers every release: the Execute Command
+node runs commands in the container for any user who may edit workflows.
+n8n 2.45.5 does not load the node unless `NODES_EXCLUDE` is changed
+(`packages/@n8n/config/src/configs/nodes.config.ts`), and the chart leaves
+it alone. The recipe therefore runs the chart's version.
+
+### Database and queue
+
+The database is the included recipe `postgresql` (DEC-4, DEC-12). The
+chart takes the host, the database and the user as values, and the
+password from `database.passwordSecret`. `tests/values.yaml` points them at
+`postgresql-cluster-rw`, `app`, `app` and the key `password` of the Secret
+`postgresql-cluster-app` that CloudNativePG writes, and the recipe reads
+these names from `applications.postgresql` (RCP-60). Without
+`database.ssl.enabled` n8n connects without TLS. With it alone, n8n checks
+the server's certificate against the CAs of Node.js, which do not include
+CloudNativePG's own CA. `tests/values.yaml` sets `ssl.enabled: true` and
+`ssl.rejectUnauthorized: false`, which encrypts the connection without
+verifying the certificate, as `semaphore` does with `sslmode=require`.
+Verifying against the CA in the Secret `postgresql-cluster-ca` was
+considered. That Secret is the operator's, and `postgresql` does not name
+it as a Secret its users read (DEC-12).
+
+The queue is the included recipe `valkey` (DEC-31). `tests/values.yaml`
+points `redis.host` at the Service `valkey` and `redis.passwordSecret` at
+the key `default-password` of the Secret `valkey-auth`, with which n8n
+authenticates as Valkey's user `default`. Two workers with a concurrency of
+10, the chart's `queueMode.workerReplicaCount` and `workerConcurrency`,
+stay as the chart sets them. Webhook processors, multi-main and task
+runners are off by default and not part of the recipe. Multi-main needs an
+n8n Enterprise license.
+
+### Secrets and the rest of the chart
+
+The chart renders the Secret `n8n` with `N8N_ENCRYPTION_KEY`, `N8N_HOST`,
+`N8N_PORT` and `N8N_PROTOCOL`, and stops on the placeholder key of its
+`values.yaml`. n8n encrypts the credentials that workflows use with the
+key before it stores them in PostgreSQL. The chart also renders the Secret
+`n8n-task-runners` with a token it generates at render time, also when
+task runners are off and no container reads it. `tests/values.yaml` names
+that Secret in `taskRunners.authToken.existingSecret`, so the chart renders
+none, and neither does the recipe. Rendering it from a parameter was
+considered. Every target would then set a token that nothing reads.
+
+The chart binds its Role `n8n`, which reads every ConfigMap and Secret of
+the namespace, to the ServiceAccount `n8n` of both Deployments, and the
+recipe grants the same (RCP-11). The home directory of n8n-main is an
+emptyDir, the chart's default without `persistence.enabled`. The pod
+templates carry the chart's `checksum/config` and `checksum/secret` as
+`tests/values.yaml` renders them (RCP-42). The ConfigMap `n8n` sets
+`N8N_DEPLOYMENT_ARTIFACT` to `helm-chart/1.18.0`, which n8n reports to its
+telemetry, as the chart renders it. The chart's Helm test
+`n8n-test-connection` is left out (RCP-25). The recipe is at level
+`deploys`.
+
+- RCP-85: `n8n` MUST take `N8N_ENCRYPTION_KEY` from
+  `applications.n8n.encryption_key` and MUST leave it unset.
+
+  The compile then stops with
+  `Interpolation key 'applications.n8n.encryption_key' not found` until
+  the target sets it, as a ref (RCP-19, RCP-40). With another key n8n
+  cannot decrypt the credentials it stored before.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    the key stops with `Interpolation key` and its name
+  - Since: #69
+
+- RCP-86: The `tests/smoke` of `n8n` MUST get `ok` from `/healthz` and
+  `/healthz/readiness` of n8n-main through its Service and from
+  `/healthz/readiness` of each worker pod. It MUST set up the owner account
+  through `/rest/owner/setup` and log in through `/rest/login`, then
+  activate a workflow with a production webhook and require that the
+  webhook answers with the query it was called with. After a restart of
+  n8n-main it MUST log in and get the webhook's answer again.
+
+  A worker reports ready only with its connections to PostgreSQL and to
+  Valkey (`readiness` in `packages/cli/src/scaling/worker-server.ts` of
+  n8n 2.45.5). In queue mode n8n-main queues every execution in Valkey
+  instead of running it (`packages/cli/src/workflow-runner.ts`), so the
+  webhook's answer comes from a worker. The restarted n8n-main starts on an
+  empty home directory, so the owner and the active workflow come from
+  PostgreSQL.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #69
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3215,6 +3349,13 @@ feature's design (OQ-6).
   the denied domain over UDP and over TCP. `tests/target.yml` without
   `applications.pihole.password` stops the compile with
   `Interpolation key 'applications.pihole.password' not found`.
+- AC-35 (RCP-85, RCP-86): `check n8n --level deploys` passes in CI on each
+  Kubernetes minor, its report lists the objects of `postgresql` and
+  `valkey` as included and `cnpg` as installed, and its smoke test gets the
+  webhook's answer before and after the restart of n8n-main.
+  `tests/target.yml` without `applications.n8n.encryption_key` stops the
+  compile with `Interpolation key 'applications.n8n.encryption_key' not
+  found`.
 
 ## Open questions
 
@@ -3303,3 +3444,4 @@ feature's design (OQ-6).
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |
 | pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.9.0, level `deploys` (RCP-80 to RCP-82) |
+| n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-85, RCP-86) |

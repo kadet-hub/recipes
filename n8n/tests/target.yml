@@ -1,0 +1,16 @@
+classes:
+  - recipes.n8n
+parameters:
+  namespace: n8n
+  kapitan:
+    vars:
+      target: n8n
+  applications:
+    # The key tests/values.yaml gives the chart.
+    n8n:
+      encryption_key: smoke-encryption-key
+    valkey:
+      password: smoke-password
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

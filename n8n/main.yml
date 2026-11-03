@@ -1,0 +1,190 @@
+parameters:
+  components:
+    n8n-main:
+      application: n8n
+      service_account:
+        create: true
+        automount_service_account_token: true
+      env:
+        TZ:
+          configMapKeyRef: {name: n8n, key: TZ}
+        N8N_DEPLOYMENT_ARTIFACT:
+          configMapKeyRef: {name: n8n, key: N8N_DEPLOYMENT_ARTIFACT}
+        DB_TYPE:
+          configMapKeyRef: {name: n8n, key: DB_TYPE}
+        DB_POSTGRESDB_DATABASE:
+          configMapKeyRef: {name: n8n, key: DB_POSTGRESDB_DATABASE}
+        DB_POSTGRESDB_HOST:
+          configMapKeyRef: {name: n8n, key: DB_POSTGRESDB_HOST}
+        DB_POSTGRESDB_PORT:
+          configMapKeyRef: {name: n8n, key: DB_POSTGRESDB_PORT}
+        DB_POSTGRESDB_USER:
+          configMapKeyRef: {name: n8n, key: DB_POSTGRESDB_USER}
+        DB_POSTGRESDB_SCHEMA:
+          configMapKeyRef: {name: n8n, key: DB_POSTGRESDB_SCHEMA}
+        DB_POSTGRESDB_SSL_ENABLED:
+          configMapKeyRef: {name: n8n, key: DB_POSTGRESDB_SSL_ENABLED}
+        DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED:
+          configMapKeyRef:
+            name: n8n
+            key: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+        EXECUTIONS_MODE:
+          configMapKeyRef: {name: n8n, key: EXECUTIONS_MODE}
+        OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS:
+          configMapKeyRef:
+            name: n8n
+            key: OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS
+        QUEUE_BULL_REDIS_HOST:
+          configMapKeyRef: {name: n8n, key: QUEUE_BULL_REDIS_HOST}
+        QUEUE_BULL_REDIS_PORT:
+          configMapKeyRef: {name: n8n, key: QUEUE_BULL_REDIS_PORT}
+        QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD:
+          configMapKeyRef: {name: n8n, key: QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD}
+        QUEUE_WORKER_LOCK_DURATION:
+          configMapKeyRef: {name: n8n, key: QUEUE_WORKER_LOCK_DURATION}
+        QUEUE_WORKER_LOCK_RENEW_TIME:
+          configMapKeyRef: {name: n8n, key: QUEUE_WORKER_LOCK_RENEW_TIME}
+        QUEUE_WORKER_STALLED_INTERVAL:
+          configMapKeyRef: {name: n8n, key: QUEUE_WORKER_STALLED_INTERVAL}
+        QUEUE_WORKER_MAX_STALLED_COUNT:
+          configMapKeyRef: {name: n8n, key: QUEUE_WORKER_MAX_STALLED_COUNT}
+        N8N_GRACEFUL_SHUTDOWN_TIMEOUT:
+          configMapKeyRef: {name: n8n, key: N8N_GRACEFUL_SHUTDOWN_TIMEOUT}
+        N8N_WEBHOOK_TIMEOUT:
+          configMapKeyRef: {name: n8n, key: N8N_WEBHOOK_TIMEOUT}
+        DB_POSTGRESDB_PASSWORD:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+        QUEUE_BULL_REDIS_PASSWORD:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+        EXECUTIONS_TIMEOUT_MAX: "3600"
+        EXECUTIONS_DATA_SAVE_ON_ERROR: all
+        EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+        EXECUTIONS_DATA_SAVE_ON_PROGRESS: "false"
+        EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "true"
+        EXECUTIONS_DATA_PRUNE: "true"
+        EXECUTIONS_DATA_MAX_AGE: "336"
+        EXECUTIONS_DATA_PRUNE_MAX_COUNT: "10000"
+        EXECUTIONS_DATA_HARD_DELETE_BUFFER: "1"
+        EXECUTIONS_DATA_PRUNE_HARD_DELETE_INTERVAL: "15"
+        EXECUTIONS_DATA_PRUNE_SOFT_DELETE_INTERVAL: "60"
+        N8N_ENCRYPTION_KEY:
+          secretKeyRef: {name: n8n, key: N8N_ENCRYPTION_KEY}
+        N8N_HOST:
+          secretKeyRef: {name: n8n, key: N8N_HOST}
+        N8N_PORT:
+          secretKeyRef: {name: n8n, key: N8N_PORT}
+        N8N_PROTOCOL:
+          secretKeyRef: {name: n8n, key: N8N_PROTOCOL}
+      ports:
+        http:
+          # applications.n8n.port as a number.
+          service_port: ${oc.decode:${applications.n8n.port}}
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /healthz
+          failure_threshold: 30
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /healthz/readiness
+          initial_delay_seconds: 10
+          timeout_seconds: 3
+          failure_threshold: 6
+        liveness:
+          type: http
+          port: http
+          path: /healthz
+          initial_delay_seconds: 30
+          period_seconds: 20
+          failure_threshold: 6
+      # n8n's home. The chart keeps it on an emptyDir unless
+      # persistence.enabled, and n8n keeps its data in PostgreSQL.
+      volumes:
+        data:
+          emptyDir: {}
+      volume_mounts:
+        data:
+          mount_path: /home/node/.n8n
+  generators:
+    kubernetes:
+      configs:
+        n8n:
+          data:
+            TZ:
+              value: UTC
+            # What n8n's telemetry reports as the artifact that installed it.
+            N8N_DEPLOYMENT_ARTIFACT:
+              value: helm-chart/1.18.0
+            DB_TYPE:
+              value: postgresdb
+            DB_POSTGRESDB_DATABASE:
+              value: ${applications.postgresql.database}
+            DB_POSTGRESDB_HOST:
+              value: ${applications.postgresql.cluster}-rw
+            DB_POSTGRESDB_PORT:
+              value: "5432"
+            DB_POSTGRESDB_USER:
+              value: ${applications.postgresql.owner}
+            DB_POSTGRESDB_SCHEMA:
+              value: public
+            # CloudNativePG serves TLS. n8n encrypts without verifying the
+            # server's certificate, which the chart's default would refuse.
+            DB_POSTGRESDB_SSL_ENABLED:
+              value: "true"
+            DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED:
+              value: "false"
+            EXECUTIONS_MODE:
+              value: queue
+            OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS:
+              value: "true"
+            QUEUE_BULL_REDIS_HOST:
+              value: valkey
+            QUEUE_BULL_REDIS_PORT:
+              value: "6379"
+            QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD:
+              value: "10000"
+            QUEUE_WORKER_LOCK_DURATION:
+              value: "60000"
+            QUEUE_WORKER_LOCK_RENEW_TIME:
+              value: "10000"
+            QUEUE_WORKER_STALLED_INTERVAL:
+              value: "30000"
+            QUEUE_WORKER_MAX_STALLED_COUNT:
+              value: "1"
+            N8N_GRACEFUL_SHUTDOWN_TIMEOUT:
+              value: "30"
+            N8N_WEBHOOK_TIMEOUT:
+              value: "120000"
+      secrets:
+        n8n:
+          string_data:
+            N8N_ENCRYPTION_KEY:
+              value: ${applications.n8n.encryption_key}
+            N8N_HOST:
+              value: n8n.example.com
+            N8N_PORT:
+              value: ${applications.n8n.port}
+            N8N_PROTOCOL:
+              value: http
+      rbac:
+        n8n:
+          namespace: ${namespace}
+          rules:
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [get, list]
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [get]
+          service_accounts:
+            - n8n
