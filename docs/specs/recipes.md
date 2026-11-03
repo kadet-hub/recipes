@@ -2280,7 +2280,7 @@ access key encryption key, `semaphore-runner` with the runner registration
 token, and `semaphore-admin` with the admin account, which `admin.create`
 adds.
 The recipe renders the same Secrets from parameters the target sets
-(RCP-75). The pod template carries the chart's `checksum/*` annotations of
+(RCP-77). The pod template carries the chart's `checksum/*` annotations of
 its ConfigMap and these Secrets, written as `tests/values.yaml` renders
 them (RCP-42). They do not change with the target's values.
 
@@ -2313,7 +2313,7 @@ Python packages and a custom CA bundle are off by default and not part of
 the recipe. The chart's Helm test `semaphore-test-connection` is left out
 (RCP-25). The recipe is at level `deploys`.
 
-- RCP-75: `semaphore` MUST take the admin account's login and password,
+- RCP-77: `semaphore` MUST take the admin account's login and password,
   the cookie hash, the cookie encryption key, the access key encryption key
   and the runner registration token from `applications.semaphore.admin.username`,
   `.admin.password`, `.cookie_hash`, `.cookie_encryption`,
@@ -2331,7 +2331,7 @@ the recipe. The chart's Helm test `semaphore-test-connection` is left out
     each of the six parameters stops with `Interpolation key` and its name
   - Since: #67
 
-- RCP-76: The `tests/smoke` of `semaphore` MUST log in as the admin account
+- RCP-78: The `tests/smoke` of `semaphore` MUST log in as the admin account
   through `/api/auth/login`, read `/api/user` and `/api/projects` with the
   session, and require that `/api/info` reports the version of the image
   tag the Deployment runs and remote runners off. It MUST also get
@@ -3166,4 +3166,4 @@ feature's design (OQ-6).
 | blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
-| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-75, RCP-76) |
+| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |

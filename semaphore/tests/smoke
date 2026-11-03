@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RCP-76: once the database is ready, Semaphore answers /api/ping through the
+# RCP-78: once the database is ready, Semaphore answers /api/ping through the
 # endpoints of its Service. The admin of semaphore-admin logs in through
 # /api/auth/login, which needs the account that the init container wrote into
 # PostgreSQL, and reads /api/user and /api/projects with the session cookie.
