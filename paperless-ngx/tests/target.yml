@@ -1,0 +1,74 @@
+classes:
+  - recipes.paperless-ngx
+  - recipes.paperless-ngx.ai
+parameters:
+  namespace: paperless-ngx
+  kapitan:
+    vars:
+      target: paperless-ngx
+  applications:
+    paperless-ngx:
+      # paperless-ngx refuses the compose file's change-me.
+      secret_key: smoke-secret-key
+      ai:
+        user: admin
+        token: 0123456789abcdef0123456789abcdef01234567
+        url: http://paperless-ngx-llm:8080/cgi-bin/v1
+        model: stub
+        api_key: smoke-api-key
+        jwt_secret: smoke-jwt-secret
+    valkey:
+      password: smoke-password
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
+  # Only the proof runs these two components.
+  components:
+    # An OpenAI-compatible endpoint that gives every chat completion the
+    # same reply, the title below for the document paperless-ai analyzes.
+    paperless-ngx-llm:
+      application: paperless-ngx
+      image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      command:
+        - httpd
+        - -f
+        - -p
+        - "8080"
+        - -h
+        - /www
+      ports:
+        http:
+          service_port: 8080
+      service:
+        type: ClusterIP
+      config_maps:
+        cgi:
+          mount: /www/cgi-bin
+          default_mode: 0555
+          data:
+            v1:
+              value: |
+                #!/bin/sh
+                printf 'Content-Type: application/json\r\n\r\n%s' '{"id":"stub","object":"chat.completion","created":0,"model":"stub","choices":[{"index":0,"message":{"role":"assistant","content":"{\"title\":\"tagged by paperless-ai\",\"tags\":[],\"correspondent\":\"\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}'
+    # The superuser and the API token that the option's settings name, once
+    # paperless-ngx has migrated its database.
+    paperless-ngx-token:
+      application: paperless-ngx
+      type: job
+      image: ${components.paperless-ngx.image}
+      env: ${components.paperless-ngx.env}
+      secrets: ${components.paperless-ngx.secrets}
+      command:
+        - sh
+        - -c
+      args:
+        script: |
+          until python3 manage.py shell -c '
+          from django.contrib.auth.models import User
+          from rest_framework.authtoken.models import Token
+          user, _ = User.objects.get_or_create(username="${applications.paperless-ngx.ai.user}")
+          user.is_superuser = user.is_staff = True
+          user.set_password("smoke-password")
+          user.save()
+          Token.objects.get_or_create(user=user, key="${applications.paperless-ngx.ai.token}")
+          '; do sleep 5; done

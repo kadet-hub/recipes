@@ -1,0 +1,96 @@
+parameters:
+  components:
+    paperless-ngx:
+      application: paperless-ngx
+      type: statefulset
+      image: ghcr.io/paperless-ngx/paperless-ngx:3.4.1@sha256:1a08d8dfc2b51a08de09652dd86ad4d0c611c362382f944533ad38b73125fbc4
+      ports:
+        http:
+          container_port: 8000
+          service_port: 8000
+      service:
+        type: ClusterIP
+      env:
+        PAPERLESS_SECRET_KEY:
+          secretKeyRef:
+            key: PAPERLESS_SECRET_KEY
+        VALKEY_PASSWORD:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+        PAPERLESS_REDIS: redis://:$(VALKEY_PASSWORD)@valkey:6379
+        PAPERLESS_DBHOST:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: host
+        PAPERLESS_DBENGINE: postgresql
+        PAPERLESS_DBNAME:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: dbname
+        PAPERLESS_DBUSER:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: username
+        PAPERLESS_DBPASS:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+      secrets:
+        credentials:
+          string_data:
+            PAPERLESS_SECRET_KEY:
+              value: ${applications.paperless-ngx.secret_key}
+      # The image's HEALTHCHECK, which compose runs.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - curl
+            - -fs
+            - -S
+            - -L
+            - --max-time
+            - "2"
+            - http://localhost:8000
+          period_seconds: 30
+          timeout_seconds: 10
+          failure_threshold: 5
+      volume_mounts:
+        data:
+          mount_path: /usr/src/paperless/data
+        media:
+          mount_path: /usr/src/paperless/media
+        export:
+          mount_path: /usr/src/paperless/export
+        consume:
+          mount_path: /usr/src/paperless/consume
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        media:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        export:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        consume:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi

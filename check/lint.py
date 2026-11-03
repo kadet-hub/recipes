@@ -209,6 +209,20 @@ def _scoped(name, key):
     return key == name or key.startswith(name + "-")
 
 
+def _anchor_errors(f, text):
+    """RCP-4a: no anchors, aliases or merge keys."""
+    errors = []
+    for ev in yaml.parse(text):
+        line = ev.start_mark.line + 1
+        if isinstance(ev, yaml.AliasEvent):
+            errors.append(f"{f}:{line}: YAML alias *{ev.anchor} (RCP-4a)")
+        elif getattr(ev, "anchor", None):
+            errors.append(f"{f}:{line}: YAML anchor &{ev.anchor} (RCP-4a)")
+        elif isinstance(ev, yaml.ScalarEvent) and ev.value == "<<" and ev.implicit[0]:
+            errors.append(f"{f}:{line}: YAML merge key << (RCP-4a)")
+    return errors
+
+
 def _parameter_errors(name, f, params):
     """RCP-2, RCP-7, RCP-17 (kapitan section) and RCP-18."""
     errors = []
@@ -349,6 +363,12 @@ def lint_files(recipe):
         errors.append(f"{path.relative_to(recipe)}: a recipe contains no Python (RCP-33)")
     pinned, compiles = set(), []
     linted = class_files(recipe)
+    tests = sorted(p for p in (recipe / "tests").rglob("*") if p.suffix in (".yml", ".yaml") and p.is_file())
+    for path in [*linted, *tests]:
+        try:
+            errors += _anchor_errors(path.relative_to(recipe).as_posix(), path.read_text())
+        except yaml.YAMLError:
+            pass  # reported for class files below; chart values are not parsed here
     for path in linted:
         f = path.relative_to(recipe).as_posix()
         text = path.read_text()

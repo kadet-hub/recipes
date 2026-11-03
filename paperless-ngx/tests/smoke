@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# What docker-compose.postgres.yml sets up (RCP-39, RCP-73): a PDF copied
+# into the claim consume comes back through the API on port 8000 as the
+# superuser, which needs the consumer, the task queue in Valkey, the database
+# and the claim media. With the option ai, paperless-ai reads the document
+# with the API token, sends it to the endpoint and writes the reply's title
+# back through the API.
+set -euo pipefail
+kubectl wait cluster/postgresql-cluster --for=condition=Ready --timeout=300s >/dev/null
+kubectl wait job/paperless-ngx-token --for=condition=Complete --timeout=300s >/dev/null
+pdf=$(mktemp --suffix .pdf)
+# kubectl cp keeps owner and mode, and the consumer reads as UID 1000.
+chmod 644 "$pdf"
+trap 'rm -f "$pdf"' EXIT
+# A one-page PDF with a text line, its xref offsets computed.
+python3 - "$pdf" <<'EOF'
+import sys
+text = b"BT /F1 36 Tf 72 700 Td (kadet-hub smoke test) Tj ET"
+objs = [
+    b"<< /Type /Catalog /Pages 2 0 R >>",
+    b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+    b" /Resources << /Font << /F1 5 0 R >> >> >>",
+    b"<< /Length %d >>\nstream\n%s\nendstream" % (len(text), text),
+    b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+]
+out, offsets = b"%PDF-1.4\n", []
+for i, obj in enumerate(objs, 1):
+    offsets.append(len(out))
+    out += b"%d 0 obj\n%s\nendobj\n" % (i, obj)
+xref = len(out)
+out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+open(sys.argv[1], "wb").write(out)
+EOF
+fail() { echo "$1" >&2; kubectl logs "$2" --tail=40 >&2; exit 1; }
+kubectl cp "$pdf" paperless-ngx-0:/usr/src/paperless/consume/smoke.pdf
+kubectl port-forward service/paperless-ngx 18000:8000 >/dev/null &
+trap 'rm -f "$pdf"; kill $(jobs -p)' EXIT
+# Whole responses, as grep -q would end curl early under pipefail.
+count() { [[ $(curl -fsS -u admin:smoke-password "http://127.0.0.1:18000/api/documents/?$1") =~ '"count":'[1-9] ]]; }
+for _ in $(seq 60); do count content__icontains=kadet-hub 2>/dev/null && break; sleep 3; done
+count content__icontains=kadet-hub || fail "smoke.pdf not found through the API" paperless-ngx-0
+# paperless-ai gives up on the API after 60 tries at start, which can pass
+# before paperless-ngx answers, and analyzes the documents at start: start
+# it again now that the token and the document exist.
+kubectl delete pod paperless-ngx-ai-0 --wait >/dev/null
+kubectl wait pod/paperless-ngx-ai-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/paperless-ngx-ai-0 --for=condition=Ready --timeout=300s >/dev/null
+kubectl port-forward service/paperless-ngx-ai 13000:3000 >/dev/null &
+for _ in $(seq 30); do curl -fsS http://127.0.0.1:13000/health >/dev/null 2>&1 && break; sleep 2; done
+curl -fsS http://127.0.0.1:13000/health >/dev/null
+for _ in $(seq 60); do count title__icontains=paperless-ai 2>/dev/null && break; sleep 3; done
+count title__icontains=paperless-ai || fail "no document with the title from paperless-ai" paperless-ngx-ai-0
+echo "PDF from the consume claim read back through the API, its title set by paperless-ai"

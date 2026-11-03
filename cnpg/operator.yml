@@ -32,14 +32,20 @@ parameters:
         service_name: cnpg-webhook-service
         type: ClusterIP
       healthcheck:
-        liveness: &probe
+        liveness:
           type: http
           scheme: HTTPS
           port: webhook-server
           path: /readyz
           initial_delay_seconds: 3
           timeout_seconds: 1
-        readiness: *probe
+        readiness:
+          type: http
+          scheme: HTTPS
+          port: webhook-server
+          path: /readyz
+          initial_delay_seconds: 3
+          timeout_seconds: 1
         startup:
           type: http
           scheme: HTTPS

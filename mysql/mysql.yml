@@ -37,10 +37,12 @@ parameters:
           type: tcp
           port: mysql
           failure_threshold: 30
-        readiness: &probe
+        readiness:
           type: tcp
           port: mysql
-        liveness: *probe
+        liveness:
+          type: tcp
+          port: mysql
       resources:
         requests:
           cpu: 100m
