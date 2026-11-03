@@ -3426,7 +3426,7 @@ Role. The chart's Helm test `ollama-test-connection` is left out (RCP-25).
   its index, models in the `emptyDir` `ollama-data` and no GPU.
 
   - Test: `check ollama`
-  - Since: this change
+  - Since: #78
 
 - RCP-131: The `tests/smoke` of `ollama` MUST require `Ollama is running`
   from `/` through the Service and the version of the image tag from
@@ -3442,7 +3442,7 @@ Role. The chart's Helm test `ollama-test-connection` is left out (RCP-25).
   the model it names.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #78
 
 - AC-80 (RCP-130, RCP-131): `check ollama --level deploys` passes in CI on
   each Kubernetes minor, and its smoke test reports the time of the pull
