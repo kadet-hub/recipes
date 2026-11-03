@@ -3079,6 +3079,130 @@ chart has no hooks. The recipe is at level `deploys`.
   - Test: CI `check` job, report line `smoke`
   - Since: #72
 
+## Vaultwarden
+
+Vaultwarden is a password server for the Bitwarden clients, in place of
+Bitwarden's own server. It keeps the users' encrypted vaults, their
+attachments and Sends, and serves Bitwarden's web vault next to the API.
+The project publishes no chart. dani-garcia/vaultwarden, AGPL-3.0, builds
+the image `docker.io/vaultwarden/server` and carries its compose example as
+the code block under "Docker Compose" in `README.md`. `vaultwarden` takes
+the README at commit `6ed6921cc2b0e03b4d74189574d2a5e71c512e97`, the tag of
+release 1.37.5 of 2026-11-01, the newest on 2026-11-03, SHA-256
+`5c7e29e287f600fe1979d196d53f94cd8f87f9c0de1acf6481fde510fbfdd4fc`, as
+`pihole` takes the README of docker-pi-hole (DEC-28). The commit is the
+`org.opencontainers.image.revision` of the image `1.37.5`, which `latest`
+pointed to on 2026-11-03, an index for amd64, arm64, arm/v7 and arm/v6.
+Every advisory of dani-garcia/vaultwarden published by 2026-11-03 names
+1.37.4 or an earlier release as fixed.
+
+The repository's only compose file, `playwright/docker-compose.yml`, builds
+Vaultwarden for its end-to-end tests. The compose pages of the project's
+wiki live in the wiki's own repository, which no release commit pins. The
+recipe takes from the image what it dictates, such as variable names,
+ports, paths and its `HEALTHCHECK` command, and copies no other text, as
+DEC-16 reads it for a copyleft chart.
+
+The example's one service becomes the StatefulSet `vaultwarden`. Its
+relative bind mount `./vw-data/`, which the repository does not contain,
+becomes the claim `vw-data` at `/data` (DEC-21). The published port
+`127.0.0.1:8000:80` becomes port 8000 of the Service `vaultwarden`, to the
+container's port 80. The image's `HEALTHCHECK` runs `/healthcheck.sh`, which
+gets `/alive`, every 60 seconds with a timeout of 10 seconds. It becomes
+the readiness probe with compose's 3 retries. The image runs as root, so
+the target's namespace needs the Pod Security level `baseline`.
+
+DEC-55: `vaultwarden` sets `SIGNUPS_ALLOWED` to `false`, which the compose
+example leaves at Vaultwarden's default `true` (Vaultwarden). With signups
+on, anyone who reaches the Service can create an account. The wiki's
+compose page tells its reader to switch them off once their own account
+exists (`Using-Docker-Compose.md`). With signups off the admin page invites
+users, and an invited address still registers in the web vault
+(`register` in `src/api/core/accounts.rs` of 1.37.5). Keeping the default
+was considered. A target would then serve open signups unless it set the
+variable itself.
+
+DEC-56: `vaultwarden` requires the admin token as a parameter and renders
+`ADMIN_TOKEN`, which the compose example does not set (Vaultwarden).
+Without the token Vaultwarden serves no admin page (`routes` in
+`src/api/admin.rs`), and with signups off (DEC-55) nobody could create the
+first account. An optional token was considered. A target that left it
+unset would get a server without a way to create an account, and
+`tests/smoke` needs the admin API to create a user.
+
+DEC-57: `vaultwarden` keeps the vault in SQLite at `/data/db.sqlite3` on
+the claim `vw-data`, Vaultwarden's default without `DATABASE_URL`
+(Vaultwarden). The compose example runs no database service, and the row
+of Compose sources for an included recipe maps a service of the compose
+file. The claim also holds what Vaultwarden keeps outside the database:
+attachments, Sends, the RSA key that signs its sessions and
+`config.json`. The included recipe `postgresql`, with a `DATABASE_URL`
+built from the Secret `postgresql-cluster-app` and `sslmode=require`, was
+considered. It would add a database and the prerequisite `cnpg` that the
+source does not have, and the files would still need the claim. SQLite
+runs one replica, as the example does.
+
+- RCP-110: The `Source` line of `vaultwarden` MUST name `README.md` of
+  dani-garcia/vaultwarden at the commit the image's tag was built from,
+  with the README's SHA-256.
+
+  `check` fetches the README at that commit and fails on another SHA-256
+  (RCP-23). The commit is the image's `org.opencontainers.image.revision`.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    the image's label
+  - Since: this change
+
+- RCP-111: `vaultwarden` MUST set `DOMAIN` from
+  `applications.vaultwarden.domain` and `ADMIN_TOKEN` from the Secret
+  `vaultwarden`, whose value is `applications.vaultwarden.admin_token`, and
+  MUST leave both parameters unset. It MUST set `SIGNUPS_ALLOWED` to
+  `false`.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, the token as a ref (RCP-19, RCP-40). The
+  example's `https://vw.domain.tld` stands for the user's address.
+  Vaultwarden builds the links of its emails and the addresses that
+  `/api/config` gives clients from `DOMAIN`, and checks the issuer of its
+  session tokens against the domain's origin, so a new domain ends every
+  session (`decode_jwt` in `src/auth.rs`). Vaultwarden takes the token as
+  an Argon2id PHC string, which `vaultwarden hash` prints, or as plain
+  text, for which it prints a notice at every start.
+
+  - Test: CI `check` job; manual: a compile of `tests/target.yml` without
+    each of the two parameters stops with `Interpolation key` and its name
+  - Since: this change
+
+- RCP-112: The `tests/smoke` of `vaultwarden` MUST, from a pod of its own
+  and through the Service `vaultwarden` on port 8000, get `/alive`,
+  require that `/api/version` names the image tag the StatefulSet runs and
+  that `/api/config` names the domain, get 401 from `/admin` with a wrong
+  token, log in there with the token whose PHC string `tests/target.yml`
+  sets, require `signups_allowed: false` from `/admin/diagnostics/config`,
+  invite a user through `/admin/invite`, and find that user in
+  `/admin/users` once the pod `vaultwarden-0` was deleted and its
+  successor is ready.
+
+  `/api/config` reports the Bitwarden server version its clients expect,
+  2026.6.0 in 1.37.5, and Vaultwarden's own version is `/api/version`. Its
+  `settings.disableUserRegistration` stays `false` with signups off while
+  invitations work without mail (`is_signup_disabled` in `src/config.rs`),
+  so the smoke test reads the setting from the admin API. Without SMTP
+  settings an invitation is a row in the database, so the user is found
+  after the restart only if the new pod reads `db.sqlite3` from the claim.
+  The Service refuses connections for a moment after the new pod is
+  ready, until its endpoints follow, so the smoke test retries `/alive`
+  for up to a minute.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-60 (RCP-110 to RCP-112): `check vaultwarden --level deploys` passes
+  in CI on each Kubernetes minor, and its smoke test finds the invited user
+  after the restart. `tests/target.yml` without
+  `applications.vaultwarden.domain` or `admin_token` stops the compile
+  with `Interpolation key` and that key.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3927,3 +4051,4 @@ feature's design (OQ-6).
 | jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-76) |
 | gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-90, RCP-91) |
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.9.0, level `deploys` (RCP-95, RCP-96) |
+| vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.9.0, level `deploys` (RCP-110 to RCP-112) |
