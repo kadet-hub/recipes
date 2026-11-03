@@ -1138,9 +1138,10 @@ The parent writes nothing below `applications.powerdns` (RCP-18). external-dns
 filters on `applications.powerdns.zone`, so the target sets the zone once
 for both recipes. It reads the API key from the Secret `powerdns`, key
 `api-key`, which `powerdns` renders, and reaches the API through the Service
-`powerdns`. Both recipes pin the `kubernetes` generator 1.9.0 (RCP-48), so
-`powerdns` moved from 1.8.0 in the same change. The chart installs the CRDs
-of DNSEndpoint and DNSRecord from its `crds/` directory with every release.
+`powerdns`. Both recipes pin the same `kubernetes` generator (RCP-48), so
+`powerdns` moved from 1.8.0 to 1.9.0 in the same change. The chart
+installs the CRDs of DNSEndpoint and DNSRecord from its `crds/` directory
+with every release.
 The recipe copies them from the chart's archive, and external-dns reads them
 only with the source `crd`, which the recipe does not set. `tests/smoke` is
 the examples recipe's check: PowerDNS answers an A record with the cluster
@@ -1208,6 +1209,14 @@ generator 1.7.0 and cnpg 1.0.0 pins 1.9.0, so no project can use both.
 
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #15; implemented: #31; every recipe: #48
+
+Every recipe moved from the `kubernetes` generator 1.9.0 to 1.14.0 in one
+change. 1.14.0 is the first version with the container keys `tty` and
+`stdin` (K8S-16 in kadet-hub/generators), which `open-webui` needs for the
+chart's `tty: true`. The changelogs from 1.9.1 to 1.14.0 state unchanged
+output for inventories without their new keys, and no recipe sets one. A
+compile of every recipe's `tests/target.yml` with Kapitan 0.36.3 gave the
+same bytes with both versions.
 
 - RCP-49: `check` MUST build the project from the parent and each recipe it
   includes, at the same commit, and verify the generators of each as RCP-27
@@ -1971,7 +1980,7 @@ The target sets `applications.keycloak.host` and
 
 The option `route`, which a target includes as `recipes.keycloak.route`,
 renders the HTTPRoute `keycloak` for the host, with one rule to
-`<name>-service` on port 8080 (DEC-17). The `kubernetes` generator 1.9.0
+`<name>-service` on port 8080 (DEC-17). The `kubernetes` generator 1.14.0
 renders it, which the option pins at the source `postgresql` pins
 (RCP-48). As for Nextcloud, TLS, the certificate and the listener belong to
 the Gateway, and the listener must admit routes from the target's
@@ -2221,7 +2230,7 @@ and that one `cert-manager` (Prerequisites).
 ### The operator
 
 The recipe renders the manifest's objects with the `kubernetes` generator
-1.9.0, and its two Certificates and the Issuer with the `certmanager`
+1.14.0, and its two Certificates and the Issuer with the `certmanager`
 generator 1.0.2. That generator sets `privateKey.rotationPolicy: Always`,
 which the manifest leaves to cert-manager (RCP-12). The recipe therefore
 needs cert-manager 1.18 or later with the feature gate
@@ -4195,24 +4204,24 @@ feature's design (OQ-6).
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
-| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.9.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
-| cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
+| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.14.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
+| cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
 | postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
 | postgresql option `earthdistance` | `recipes.postgresql.earthdistance`, `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in the same list, with `cube` (RCP-102) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
-| keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.9.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
+| keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.14.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
-| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
-| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
-| searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
-| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |
-| pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.9.0, level `deploys` (RCP-80 to RCP-82) |
-| n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-85, RCP-86) |
-| jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-76) |
-| gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-90, RCP-91) |
-| immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.9.0, level `deploys` (RCP-103, RCP-104) |
-| authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.9.0, level `deploys` (RCP-95, RCP-96) |
-| vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.9.0, level `deploys` (RCP-110 to RCP-112) |
+| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71) |
+| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.14.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
+| searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.14.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
+| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-77, RCP-78) |
+| pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.14.0, level `deploys` (RCP-80 to RCP-82) |
+| n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-85, RCP-86) |
+| jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.14.0, level `deploys` (RCP-76) |
+| gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-90, RCP-91) |
+| immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-103, RCP-104) |
+| authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.14.0, level `deploys` (RCP-95, RCP-96) |
+| vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.14.0, level `deploys` (RCP-110 to RCP-112) |

@@ -1,7 +1,7 @@
 # rabbitmq-cluster-operator
 
 The RabbitMQ Cluster Operator 2.23.1 with its webhooks, RBAC and CRD,
-rendered by the kadet-hub `kubernetes` generator 1.9.0 and `certmanager`
+rendered by the kadet-hub `kubernetes` generator 1.14.0 and `certmanager`
 generator 1.0.2 from the project's release manifest.
 
 Source: `https://github.com/rabbitmq/cluster-operator/releases/download/v2.23.1/cluster-operator.yml@sha256:ae35a547751656bc64bb734026249a845d226d96aba5a73783e05c5ec3444687`

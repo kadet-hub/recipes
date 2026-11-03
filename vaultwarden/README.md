@@ -1,7 +1,7 @@
 # vaultwarden
 
 Vaultwarden, a password server for the Bitwarden clients, with its vault in
-SQLite on a claim, rendered by the kadet-hub `kubernetes` generator 1.9.0
+SQLite on a claim, rendered by the kadet-hub `kubernetes` generator 1.14.0
 from the Docker Compose example in the README of Vaultwarden 1.37.5.
 
 Source: `https://github.com/dani-garcia/vaultwarden/blob/6ed6921cc2b0e03b4d74189574d2a5e71c512e97/README.md@sha256:5c7e29e287f600fe1979d196d53f94cd8f87f9c0de1acf6481fde510fbfdd4fc`
