@@ -262,6 +262,26 @@ settings only from the file `/app/data/.env`, which its web setup writes.
 The option renders that file from a Secret, so the target sets every
 setting, and the web setup and the settings page cannot save.
 
+DEC-23: A relative bind mount of a directory that the pinned repository
+does not contain becomes a ConfigMap when the documentation has the user
+write a settings file there and the image's entrypoint otherwise creates
+it from a template the image carries (Compose sources). The ConfigMap holds
+the template's settings. A secret that the entrypoint generates into the
+file becomes a parameter the target sets. SearXNG's `./core-config/` is the
+first such directory. A volume claim, as DEC-21 renders other such
+directories, was considered. The settings would then live on the claim,
+changed only from a shell in the pod, and a new claim would start with a
+new random key.
+
+DEC-24: `searxng` connects SearXNG to the included recipe `valkey`
+(SearXNG). The image's settings template sets no Valkey URL, so with the
+compose file as it is SearXNG leaves the compose service `valkey` unused.
+The documentation names Valkey for the limiter, SearXNG's bot protection,
+with `valkey` as the host of its URL. Leaving the connection out was
+considered. `valkey` would then run without a client and still require
+its password, and no request of the smoke test could need both services
+(RCP-39).
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -820,6 +840,10 @@ and the README lists the renames.
 | a service that runs a project this repository has a recipe for | the included recipe (RCP-47) | The parent connects through the Service and Secret that recipe renders (DEC-12, DEC-20). |
 | relative bind mount of a directory the pinned repository does not contain | `volume_claims` with `volume_mounts`, as a named volume | Docker creates the directory empty (DEC-21). |
 | the image's `HEALTHCHECK`, where the service sets no `healthcheck` | as `healthcheck` | Compose runs the image's check unless the service overrides it. |
+| `name` at the top level | nothing | It names the compose project, whose name compose puts before its networks and volumes. RCP-3 names the objects. |
+| `env_file` of a file that the pinned repository does not contain | `env` from the example file that the documentation copies to it | `docker compose config` fails without the file. |
+| the SELinux option `z` or `Z` of a bind mount | nothing | It relabels the host directory for the container. On an SELinux node the container runtime labels a pod's volumes. |
+| relative bind mount of a settings directory that the pinned repository does not contain and the image's entrypoint fills from its own template | `config_maps` with the template's settings, `mount` at the target | DEC-23. The README names the template with its SHA-256. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -842,10 +866,13 @@ What the table does not map is a gap, and so is each of these:
   (RCP-7). A mapping is added to the table only with the migration that
   needs it. Revised in #63: the included recipe, the bind mount
   of a directory the repository does not contain, which was a gap, and
-  the image's `HEALTHCHECK`, all for paperless-ngx.
+  the image's `HEALTHCHECK`, all for paperless-ngx. Revised in #66: the
+  project `name`, an `env_file` the repository does not contain, the
+  SELinux option and the settings directory, all for searxng.
 
   - Test: manual: review against the compose file
-  - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63
+  - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
+    `name`, missing `env_file`, SELinux option, settings directory: #66
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -2070,6 +2097,91 @@ LLM is not tested.
   - Test: CI `check` job
   - Since: #63
 
+## SearXNG
+
+SearXNG is a metasearch engine. It sends a query to other search engines
+and merges their results without tracking its users. The project publishes
+no chart and no releases. Every commit on `master` is published as the
+image `docker.io/searxng/searxng`, tagged `<date>-<commit>` and `latest`.
+Its compose file is `container/docker-compose.yml` of searxng/searxng. That
+file replaced searxng/searxng-docker, now archived with a notice of
+2026-03-28 that points to it, whose compose file also ran Caddy as a
+reverse proxy.
+`searxng` takes the file at commit `cccbc9e158b0ac3bb2158e9841a647a5bec57b57`
+of 2026-11-02, SHA-256
+`0e56d5fa968a06e441353261f3134e7cea620c8a81d45a890842aef6c4d3ee11`. The
+commit is the `org.opencontainers.image.revision` of the image
+`2026.11.2-cccbc9e15`, which `latest` pointed to on 2026-11-03. The compose
+file and the image are AGPL-3.0-or-later.
+
+| Service | Recipe |
+|---|---|
+| `core`, `docker.io/searxng/searxng:latest` | StatefulSet `searxng` on `2026.11.2-cccbc9e15`, with the claim `core-data` and `/etc/searxng` from the ConfigMap `searxng` (DEC-23) |
+| `valkey`, `docker.io/valkey/valkey:9-alpine` | the included recipe `valkey` (DEC-20), which SearXNG connects to (DEC-24) |
+
+The current compose file has no proxy service. The documentation leaves a
+reverse proxy to the operator of a public instance. The recipe leaves
+exposure to the target, as the `ports` row of Compose sources says.
+
+The compose file bind-mounts `./core-config/` at `/etc/searxng`. The
+documentation creates the directory empty and has the user write
+`settings.yml` there. On a start without that file the entrypoint copies
+the image's `settings.template.yml` and replaces its `secret_key` with a
+random string. The recipe's ConfigMap holds the template's two settings,
+`use_default_settings: true` and `server.image_proxy: true`. They are
+values the image dictates, not text under RCP-42. The template enables only
+the format `html`, so `/search?format=json` answers 403 until the target's
+settings add `json`.
+
+The secret key signs the URLs of the image proxy and hashes the names of
+the keys SearXNG writes to Valkey. It is `applications.searxng.secret_key`,
+which the target sets. It reaches SearXNG as `SEARXNG_SECRET`, which
+overrides `server.secret_key` of the file (`searx/settings_defaults.py`).
+
+SearXNG reaches Valkey through `SEARXNG_VALKEY_URL`,
+`valkey://:<password>@valkey:6379/0`, with the password from the Secret
+`valkey-auth`. The password is part of a URL, so it must not contain
+characters a URL reserves. With the limiter off, as in the template,
+SearXNG stores only the token of its link-token check there, whenever it
+renders an HTML page (`searx/botdetection/link_token.py`). It checks the
+connection once at start. If Valkey does not answer then, SearXNG runs
+without it until it restarts (`searx/valkeydb.py`). The compose service's
+arguments `--save 300 1 --save 60 1000 --loglevel warning` are not
+rendered, because `valkey` keeps its own configuration (DEC-12).
+
+- RCP-74: `searxng` MUST mount `settings.yml` from the ConfigMap `searxng`
+  at `/etc/searxng` and set `SEARXNG_SECRET` from
+  `applications.searxng.secret_key`, which the recipe leaves unset.
+
+  Without the key the compile stops with
+  `Interpolation key 'applications.searxng.secret_key' not found` (RCP-19,
+  RCP-40).
+
+  - Test: `check searxng`; manual: compile of `tests/target.yml` without
+    the key
+  - Since: #66
+
+### Proof
+
+`searxng` is at level `deploys`. `tests/target.yml` sets the secret key and
+the Valkey password, and replaces the settings with the recipe's plus the
+format `json`.
+
+- RCP-75: The `tests/smoke` of `searxng` MUST get `OK` from `/healthz`
+  through the Service and search for `kubernetes` with `format=json`
+  through the Service, requiring the query and a list of results in the
+  response. After it loads the start page, it MUST find the link token
+  `SearXNG_limiter.token` in Valkey.
+
+  The search engines may not answer from a CI runner, so the results may
+  be empty and are not counted. The token needs SearXNG to reach Valkey
+  with the password from `valkey-auth`. SearXNG checks that connection only
+  at start, and on kind its pod can start before Valkey answers, so the
+  smoke test restarts it first.
+
+  - Test: CI `check` job
+  - Since: #66
+
 ## Blackbox exporter
 
 The Prometheus blackbox exporter probes a target that a request names,
@@ -2851,6 +2963,11 @@ feature's design (OQ-6).
   paperless-ai set from the stub's reply. `tests/target.yml` without the
   option `ai` compiles
   without the objects of `paperless-ngx-ai`.
+- AC-28 (RCP-37, RCP-74, RCP-75): `check searxng --level deploys` passes
+  in CI, its report lists the objects of `valkey` as included, and its
+  smoke test finds the link token in Valkey. `tests/target.yml` without
+  `applications.searxng.secret_key` stops the compile with
+  `Interpolation key 'applications.searxng.secret_key' not found`.
 
 ## Open questions
 
@@ -2936,3 +3053,4 @@ feature's design (OQ-6).
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
 | blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
+| searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
