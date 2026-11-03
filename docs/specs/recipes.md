@@ -828,12 +828,12 @@ What the table does not map is a gap, and so is each of these:
 
   A gap is reported to kadet-hub/registry like a missing generator
   (RCP-7). A mapping is added to the table only with the migration that
-  needs it. Revised in this change: the included recipe, the bind mount
+  needs it. Revised in #63: the included recipe, the bind mount
   of a directory the repository does not contain, which was a gap, and
   the image's `HEALTHCHECK`, all for paperless-ngx.
 
   - Test: manual: review against the compose file
-  - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: this change
+  - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -2002,15 +2002,20 @@ key, and `JWT_SECRET`, which signs the logins of paperless-ai's web
 interface and is a fixed string when unset (`routes/auth.js` of
 clusterzx/paperless-ai 3.0.9).
 
-paperless-ai checks the file at start and every 5 seconds until it
-succeeds, up to 60 times: the token against `/api/documents/` and one chat
-completion at the endpoint. Its `HEALTHCHECK`, `/health`, answers once that
-check passed, and becomes the readiness probe. Its web setup creates the
-login user only after it has written the file
-(`POST /setup` in `routes/setup.js`), so with the option the web interface
-has no user. The tagging runs without one. The image sets no `USER`. The
-option drops every capability and privilege escalation, as paperless-ai's
-own compose file does.
+paperless-ai checks the file at start: the token against `/api/documents/`
+and one chat completion at the endpoint. It repeats the check every 5
+seconds, up to 60 times, and then stays unconfigured until it restarts.
+Once configured, it analyzes the documents at start and every 30 minutes.
+Its `HEALTHCHECK`, `/health`, becomes the readiness probe and checks only
+paperless-ai's own database. The route that `routes/setup.js` serves has
+the configuration check commented out.
+
+`/setup` answers without a login. A `POST` to it points paperless-ai's API
+client at the URL it names until the pod restarts, before writing the file
+fails. The web setup creates the login user only after it has written the
+file, so with the option the web interface has no user. The tagging runs
+without one. The image sets no `USER`. The option drops every capability
+and privilege escalation, as paperless-ai's own compose file does.
 
 - RCP-72: With the option `ai`, `paperless-ngx` MUST render paperless-ai
   with `/app/data/.env` from a Secret, whose values come from
@@ -2020,7 +2025,7 @@ own compose file does.
 
   - Test: `check paperless-ngx`; manual: compile of `tests/target.yml`
     without the option
-  - Since: this change
+  - Since: #63
 
 ### Proof
 
@@ -2031,7 +2036,7 @@ file's `change-me`, which paperless-ngx 3.4.1 refuses at start
 includes the option `ai`. It adds two
 components that only the proof uses. `paperless-ngx-llm` runs busybox's
 `httpd` with a script that answers every chat completion with the same
-reply. The Job `paperless-ngx-token` waits until paperless-ngx has migrated
+reply, the title `tagged by paperless-ai`. The Job `paperless-ngx-token` waits until paperless-ngx has migrated
 its database, then creates the superuser `admin` and its API token with
 the value the option's settings name, through `manage.py shell`. A real
 LLM is not tested.
@@ -2039,15 +2044,19 @@ LLM is not tested.
 - RCP-73: The `tests/smoke` of `paperless-ngx` MUST copy a PDF into the
   claim `consume` and find the document by its text through
   `/api/documents/` on the Service port as the superuser. With the option
-  `ai` it MUST get `healthy` from `/health` of `paperless-ngx-ai` through
-  its Service.
+  `ai` it MUST restart `paperless-ngx-ai` once the document exists, reach
+  `/health` through its Service, and then find the document under the
+  title of the endpoint's reply through the API.
 
   Consuming the file needs the consumer, the task queue in Valkey, the
-  database and the claim `media`. paperless-ai is ready only after its
-  check of the API token and the endpoint passed.
+  database and the claim `media`. The title needs paperless-ai to read the
+  document with the token, call the endpoint and write the title back.
+  paperless-ai gives up on the API after its 60 tries and analyzes at
+  start, and on kind its pod can start minutes before paperless-ngx
+  answers, so the restart makes the check independent of that order.
 
   - Test: CI `check` job
-  - Since: this change
+  - Since: #63
 
 ## Blackbox exporter
 
@@ -2826,8 +2835,9 @@ feature's design (OQ-6).
 - AC-27 (RCP-37, RCP-72, RCP-73): `check paperless-ngx --level deploys`
   passes in CI, its report lists the objects of `postgresql` and `valkey`
   as included and `cnpg` as installed, and its smoke test finds the PDF
-  copied into `consume` through the API and gets `healthy` from
-  paperless-ai. `tests/target.yml` without the option `ai` compiles
+  copied into `consume` through the API, and then under the title that
+  paperless-ai set from the stub's reply. `tests/target.yml` without the
+  option `ai` compiles
   without the objects of `paperless-ngx-ai`.
 
 ## Open questions
