@@ -1,0 +1,4 @@
+# The chart's defaults, models in an emptyDir and no GPU, with the image's
+# registry host, which the recipe's image pin names (RCP-66).
+image:
+  repository: docker.io/ollama/ollama

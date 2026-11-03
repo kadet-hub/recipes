@@ -1,0 +1,37 @@
+parameters:
+  components:
+    uptime-kuma:
+      application: uptime-kuma
+      type: statefulset
+      image: docker.io/louislam/uptime-kuma:2.5.9@sha256:e88415a90dd2f7efecdbc18de0490aff292764a3ac471531bf1d0481725591bd
+      ports:
+        http:
+          container_port: 3001
+          service_port: 3001
+      service:
+        type: ClusterIP
+      env:
+        # Not in the compose file: SQLite without the database setup page (DEC-65).
+        UPTIME_KUMA_DB_TYPE: sqlite
+      # The image's HEALTHCHECK, which compose runs.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - extra/healthcheck
+          period_seconds: 60
+          timeout_seconds: 30
+          failure_threshold: 5
+      volume_mounts:
+        data:
+          mount_path: /app/data
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
