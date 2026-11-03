@@ -1960,6 +1960,61 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
   - Test: CI `check` job, report line `smoke`
   - Since: #62
 
+## Jellyfin
+
+Jellyfin is a media server. It indexes the files below `/media` and serves
+a web client and an HTTP API on port 8096. `jellyfin` deploys it from the
+chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm, which runs Jellyfin 12.4,
+the newest stable release, as `docker.io/jellyfin/jellyfin:12.4`. The
+recipe pins that tag to its multi-arch index for amd64 and arm64.
+
+The Jellyfin organization maintains the chart in jellyfin/jellyfin-helm.
+Its release workflow publishes each version with chart-releaser as a
+GitHub release asset and in the HTTP repository
+`https://jellyfin.github.io/jellyfin-helm`. It pushes no OCI artifact, so
+the `Source` line takes the HTTP form of RCP-23. The archive's SHA-256 is
+also the `digest` of its entry in the repository's `index.yaml`.
+
+The chart and Jellyfin are GPL-2.0. The recipe carries no template, file
+or values text of the chart, so DEC-16 applies as for nextcloud, and no
+class file has a `.LICENSE` (RCP-42).
+
+`tests/values.yaml` keeps the chart's defaults. The release name
+`jellyfin` equals the chart's name, so the chart names its Deployment,
+Service and ServiceAccount `jellyfin` and its claims `jellyfin-config` and
+`jellyfin-media`. The claims ask for 5Gi and 25Gi with ReadWriteOnce and
+name no StorageClass, so the cluster's default class provisions them,
+`standard` on kind. `/media` is mounted read-only, and `/cache` is an
+`emptyDir`. The chart's Service names its port `service` and targets the
+container port `http`. A component's Service names each port after its
+container port, so the recipe renders the Service as an entry of
+`generators.kubernetes.services`.
+
+The chart's Ingress, HTTPRoute, NetworkPolicy, ServiceMonitor with its
+metrics hook, and DLNA on the host network are off by default and not part
+of the recipe. Hardware transcoding is not tested, because it needs a GPU
+in the pod and kind has none. The chart's README enables it with the
+capability `SYS_ADMIN` and the host's `/dev/dri` as a `hostPath` volume,
+which a target sets on the component.
+
+The recipe is at level `deploys`. check 0.14.0 fails every recipe at
+`migrates` (RCP-14).
+
+- RCP-72: The `tests/smoke` of `jellyfin` MUST call `/health` and
+  `/System/Info/Public` through the Service `jellyfin`. It MUST require
+  `Healthy` from the first, and from the second JSON whose `Version` is the
+  Deployment's image tag.
+
+  `/System/Info/Public` answers without a login, also before the startup
+  wizard has run. Its `Version` comes from the running server, so the test
+  fails when the pod runs another release than the tag names, as when tag
+  and digest disagree. Jellyfin reports the tag `12.4` as `12.4.0`, and the
+  test accepts both forms. The test reads the tag from the Deployment, so
+  it follows a Renovate update of the pin.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #64
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -2766,3 +2821,4 @@ feature's design (OQ-6).
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
 | blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
+| jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-72) |
