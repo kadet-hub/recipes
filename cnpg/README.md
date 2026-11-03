@@ -1,7 +1,7 @@
 # cnpg
 
 The CloudNativePG operator 1.30.1 with its webhooks and RBAC, and optionally
-its CRDs, rendered by the kadet-hub `kubernetes` generator 1.9.0 from the
+its CRDs, rendered by the kadet-hub `kubernetes` generator 1.14.0 from the
 project's Helm chart `cloudnative-pg` 0.29.1.
 
 Source: `oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg:0.29.1@sha256:3245fa051bb21d0dd9246272f57a2760b4234817a164a3167d2a1e7fb9f63fd9`

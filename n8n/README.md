@@ -2,7 +2,7 @@
 
 n8n 2.45.5, the workflow automation tool, in queue mode with one main
 instance and two workers, rendered by the kadet-hub `kubernetes` generator
-1.9.0 from n8n's Helm chart 1.18.0. The database is the included recipe
+1.14.0 from n8n's Helm chart 1.18.0. The database is the included recipe
 `postgresql`, the queue the included recipe `valkey`.
 
 Source: `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n:1.18.0@sha256:da0d216953b83656935ae31b7869437a796dd2ed68718b623ddbfa5346dbfc0d`

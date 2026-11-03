@@ -2,7 +2,7 @@
 
 Gitea 28.3.0, a self-hosted Git service with a web UI and an API, as one
 replica with its admin account, rendered by the kadet-hub `kubernetes`
-generator 1.9.0 from Gitea's Helm chart 12.7.0. The included recipe
+generator 1.14.0 from Gitea's Helm chart 12.7.0. The included recipe
 `postgresql` is the database, `valkey` holds cache, sessions and queues.
 
 Source: `oci://docker.gitea.com/charts/gitea:12.7.0@sha256:4b709d7e9214bef9e1c71383924e88944cdb0d6dcd892a32971aca52ccc5f596`

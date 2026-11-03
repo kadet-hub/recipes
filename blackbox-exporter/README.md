@@ -1,7 +1,7 @@
 # blackbox-exporter
 
 The Prometheus blackbox exporter 0.29.1 with the module `http_2xx`, rendered
-by the kadet-hub `kubernetes` generator 1.9.0 from the prometheus-community
+by the kadet-hub `kubernetes` generator 1.14.0 from the prometheus-community
 Helm chart `prometheus-blackbox-exporter` 11.20.2 with its default values.
 
 Source: `oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter:11.20.2@sha256:dff2a707004310c712745e884f548c4c63e6af43be14b831673b519b530c0fe8`

@@ -1,7 +1,7 @@
 # jellyfin
 
 The Jellyfin 12.4 media server with its web client and API on port 8096,
-rendered by the kadet-hub `kubernetes` generator 1.9.0 from the Jellyfin
+rendered by the kadet-hub `kubernetes` generator 1.14.0 from the Jellyfin
 project's Helm chart `jellyfin` 3.7.0 with its default values.
 
 Source: `https://jellyfin.github.io/jellyfin-helm/jellyfin:3.7.0@sha256:d649534398b4e04f08ab6a38f7344f09ac7d6d9767dc000820c7e61d9f7a8b8b`
