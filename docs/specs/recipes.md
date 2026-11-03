@@ -1829,7 +1829,7 @@ instance.
   `recipes.postgresql.earthdistance`.
 
   - Test: `check immich`; `tests/smoke`
-  - Since: #TBD
+  - Since: #74
 
 - RCP-104: The `tests/smoke` of `immich` MUST require `pong` from
   `/api/server/ping` of the server and `/ping` of machine learning through
@@ -1848,7 +1848,7 @@ instance.
   jobs, which need the models from Hugging Face.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #TBD
+  - Since: #74
 
 - AC-51 (RCP-103, RCP-104): `check immich --level deploys` passes in CI
   on each Kubernetes minor, its report lists the objects of `postgresql`
