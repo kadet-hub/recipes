@@ -2217,7 +2217,7 @@ the recipe. The chart's Helm test `semaphore-test-connection` is left out
 
   - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
     each of the six parameters stops with `Interpolation key` and its name
-  - Since: this change
+  - Since: #67
 
 - RCP-76: The `tests/smoke` of `semaphore` MUST log in as the admin account
   through `/api/auth/login`, read `/api/user` and `/api/projects` with the
@@ -2232,7 +2232,7 @@ the recipe. The chart's Helm test `semaphore-test-connection` is left out
   recipe does not render.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #67
 
 ## Migration
 
