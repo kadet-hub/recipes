@@ -1,0 +1,18 @@
+classes:
+  - recipes.open-webui
+  - recipes.open-webui.ollama
+  - recipes.open-webui.openai
+parameters:
+  namespace: open-webui
+  kapitan:
+    vars:
+      target: open-webui
+  applications:
+    open-webui:
+      secret_key: smoke-secret-key
+      # The OpenAI-compatible endpoint that tests/smoke starts.
+      openai:
+        url: http://open-webui-stub:8080/cgi-bin/v1
+        api_key: smoke-api-key
+    valkey:
+      password: smokepassword

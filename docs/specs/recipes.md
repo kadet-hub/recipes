@@ -3773,6 +3773,170 @@ setup, and the README asks for the account before the exposure.
   in CI on each Kubernetes minor, and its smoke test sees the monitor UP
   after the restart.
 
+## Open WebUI
+
+Open WebUI is a web interface and an API for chatting with language
+models. It keeps users, chats and settings in a database and sends the
+chats to Ollama or to OpenAI-compatible endpoints. `open-webui` deploys it
+from the chart `open-webui` 17.5.0 of open-webui/helm-charts, the newest
+stable release on 2026-11-03. The project publishes the chart at
+`oci://ghcr.io/open-webui/helm-charts/open-webui` and in the HTTP
+repository `https://helm.openwebui.com`. Both serve the same archive, and
+the `Source` line takes the OCI form, as for gitea. The chart is MIT. Open
+WebUI is under the Open WebUI License, BSD-3-Clause with a fourth clause
+that forbids changing its branding in deployments with more than 50 users
+in 30 days without the copyright holder's permission. The recipe ships no
+Open WebUI code and names the image only, as `n8n` does.
+
+The chart runs Open WebUI 0.12.5 as `ghcr.io/open-webui/open-webui:0.12.5`,
+which the recipe pins to its index for amd64 and arm64. It is 1643 MB
+compressed for amd64 and 1481 MB for arm64 (sums of the layer sizes in the
+registry manifests, MB = 10^6 bytes). No advisory of open-webui/open-webui
+published by 2026-11-03 names 0.12.5 as affected. 0.13.0 came out on
+2026-11-03 and is not in a chart release yet.
+
+By default the chart also turns on its subcharts `ollama` and `pipelines`
+and its own Redis for the websocket manager, and sets the OpenAI API to
+Pipelines and `https://api.openai.com/v1`. It sets no `WEBUI_SECRET_KEY`
+and no database URL. Open WebUI then keeps its data in SQLite on the claim
+`open-webui`, 2Gi with ReadWriteOnce, which the StatefulSet `open-webui`
+mounts at `/app/backend/data`. The init container `copy-app-data` copies
+what the image has at that path onto the claim without overwriting. The
+chart's main container sets `tty: true`, which the `kubernetes` generator
+renders from 1.14.0 on (K8S-16 in kadet-hub/generators).
+
+DEC-77: `open-webui` renders no Pipelines. Pipelines runs Python code that
+admins upload as plugins, in a container of its own, and the chart runs it
+as `ghcr.io/open-webui/pipelines:main`, a tag that moves with every commit
+of open-webui/pipelines. Rendering it was considered. It is the chart's
+default, but the recipe would pin a moving tag to one digest, and Renovate
+would have no version to follow. `tests/values.yaml` sets
+`pipelines.enabled: false`.
+
+DEC-78: `open-webui` uses the included recipe `valkey` for Redis, as
+DEC-20 does for a service this repository has a recipe for. The chart's
+`websocket.existingSecret` names a Secret whose key `redis-url` the chart
+sets as `REDIS_URL` and `WEBSOCKET_REDIS_URL`. The recipe renders the
+Secret `open-webui` with `redis://:<password>@valkey:6379/0` there, the
+password from `applications.valkey.password`, with which Open WebUI
+authenticates as Valkey's user `default`. The URL carries the password
+unencoded, so it must consist of letters and digits, as for gitea
+(DEC-36). The chart's own Redis was considered. It runs
+`redis:7.4.2-alpine3.21`, a Docker Official Image, without a password, a
+second way to run Redis next to `valkey`. A Kubernetes variable
+`$(VALKEY_PASSWORD)` in the URL, as gitea builds it, was considered too.
+The chart puts its own variables before `extraEnvVars`, and Kubernetes
+expands only variables defined earlier in the list.
+
+DEC-79: The backends are the options `ollama` and `openai` of
+`open-webui`. Without them the recipe sets `ENABLE_OLLAMA_API` and
+`ENABLE_OPENAI_API` to `False`, so Open WebUI calls neither
+`api.openai.com` nor its built-in Ollama URL, and an admin adds
+connections in its settings. `recipes.open-webui.ollama` includes the
+recipe `ollama` (DEC-75), sets `ENABLE_OLLAMA_API` to `True` and
+`OLLAMA_BASE_URLS` to `http://ollama:11434`. `recipes.open-webui.openai`
+sets `ENABLE_OPENAI_API` to `True`, `OPENAI_API_BASE_URL` from
+`applications.open-webui.openai.url` and `OPENAI_API_KEY` from the key
+`openai-api-key` of the Secret `open-webui`. vLLM and SGLang serve such an
+endpoint and are reached through `openai`. No recipe renders them, since
+they need a GPU and images of several GB that `check` cannot run on kind.
+
+The chart's values `ollamaUrls` and `openaiBaseApiUrl` were considered as
+the values of the proof. The chart renders their variables first in the
+container's environment. An option class can only add keys after the ones
+the recipe sets, because omegaconf appends new keys of a mapping, and
+cannot remove one, because the generator renders `null` as the string
+`None`. `tests/values.yaml` therefore sets `ollamaUrlsFromExtraEnv: true`
+and an empty `openaiBaseApiUrl`, with which the chart renders neither, and
+gives all variables of the options through `extraEnvVars` in the order the
+options add them. Open WebUI reads its environment by name, so the order
+changes nothing.
+
+DEC-80: `open-webui` takes `WEBUI_SECRET_KEY` from
+`applications.open-webui.secret_key`, which Open WebUI signs its logins
+with. Without the variable the image's `backend/start.sh` of 0.12.5
+generates a key into `/app/backend/.webui_secret_key`, outside the claim,
+so every new container signs with a new key and every restart signs every
+user out. `tests/values.yaml` sets it through `extraEnvVars` from the same
+Secret.
+
+The chart's `databaseUrl` would put a PostgreSQL URL with its password as
+a plain value into the StatefulSet, so the recipe stays on the chart's
+SQLite and does not include `postgresql`. Open WebUI copies its settings,
+such as the backend URLs and `ENABLE_SIGNUP`, into the database on the
+first start and keeps the database's values on later starts
+(`seed_defaults` in `backend/open_webui/models/config.py` of 0.12.5), so a
+changed URL in the target reaches a running instance only through the
+admin settings. Signup is open until the first account signs up, Open
+WebUI's default, which the chart does not change. That account becomes
+admin, and Open WebUI then turns signup off in its settings
+(`signup_handler` in `backend/open_webui/routers/auths.py` of 0.12.5), so
+whoever reaches the Service first owns the instance. The README says so.
+An admin who turns signup back on gets later accounts as `pending`
+(`DEFAULT_USER_ROLE`).
+
+The generator renders an empty `securityContext` on an init container,
+which `check` does not accept where the chart has none (RCP-12).
+`tests/values.yaml` sets the chart's `containerSecurityContext` to
+`allowPrivilegeEscalation: false`, which the chart puts on both
+containers, as gitea does. The image runs as root. The chart's Tika,
+Terminals, Ingress, HTTPRoute, GKE ManagedCertificate and object storage
+are off by default and not part of the recipe. The ServiceAccount
+`open-webui-sa` has no Role, and the chart renders no hook.
+
+- RCP-132: `open-webui` MUST take `WEBUI_SECRET_KEY` from
+  `applications.open-webui.secret_key` and the password of the Redis URL
+  from `applications.valkey.password`, and MUST leave the first unset.
+
+  The compile then stops with `Interpolation key` and the key's name until
+  the target sets it, as a ref (RCP-19, RCP-40). The README names
+  `applications.valkey.password` as well (RCP-51).
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    `applications.open-webui.secret_key` stops with `Interpolation key`
+    and its name
+  - Since: #80
+
+- RCP-133: Without an option `open-webui` MUST set `ENABLE_OLLAMA_API` and
+  `ENABLE_OPENAI_API` to `False` and render no object of `ollama`. The
+  option `ollama` MUST include `recipes.ollama` and point
+  `OLLAMA_BASE_URLS` at `http://ollama:11434`. The option `openai` MUST
+  take the URL and the key from `applications.open-webui.openai.url` and
+  `.api_key` and leave both unset.
+
+  - Test: `check open-webui`; manual: compiles of `tests/target.yml`
+    without the options and with each one
+  - Since: #80
+
+- RCP-134: The `tests/smoke` of `open-webui` MUST require `/health`
+  through the Service. It MUST sign up the first account through
+  `/api/v1/auths/signup` and require the role `admin`, and require 403
+  for a second signup. It MUST start an OpenAI-compatible stub, pull
+  `smollm:135m` through `/ollama/api/pull`, find that model owned by
+  `ollama` and the stub's owned by `openai` in `/api/models`, and get a
+  chat completion from each through `/api/chat/completions`. Valkey MUST
+  hold keys with Open WebUI's prefix, and the admin's token MUST still
+  work after the pod `open-webui-0` restarted. It MUST print how long the
+  pull and the completion took.
+
+  The chart sets no probes, so the rollout ends before Open WebUI
+  listens, and the test waits up to five minutes for `/health`. The
+  completion from `smollm:135m` runs through Open WebUI and Ollama on
+  the CPU. The stub is busybox's `httpd` with a script that lists one
+  model and gives every completion the same reply, so the reply shows
+  that the request went to the endpoint of the option `openai`. Open WebUI
+  keeps state with the prefix `open-webui` in Redis (`REDIS_KEY_PREFIX`).
+  A token signed with the key of the old pod is valid in the new one only
+  with `WEBUI_SECRET_KEY` set (DEC-80).
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #80
+
+- AC-81 (RCP-132 to RCP-134): `check open-webui --level deploys` passes in
+  CI on each Kubernetes minor, its report lists the objects of `ollama`
+  and `valkey` as included, and its smoke test gets a completion from
+  `smollm:135m` and from the stub.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -4626,3 +4790,4 @@ feature's design (OQ-6).
 | netbox | chart `netbox` 8.3.99 of netbox-community/netbox-chart, NetBox v4.7.4 with its RQ worker, includes postgresql and valkey, pepper ID 1 (DEC-86), `kubernetes` generator 1.14.0, level `deploys` (RCP-140 to RCP-142) |
 | ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.14.0, level `deploys` (RCP-130, RCP-131) |
 | uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.14.0, level `deploys` (RCP-120 to RCP-122) |
+| open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |

@@ -1,0 +1,48 @@
+# Ollama is the included recipe ollama (DEC-75), Pipelines is off (DEC-77)
+# and the websocket manager uses the included recipe valkey (DEC-78).
+ollama:
+  enabled: false
+pipelines:
+  enabled: false
+# The URLs come from extraEnvVars below, in the order the recipe's options
+# add them (DEC-79).
+ollamaUrlsFromExtraEnv: true
+openaiBaseApiUrl: ""
+websocket:
+  redis:
+    enabled: false
+  existingSecret: open-webui
+  existingSecretKey: redis-url
+# The generator renders a securityContext on every container, an empty one
+# on an init container where the chart has none (RCP-12).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+extraEnvVars:
+  - name: WEBUI_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: open-webui
+        key: webui-secret-key
+  - name: ENABLE_OLLAMA_API
+    value: "True"
+  - name: ENABLE_OPENAI_API
+    value: "True"
+  - name: OLLAMA_BASE_URLS
+    value: http://ollama:11434
+  - name: OPENAI_API_BASE_URL
+    value: http://open-webui-stub:8080/cgi-bin/v1
+  - name: OPENAI_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: open-webui
+        key: openai-api-key
+# The Secret the recipe renders, as a user creates it next to the chart.
+extraResources:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: open-webui
+    stringData:
+      webui-secret-key: smoke-secret-key
+      redis-url: redis://:smokepassword@valkey:6379/0
+      openai-api-key: smoke-api-key

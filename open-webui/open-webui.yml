@@ -1,0 +1,73 @@
+parameters:
+  components:
+    open-webui:
+      application: open-webui
+      type: statefulset
+      image: ghcr.io/open-webui/open-webui:0.12.5@sha256:03443b8de6b617da9d900edd09b4bf1cb0ddbfdcba6afb42c548336a0b821ded
+      tty: true
+      security_context:
+        allowPrivilegeEscalation: false
+      enable_service_links: false
+      service_account:
+        create: true
+        name: open-webui-sa
+      # Copies what the image has below /app/backend/data onto the claim.
+      init_containers:
+        copy-app-data:
+          image: ${components.open-webui.image}
+          command:
+            - sh
+            - -c
+            - cp -R -n /app/backend/data/* /tmp/app-data/
+          security_context: ${components.open-webui.security_context}
+          volume_mounts:
+            data:
+              mount_path: /tmp/app-data
+      ports:
+        http:
+          container_port: 8080
+          service_port: 80
+          # The chart's Service port has no appProtocol.
+          app_protocol: ""
+      service: {}
+      # In the chart's order. ENABLE_OLLAMA_API and ENABLE_OPENAI_API keep
+      # their place when the options ollama and openai set them, which add
+      # their other variables after them.
+      env:
+        ENABLE_WEBSOCKET_SUPPORT: "True"
+        WEBSOCKET_MANAGER: redis
+        REDIS_URL:
+          secretKeyRef:
+            name: open-webui
+            key: redis-url
+        WEBSOCKET_REDIS_URL:
+          secretKeyRef:
+            name: open-webui
+            key: redis-url
+        WEBUI_SECRET_KEY:
+          secretKeyRef:
+            name: open-webui
+            key: webui-secret-key
+        ENABLE_OLLAMA_API: "False"
+        ENABLE_OPENAI_API: "False"
+      volume_mounts:
+        data:
+          mount_path: /app/backend/data
+      volumes:
+        data:
+          persistentVolumeClaim:
+            claimName: open-webui
+      persistent_volume_claims:
+        open-webui:
+          storage: ${applications.open-webui.storage}
+  generators:
+    kubernetes:
+      # Component Secrets would also be mounted as volumes.
+      secrets:
+        open-webui:
+          string_data:
+            webui-secret-key:
+              value: ${applications.open-webui.secret_key}
+            # The Valkey of the included recipe valkey, as its user default.
+            redis-url:
+              value: redis://:${applications.valkey.password}@valkey:6379/0
