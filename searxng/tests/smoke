@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# What container/docker-compose.yml sets up (RCP-39, RCP-75): SearXNG answers
+# on the published port 8080 through its Service, with OK on /healthz and a
+# search in the json format that names its query. An HTML page stores the
+# limiter's link token in Valkey, which needs the connection that
+# SEARXNG_VALKEY_URL sets up.
+set -euo pipefail
+# SearXNG connects to Valkey once at start, which can be before Valkey
+# answered: start it again now that Valkey is ready.
+kubectl delete pod searxng-0 --wait >/dev/null
+kubectl wait pod/searxng-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/searxng-0 --for=condition=Ready --timeout=300s >/dev/null
+kubectl port-forward service/searxng 18080:8080 >/dev/null &
+trap 'kill $!' EXIT
+url=http://127.0.0.1:18080
+for _ in $(seq 30); do curl -fsS "$url/healthz" >/dev/null 2>&1 && break; sleep 2; done
+[[ $(curl -fsS "$url/healthz") == OK ]]
+# The search engines may be unreachable from the cluster, so the response's
+# structure counts, not its results.
+curl -fsS "$url/search?q=kubernetes&format=json" | jq -e '.query == "kubernetes" and (.results | type == "array")' >/dev/null
+password=$(kubectl get secret valkey-auth -o jsonpath='{.data.default-password}' | base64 -d)
+cli() { kubectl exec deployment/valkey -c valkey -- valkey-cli --no-auth-warning --user default --pass "$password" "$@"; }
+cli del SearXNG_limiter.token >/dev/null
+curl -fsS "$url/" >/dev/null
+[[ $(cli exists SearXNG_limiter.token) == 1 ]]
+echo "/healthz OK, a json search names its query, and the link token is in Valkey"
