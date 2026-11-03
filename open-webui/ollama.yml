@@ -1,0 +1,9 @@
+classes:
+  - recipes.ollama
+parameters:
+  components:
+    open-webui:
+      application: open-webui
+      env:
+        ENABLE_OLLAMA_API: "True"
+        OLLAMA_BASE_URLS: http://ollama:11434

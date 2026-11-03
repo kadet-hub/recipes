@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# RCP-134: Open WebUI answers /health through its Service. The first account
+# signs up as admin, and signup is then closed. Through Open WebUI the admin
+# pulls smollm:135m into Ollama, finds it and the model of an
+# OpenAI-compatible stub in /api/models and gets a chat completion from each.
+# Valkey holds Open WebUI's keys, and the admin's token still works after the
+# pod restarts. The test prints how long the pull and the completion took.
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+# The chart sets no readiness probe, so the rollout ends before Open WebUI
+# listens.
+health() {
+  for _ in $(seq 150); do
+    kubectl get --raw "/api/v1/namespaces/$ns/services/open-webui:http/proxy/health" 2>/dev/null | jq -e '.status == true' >/dev/null && return
+    sleep 2
+  done
+  echo "/health does not answer through the Service" >&2
+  exit 1
+}
+health
+
+# The OpenAI-compatible endpoint of the option openai: one model, stub, and
+# the same reply to every chat completion.
+reply="stub reply"
+kubectl apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-webui-stub
+data:
+  v1: |
+    #!/bin/sh
+    printf 'Content-Type: application/json\r\n\r\n'
+    case "\$PATH_INFO" in
+    /models) echo '{"object":"list","data":[{"id":"stub","object":"model","created":0,"owned_by":"stub"}]}' ;;
+    *) echo '{"id":"stub","object":"chat.completion","created":0,"model":"stub","choices":[{"index":0,"message":{"role":"assistant","content":"$reply"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}' ;;
+    esac
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-webui-stub
+spec:
+  selector:
+    matchLabels:
+      name: open-webui-stub
+  template:
+    metadata:
+      labels:
+        name: open-webui-stub
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: open-webui-stub
+          image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          command: [httpd, -f, -p, "8080", -h, /www]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: cgi
+              mountPath: /www/cgi-bin
+      volumes:
+        - name: cgi
+          configMap:
+            name: open-webui-stub
+            defaultMode: 0555
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-webui-stub
+spec:
+  selector:
+    name: open-webui-stub
+  ports:
+    - port: 8080
+EOF
+kubectl rollout status deployment/open-webui-stub --timeout 120s >/dev/null
+
+forward() {
+  kubectl port-forward service/open-webui 18080:80 >/dev/null &
+  pf=$!
+  for _ in $(seq 60); do
+    curl -fsS -o /dev/null http://localhost:18080/health 2>/dev/null && return
+    sleep 2
+  done
+  echo "Open WebUI does not answer on the forwarded port" >&2
+  exit 1
+}
+pf=
+trap '[ -z "$pf" ] || kill $pf' EXIT
+forward
+url=http://localhost:18080
+api() { curl -fsS --max-time 300 -H 'Content-Type: application/json' "$@"; }
+
+signup() {
+  jq -n --arg name "$1" --arg email "$2" '{$name, $email, password: "Smoke-Passw0rd"}' |
+    curl -sS --max-time 60 -H 'Content-Type: application/json' -d @- -w '\n%{http_code}' "$url/api/v1/auths/signup"
+}
+admin=$(signup "Smoke Admin" admin@example.com)
+[[ ${admin##*$'\n'} == 200 ]] && jq -e '.role == "admin"' <<<"${admin%$'\n'*}" >/dev/null || { echo "$admin" >&2; exit 1; }
+token=$(jq -er .token <<<"${admin%$'\n'*}")
+# The first signup turns signup off.
+second=$(signup "Smoke User" user@example.com)
+[[ ${second##*$'\n'} == 403 ]] || { echo "second signup: $second" >&2; exit 1; }
+auth=(-H "Authorization: Bearer $token")
+
+model=smollm:135m
+start=$(date +%s)
+api "${auth[@]}" -d "$(jq -nc --arg model "$model" '{$model}')" "$url/ollama/api/pull" | tail -n 1 | jq -e '.status == "success"' >/dev/null
+pulled=$(date +%s)
+api "${auth[@]}" "$url/api/models" | jq -e --arg model "$model" \
+  'any(.data[]; .id == $model and .owned_by == "ollama") and any(.data[]; .id == "stub" and .owned_by == "openai")' >/dev/null
+
+complete() {
+  jq -n --arg model "$1" '{$model, stream: false, max_tokens: 16, messages: [{role: "user", content: "What colour is the sky? Answer in one word."}]}' |
+    api "${auth[@]}" -d @- "$url/api/chat/completions" | jq -er '.choices[0].message.content | select(length > 0)'
+}
+answer=$(complete "$model")
+completed=$(date +%s)
+[[ $(complete stub) == "$reply" ]]
+
+valkey=$(kubectl get secret valkey-auth -o jsonpath='{.data.default-password}' | base64 -d)
+keys=$(kubectl exec deployment/valkey -c valkey -- valkey-cli --no-auth-warning --user default --pass "$valkey" --scan --pattern 'open-webui*' | wc -l)
+[ "$keys" -gt 0 ]
+
+# A token signed with WEBUI_SECRET_KEY outlives the pod.
+kill $pf
+kubectl delete pod open-webui-0 --wait >/dev/null
+kubectl rollout status statefulset/open-webui --timeout 300s >/dev/null
+health
+forward
+api "${auth[@]}" "$url/api/v1/auths/" | jq -e '.role == "admin"' >/dev/null
+
+echo "Open WebUI: admin signed up, second signup refused, pulled $model in $((pulled - start))s, completion in $((completed - pulled))s: $(tr -s '[:space:]' ' ' <<<"$answer"), stub answered, $keys keys in Valkey, token valid after restart"

@@ -1,0 +1,18 @@
+parameters:
+  components:
+    open-webui:
+      application: open-webui
+      env:
+        ENABLE_OPENAI_API: "True"
+        OPENAI_API_BASE_URL: ${applications.open-webui.openai.url}
+        OPENAI_API_KEY:
+          secretKeyRef:
+            name: open-webui
+            key: openai-api-key
+  generators:
+    kubernetes:
+      secrets:
+        open-webui:
+          string_data:
+            openai-api-key:
+              value: ${applications.open-webui.openai.api_key}
