@@ -1,0 +1,59 @@
+parameters:
+  # The target sets applications.paperless-ngx.ai.user, .token, .url, .model,
+  # .api_key and .jwt_secret.
+  components:
+    paperless-ngx-ai:
+      application: paperless-ngx
+      type: statefulset
+      image: docker.io/clusterzx/paperless-ai:3.0.9@sha256:2b65888163fd59716f1c8285b31c5bd0b30c9c3c192c42b516688e3887d4ba60
+      ports:
+        http:
+          container_port: 3000
+          service_port: 3000
+      service:
+        type: ClusterIP
+      # The image's HEALTHCHECK. /health checks paperless-ai's own database.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - curl -f http://localhost:3000/health || exit 1
+          period_seconds: 30
+          timeout_seconds: 30
+      # As paperless-ai's own compose file: cap_drop ALL, no-new-privileges.
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      # paperless-ai reads its settings only from /app/data/.env, which its
+      # web setup would write.
+      secrets:
+        settings:
+          mount: /app/data/.env
+          subPath: env
+          readOnly: true
+          string_data:
+            env:
+              value: |
+                PAPERLESS_API_URL=http://paperless-ngx:8000/api
+                PAPERLESS_USERNAME=${applications.paperless-ngx.ai.user}
+                PAPERLESS_API_TOKEN=${applications.paperless-ngx.ai.token}
+                AI_PROVIDER=custom
+                CUSTOM_BASE_URL=${applications.paperless-ngx.ai.url}
+                CUSTOM_MODEL=${applications.paperless-ngx.ai.model}
+                CUSTOM_API_KEY=${applications.paperless-ngx.ai.api_key}
+                JWT_SECRET=${applications.paperless-ngx.ai.jwt_secret}
+      volume_mounts:
+        data:
+          mount_path: /app/data
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
