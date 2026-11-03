@@ -66,13 +66,31 @@ parameters:
         consume:
           mount_path: /usr/src/paperless/consume
       volume_claims:
-        data: &claim
+        data:
           spec:
             accessModes:
               - ReadWriteOnce
             resources:
               requests:
                 storage: 1Gi
-        media: *claim
-        export: *claim
-        consume: *claim
+        media:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        export:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        consume:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
