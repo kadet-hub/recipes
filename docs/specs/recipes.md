@@ -282,6 +282,39 @@ considered. `valkey` would then run without a client and still require
 its password, and no request of the smoke test could need both services
 (RCP-39).
 
+DEC-28: `pihole` takes its compose file from the code block in `README.md`
+of pi-hole/docker-pi-hole, and its `Source` line names that README
+(Pi-hole). The repository ships no other compose file for Pi-hole alone.
+`examples/docker-compose-caddy-proxy.yml` adds Caddy on a network of its
+own with an external volume, and Compose sources stop on both. `check` and
+the registry gate verify only the SHA-256 of the file a `Source` line
+names, so a README pins the compose file as a compose file would. A
+designed recipe on the image was considered. The project ships a compose
+example, which DEC-10 puts first, and its documentation starts from it.
+
+DEC-29: A compose recipe renders nothing for a `cap_add` whose
+capabilities the project's documentation names as optional or as needed
+only for a feature the recipe does not set up (Compose sources). Pi-hole's
+compose example adds `NET_ADMIN`, `SYS_TIME` and `SYS_NICE`. `NET_ADMIN`
+serves only DHCP and IPv6 router advertisements, and DHCP needs Pi-hole on
+the LAN (Pi-hole). `SYS_TIME` lets FTL's NTP client set the clock, which in
+a pod is the node's clock. `SYS_NICE` only raises FTL's priority. Without
+them FTL logs one warning per capability and answers DNS. Rendering them
+was considered. Pod Security `baseline` allows none of the three, so the
+namespace would need `privileged`, and the pod could set the node's clock.
+Stopping on the gap, as RCP-37 did before, would leave Pi-hole without a
+recipe over capabilities that its DNS blocking does not use.
+
+DEC-30: `pihole` renders one Service `pihole` of type `ClusterIP`, with DNS
+on port 53 over both TCP and UDP (Pi-hole). Kubernetes allows both
+protocols on one Service port, as `powerdns` renders it. A Service per
+protocol was considered. Clients would get two names for one DNS server,
+and two LoadBalancer Services get two addresses unless the implementation
+shares one. Exposing the Service, such
+as with `type: LoadBalancer`, is left to the target, because whether a
+load balancer serves TCP and UDP on one address depends on its
+implementation.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -844,6 +877,7 @@ and the README lists the renames.
 | `env_file` of a file that the pinned repository does not contain | `env` from the example file that the documentation copies to it | `docker compose config` fails without the file. |
 | the SELinux option `z` or `Z` of a bind mount | nothing | It relabels the host directory for the container. On an SELinux node the container runtime labels a pod's volumes. |
 | relative bind mount of a settings directory that the pinned repository does not contain and the image's entrypoint fills from its own template | `config_maps` with the template's settings, `mount` at the target | DEC-23. The README names the template with its SHA-256. |
+| `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -852,7 +886,7 @@ What the table does not map is a gap, and so is each of these:
 | `build` without a published `image` | There is no image to pin |
 | `network_mode` | `host` puts the pod on the node's network, `service:` and `container:` share a network namespace, which only containers of one pod can |
 | bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
-| `privileged`, `cap_add`, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
+| `privileged`, `cap_add` other than above, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
 | `networks` that separate services, `aliases`, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
 | `extends` or `include` of a file outside the pinned repository | The content is not pinned |
 | a named volume of several services | `ReadWriteOnce` cannot be shared across nodes, and kind has no `ReadWriteMany` storage to prove it on |
@@ -869,10 +903,13 @@ What the table does not map is a gap, and so is each of these:
   the image's `HEALTHCHECK`, all for paperless-ngx. Revised in #66: the
   project `name`, an `env_file` the repository does not contain, the
   SELinux option and the settings directory, all for searxng.
+  Revised in #68: `cap_add` of optional capabilities, which was a gap,
+  for pihole (DEC-29).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
-    `name`, missing `env_file`, SELinux option, settings directory: #66
+    `name`, missing `env_file`, SELinux option, settings directory: #66;
+    `cap_add`: #68
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -2346,6 +2383,99 @@ the recipe. The chart's Helm test `semaphore-test-connection` is left out
   - Test: CI `check` job, report line `smoke`
   - Since: #67
 
+## Pi-hole
+
+Pi-hole is a DNS server for a home or office network. It answers queries
+for domains on its blocklists with an unroutable address, so ads and
+trackers fail to load on every device that uses it as its resolver. Its
+DNS core FTL also serves the web interface and the API that manage the
+lists. The project publishes no chart. pi-hole/docker-pi-hole, EUPL-1.2,
+builds the image `docker.io/pihole/pihole` and carries its compose example
+as a code block in `README.md` (DEC-28). `pihole` takes the README at
+commit `ffd0a489a633d0f2512818c46fd651ac50789175` of 2026-10-30, the tag
+of release `2026.10.1`, the newest on 2026-11-03, SHA-256
+`003d42d4097951284d6334af39399076490c696711b21f70081953ca3dd5596d`. The
+commit is the `org.opencontainers.image.revision` of the image
+`2026.10.1`, which `latest` pointed to on 2026-11-03, with Pi-hole Core
+v6.5, Web v6.6.1 and FTL v6.8. The recipe takes from the image what it
+dictates, such as variable names, ports, paths and its `HEALTHCHECK`
+command, and copies no other text, as DEC-16 reads it for a copyleft chart.
+
+The example's one service becomes the StatefulSet `pihole`. Its relative
+bind mount `./etc-pihole`, which the repository does not contain, becomes
+the claim `etc-pihole` at `/etc/pihole` (DEC-21). The published ports, DNS
+on 53 over TCP and UDP, HTTP on 80 and HTTPS on 443, become the Service
+`pihole` (DEC-30). FTL serves HTTPS with a self-signed certificate it
+generates. `FTLCONF_dns_listeningMode: ALL`, which the example sets for
+Docker's bridge network, lets FTL answer clients outside the pod's own
+subnet, such as pods on other nodes.
+
+The image starts as root and runs FTL as the user `pihole`, UID 1000. Its
+start script gives FTL each capability FTL uses that the container has.
+Without `cap_add` these are `CHOWN`, `NET_BIND_SERVICE` and `NET_RAW` of
+the runtime's defaults (DEC-29). The target's namespace needs the Pod
+Security level `baseline`. At its first start the image downloads its
+default blocklist, the hosts file of StevenBlack/hosts on
+raw.githubusercontent.com, into the claim, and a cron job in the container
+updates it weekly.
+
+Pi-hole's DHCP server is not set up. The example leaves its port 67/udp
+commented out, and the server needs `NET_ADMIN`. DHCP broadcasts do not
+cross into a container's network, so Pi-hole's documentation runs DHCP
+with host networking, a macvlan network or a DHCP relay
+(`docs/docker/DHCP.md` of pi-hole/docs). Host networking is `network_mode`,
+a gap of Compose sources. The NTP server that FTL starts on port 123/udp is
+not published either, as in the example.
+
+- RCP-80: The `Source` line of `pihole` MUST name `README.md` of
+  pi-hole/docker-pi-hole at the commit the image's tag was built from, with
+  the README's SHA-256.
+
+  `check` fetches the README at that commit and fails on another SHA-256
+  (RCP-23). The commit is the image's `org.opencontainers.image.revision`.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    the image's label
+  - Since: #68
+
+- RCP-81: `pihole` MUST set `FTLCONF_webserver_api_password` from the
+  Secret `pihole`, whose value is `applications.pihole.password`, which the
+  recipe leaves unset.
+
+  Without the password the compile stops with
+  `Interpolation key 'applications.pihole.password' not found` (RCP-19,
+  RCP-40). Unset, the image would assign a random password and print it to
+  the log.
+
+  - Test: `check pihole`; manual: compile of `tests/target.yml` without
+    the password
+  - Since: #68
+
+### Proof
+
+`pihole` is at level `deploys`. `tests/target.yml` sets the example's
+password and points Pi-hole's upstream at the cluster's DNS,
+`kube-dns.kube-system.svc.cluster.local`. The image's default upstreams
+are Google's resolvers `8.8.8.8` and `8.8.4.4`, which a network may not
+let a pod reach.
+
+- RCP-82: The `tests/smoke` of `pihole` MUST, from a pod of its own and
+  through the Service `pihole`, resolve `example.com` over UDP and over
+  TCP, log in at `/api/auth` on port 80 with the password of the Secret
+  `pihole`, get 401 there with another password, get an answer on port
+  443, deny a domain through the API, and then get `0.0.0.0` for that
+  domain over UDP and over TCP.
+
+  The test pod runs Pi-hole's image, which carries `dig` and `curl`.
+  `0.0.0.0` is the answer of FTL's default blocking mode `NULL`. The domain
+  lies under the reserved TLD `.example`, so it is NXDOMAIN until it is
+  denied, and the check does not depend on the blocklist download. FTL
+  answers the API before it reloads its lists (`src/api/list.c` of FTL
+  v6.8), so the smoke test asks again for up to 20 seconds.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #68
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3080,6 +3210,11 @@ feature's design (OQ-6).
   smoke test finds the link token in Valkey. `tests/target.yml` without
   `applications.searxng.secret_key` stops the compile with
   `Interpolation key 'applications.searxng.secret_key' not found`.
+- AC-32 (RCP-37, RCP-80 to RCP-82): `check pihole --level deploys` passes
+  in CI on each Kubernetes minor, and its smoke test gets `0.0.0.0` for
+  the denied domain over UDP and over TCP. `tests/target.yml` without
+  `applications.pihole.password` stops the compile with
+  `Interpolation key 'applications.pihole.password' not found`.
 
 ## Open questions
 
@@ -3167,3 +3302,4 @@ feature's design (OQ-6).
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |
+| pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.9.0, level `deploys` (RCP-80 to RCP-82) |

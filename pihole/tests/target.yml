@@ -1,0 +1,17 @@
+classes:
+  - recipes.pihole
+parameters:
+  namespace: pihole
+  kapitan:
+    vars:
+      target: pihole
+  applications:
+    pihole:
+      # The compose file's password.
+      password: correct horse battery staple
+  components:
+    pihole:
+      env:
+        # The cluster's DNS in place of the image's default, Google's
+        # resolvers, which a network may not let a pod reach.
+        FTLCONF_dns_upstreams: kube-dns.kube-system.svc.cluster.local
