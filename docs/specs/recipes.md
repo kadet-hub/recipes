@@ -1958,7 +1958,7 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
   not serve shows that `probe_success` follows the target's answer.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #62
 
 ## Migration
 
