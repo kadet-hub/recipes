@@ -1843,7 +1843,8 @@ instance.
   A login with a wrong password gets 401. The asset's details come from
   PostgreSQL and the original from the library claim. The server creates
   the thumbnail in a job that it queues in Valkey, so the thumbnail shows
-  that the queue works. The test does not wait for the machine learning
+  that the queue works. On kind with Valkey scaled to zero the upload
+  itself failed with 500. The test does not wait for the machine learning
   jobs, which need the models from Hugging Face.
 
   - Test: CI `check` job, report line `smoke`
