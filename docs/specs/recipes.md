@@ -2234,6 +2234,118 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
   - Test: CI `check` job, report line `smoke`
   - Since: #62
 
+## Semaphore
+
+Semaphore UI runs Ansible playbooks, Terraform and OpenTofu plans and shell
+scripts from a web UI and an API. `semaphore` deploys it from the chart
+`semaphore` 16.2.2 of semaphoreui/charts, Apache-2.0, which Semaphore's
+installation guide names for Kubernetes
+(`docs/admin-guide/installation/k8s.md` of semaphoreui/semaphore-docs). The
+project publishes the chart at `oci://ghcr.io/semaphoreui/charts/semaphore`
+and in the HTTP repository `https://semaphoreui.github.io/charts`. Both
+serve the same archive, and the `Source` line takes the OCI form, as for
+blackbox-exporter.
+
+The chart's `appVersion` is Semaphore 2.18.3. That release is affected by
+two advisories of semaphoreui/semaphore: GHSA-8cj9-r88m-8945, a CSRF on the
+password change endpoint fixed in 2.18.21, and GHSA-cxvf-gvfq-36w2, a
+privilege escalation up to 2.18.12. `tests/values.yaml` therefore sets the
+image `docker.io/semaphoreui/semaphore:v2.19.17`, which the project builds
+for amd64 and arm64 under the MIT license. It was the newest release with
+an image on 2026-11-03. 2.19.18 was released on GitHub the day before, and
+Docker Hub had no image for it. The image does not follow the chart's
+version, so a maintainer moves it by hand (RCP-16).
+
+Semaphore 2.19 has no BoltDB, the chart's default `database.type`. Its
+configuration rejects the dialect with `BoltDB not supported`
+(`util/config.go` of v2.19.17), and the image's `server-wrapper` stops on
+it. Besides `bolt` the chart takes `mysql` and `postgres`. The database is
+therefore the included recipe `postgresql` (DEC-4, DEC-12). The chart's
+`database.existingSecret` reads the keys `username` and `password`, the
+keys of the Secret `<cluster>-app` that CloudNativePG writes.
+`tests/values.yaml` points the chart at `postgresql-cluster-rw`, the
+database `app` and the Secret `postgresql-cluster-app`, and the recipe
+reads these names from `applications.postgresql` (RCP-60). The chart's
+MariaDB and PostgreSQL subcharts are Bitnami's and stay off.
+
+For PostgreSQL the chart passes `sslmode=disable` unless
+`database.options` sets one, so the database password would cross the
+cluster network in clear text. CloudNativePG serves TLS, and
+`tests/values.yaml` sets `sslmode: require`, which encrypts the connection
+without verifying the server's certificate.
+
+The chart generates three Secrets at render time with random values:
+`semaphore-general` with the cookie hash, the cookie encryption key and the
+access key encryption key, `semaphore-runner` with the runner registration
+token, and `semaphore-admin` with the admin account, which `admin.create`
+adds.
+The recipe renders the same Secrets from parameters the target sets
+(RCP-77). The pod template carries the chart's `checksum/*` annotations of
+its ConfigMap and these Secrets, written as `tests/values.yaml` renders
+them (RCP-42). They do not change with the target's values.
+
+`admin.create` adds the init container `admin`, which creates the admin
+account with `semaphore user add` unless the login exists. Without it a new
+Semaphore has no account to log in with. The init container gets the
+server's environment plus the admin account and `SEMAPHORE_SSH_PATH`, in
+the chart's order, and the recipe interpolates each shared variable from
+the server's.
+
+Remote runners stay off, the chart's default `general.useRemoteRunner:
+false`. Semaphore still registers a new runner for any client that presents
+the global registration token (`RegisterRunner` in `api/runners/runners.go`
+of v2.19.17), so the token is a required parameter like the keys. An empty
+token, which switches that off, was considered. The chart always sets one,
+and a token nobody knows keeps runners out as well.
+
+The `kubernetes` generator renders a `securityContext` on every container,
+`{}` where the inventory sets none. `check` accepts the empty context on
+containers but not on init containers (RCP-12), and the chart renders none
+on its init container. `tests/values.yaml` sets
+`podSecurityContext.runAsNonRoot: true`, which the chart puts on both
+containers, and so does the recipe. The image runs as UID 1001, so nothing
+changes for it. An RCP-12 class for init containers was considered. It
+would need a new `check` release before the registry gate accepts the
+recipe (REC-9 there).
+
+The chart's Ingress, LDAP, OIDC, the mail, Telegram and Slack alerts, extra
+Python packages and a custom CA bundle are off by default and not part of
+the recipe. The chart's Helm test `semaphore-test-connection` is left out
+(RCP-25). The recipe is at level `deploys`.
+
+- RCP-77: `semaphore` MUST take the admin account's login and password,
+  the cookie hash, the cookie encryption key, the access key encryption key
+  and the runner registration token from `applications.semaphore.admin.username`,
+  `.admin.password`, `.cookie_hash`, `.cookie_encryption`,
+  `.access_key_encryption` and `.runner_token`, and MUST leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs for all but the login (RCP-19).
+  Semaphore decodes the three keys from base64. The access key encryption
+  key must decode to 16, 24 or 32 bytes (`validateAccessKeyEncryption` in
+  `util/config.go`), and Semaphore encrypts the stored keys and secrets of
+  its projects with it. The init container creates the account only once,
+  so a later change of the password does not reach it.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the six parameters stops with `Interpolation key` and its name
+  - Since: #67
+
+- RCP-78: The `tests/smoke` of `semaphore` MUST log in as the admin account
+  through `/api/auth/login`, read `/api/user` and `/api/projects` with the
+  session, and require that `/api/info` reports the version of the image
+  tag the Deployment runs and remote runners off. It MUST also get
+  `/api/ping` through the endpoints of the Service `semaphore`.
+
+  The login needs the account that the init container wrote into
+  PostgreSQL, and `/api/user` must name it as admin. A wrong password and
+  a request without the session cookie get 401. The smoke test runs no
+  task, because a task needs a repository, an inventory and a key that the
+  recipe does not render.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #67
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3054,3 +3166,4 @@ feature's design (OQ-6).
 | blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
+| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |

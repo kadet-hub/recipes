@@ -1,0 +1,30 @@
+# Semaphore 2.19.17 on the PostgreSQL of the included recipe postgresql, with
+# the admin account of tests/target.yml. Semaphore 2.19 has no BoltDB, the
+# chart's default. The chart writes secrets.* and runner.token into the
+# Secrets' data as given, so they are base64 of the values tests/target.yml
+# sets.
+image:
+  repository: docker.io/semaphoreui/semaphore
+  tag: v2.19.17
+# The generator renders a securityContext on every container. The image runs
+# as UID 1001, so this changes nothing for it.
+podSecurityContext:
+  runAsNonRoot: true
+database:
+  type: postgres
+  host: postgresql-cluster-rw
+  port: 5432
+  name: app
+  existingSecret: postgresql-cluster-app
+  options:
+    sslmode: require
+admin:
+  create: true
+  username: admin
+  password: smoke-password
+secrets:
+  cookieHash: YzIxdmEyVXRZMjl2YTJsbExXaGhjMmd0TXpJdFlubDBaWE10TURBd01ERT0=
+  cookieEncryption: YzIxdmEyVXRZMjl2YTJsbExXVnVZM0o1Y0hScGIyNHRNekppZVhSbGN6RT0=
+  accesskeyEncryption: YzIxdmEyVXRZV05qWlhOekxXdGxlUzFsYm1OeWVYQjBhVzl1TFRBd01ERT0=
+runner:
+  token: c21va2UtcnVubmVyLXRva2Vu
