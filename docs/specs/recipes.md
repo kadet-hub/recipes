@@ -2469,7 +2469,9 @@ let a pod reach.
   The test pod runs Pi-hole's image, which carries `dig` and `curl`.
   `0.0.0.0` is the answer of FTL's default blocking mode `NULL`. The domain
   lies under the reserved TLD `.example`, so it is NXDOMAIN until it is
-  denied, and the check does not depend on the blocklist download.
+  denied, and the check does not depend on the blocklist download. FTL
+  answers the API before it reloads its lists (`src/api/list.c` of FTL
+  v6.8), so the smoke test asks again for up to 20 seconds.
 
   - Test: CI `check` job, report line `smoke`
   - Since: #68

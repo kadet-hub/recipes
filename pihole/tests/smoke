@@ -31,8 +31,14 @@ run curl -fsSk -o /dev/null https://pihole/admin/login
 # independent of the blocklist that gravity downloads at start.
 domain=blocked.smoke.example
 run curl -fsS -o /dev/null -H "X-FTL-SID: $sid" --data "{\"domain\": \"$domain\"}" http://pihole/api/domains/deny/exact
+# FTL answers the API before it reloads its lists (set_event(RELOAD_GRAVITY)
+# in src/api/list.c of FTL v6.8), so ask again for up to 20 seconds.
 for proto in +notcp +tcp; do
-  out=$(query "$proto" "$domain" A)
+  for _ in $(seq 10); do
+    out=$(query "$proto" "$domain" A)
+    [[ $out == 0.0.0.0 ]] && break
+    sleep 2
+  done
   [[ $out == 0.0.0.0 ]] || { echo "$domain over $proto: $out" >&2; exit 1; }
 done
 run curl -fsS -o /dev/null -X DELETE -H "X-FTL-SID: $sid" http://pihole/api/auth
