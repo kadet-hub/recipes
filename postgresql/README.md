@@ -52,6 +52,7 @@ The move is not tested.
 ```yaml
 classes:
   - recipes.postgresql
+  - recipes.postgresql.pgvector   # the extension vector in the database
 parameters:
   namespace: <namespace>
   kapitan:
@@ -78,6 +79,17 @@ The database and owner take effect only when the Cluster is created. The
 logical replication queries are the chart's, Apache-2.0, with the license
 in `cluster.yml.LICENSE`.
 
+## The option `pgvector`
+
+`recipes.postgresql.pgvector` adds `CREATE EXTENSION IF NOT EXISTS vector`
+to the Cluster's `bootstrap.initdb.postInitApplicationSQL`. CloudNativePG
+runs it as superuser in the database once, when it creates the Cluster.
+The owner cannot create the extension itself, since pgvector is not a
+trusted extension. The image needs no change, because the pinned
+`18.6-system-trixie` ships pgvector 0.8.7. On a Cluster that exists
+already the option does nothing. There a superuser runs the statement in
+the database by hand.
+
 ## Left out
 
 `Job/postgresql-cluster-ping-test`, the chart's Helm test.
@@ -88,7 +100,10 @@ in `cluster.yml.LICENSE`.
 `tests/target.yml`, on kind for each Kubernetes minor CI tests, with `cnpg`
 installed first. `tests/values.yaml` sets the database and owner that
 CloudNativePG gives an empty `initdb`, so the chart renders them like the
-recipe. `tests/smoke` checks what the chart's ping test and the
+recipe. `tests/target.yml` includes the option `pgvector`,
+which `tests/values.yaml` sets as `cluster.initdb.postInitApplicationSQL`.
+`tests/smoke` checks what the chart's ping test and the
 kadet-hub/examples recipe checked: the Cluster is ready, and the owner
 reaches its database through `postgresql-cluster-rw` with the credentials of
-`postgresql-cluster-app`.
+`postgresql-cluster-app`. As the owner it then reads the version of `vector`
+from `pg_extension` and computes a distance between two vectors.

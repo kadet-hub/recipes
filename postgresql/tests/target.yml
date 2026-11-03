@@ -1,5 +1,6 @@
 classes:
   - recipes.postgresql
+  - recipes.postgresql.pgvector
 parameters:
   namespace: postgresql
   kapitan:

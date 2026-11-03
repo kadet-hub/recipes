@@ -7,3 +7,6 @@ cluster:
   initdb:
     database: app
     owner: app
+    # The option pgvector.
+    postInitApplicationSQL:
+      - CREATE EXTENSION IF NOT EXISTS vector
