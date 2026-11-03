@@ -1,0 +1,3 @@
+# The chart's defaults: claims for /config and /media, no Ingress, route,
+# NetworkPolicy, ServiceMonitor or DLNA.
+{}

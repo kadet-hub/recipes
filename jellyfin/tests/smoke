@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Jellyfin's /health and /System/Info/Public, called through its Service:
+# /health answers Healthy, and the public system info is JSON whose Version
+# is the image tag the Deployment runs. Jellyfin reports the tag 12.4 as
+# 12.4.0.
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+get() {
+  kubectl get --raw "/api/v1/namespaces/$ns/services/jellyfin:service/proxy$1"
+}
+for _ in $(seq 30); do
+  health=$(get /health || true)
+  [ "$health" = Healthy ] && break
+  sleep 2
+done
+[ "$health" = Healthy ] || { echo "/health: $health" >&2; exit 1; }
+image=$(kubectl get deployment jellyfin -o jsonpath='{.spec.template.spec.containers[0].image}')
+image=${image%@*}
+tag=${image##*:}
+info=$(get /System/Info/Public)
+version=$(jq -er .Version <<<"$info") || { echo "$info" >&2; exit 1; }
+[ "$version" = "$tag" ] || [ "$version" = "$tag.0" ] || { echo "$info" >&2; exit 1; }
+echo "through the Service: /health Healthy, /System/Info/Public Version $version for the tag $tag"
