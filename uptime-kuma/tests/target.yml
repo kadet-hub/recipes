@@ -1,0 +1,7 @@
+classes:
+  - recipes.uptime-kuma
+parameters:
+  namespace: uptime-kuma
+  kapitan:
+    vars:
+      target: uptime-kuma

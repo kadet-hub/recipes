@@ -3448,6 +3448,118 @@ Role. The chart's Helm test `ollama-test-connection` is left out (RCP-25).
   each Kubernetes minor, and its smoke test reports the time of the pull
   and of the generation.
 
+## Uptime Kuma
+
+Uptime Kuma checks HTTP endpoints, ports, DNS records and other services at
+an interval, notifies when one goes down, and serves status pages. The
+project publishes no chart. louislam/uptime-kuma, MIT, carries
+`compose.yaml` at the root of the repository and builds the image
+`docker.io/louislam/uptime-kuma`. `uptime-kuma` takes the file at commit
+`df601c58d9205562f34cfe5ef35264b341019d19`, the tag of release 2.5.9 of
+2026-10-31, the newest on 2026-11-03, SHA-256
+`f62a065cabc4671225ec4e58575dd9cca364b0d0b5087b57451278791672a54b`. The
+file runs `louislam/uptime-kuma:2`, which on 2026-11-03 was the same index
+as `2.5.9`, for amd64, arm64 and arm/v7. The image carries no
+`org.opencontainers.image.revision` label.
+
+Every advisory of louislam/uptime-kuma published by 2026-11-03 names 2.5.9
+or an earlier release as fixed, except GHSA-qjxc-h5jf-c7rj. That one
+names no fixed release. A logged-in user's HTTP monitor reaches whatever
+the pod reaches, a cloud's metadata endpoint among them, and upstream
+leaves the protection to the platform.
+
+The file's one service becomes the StatefulSet `uptime-kuma`. Its relative
+bind mount `./data`, which the repository does not contain, becomes the
+claim `data` at `/app/data` (DEC-21). The published port `3001:3001`
+becomes port 3001 of the Service `uptime-kuma`. The image's `HEALTHCHECK`
+runs `extra/healthcheck` in shell form every 60 seconds with a timeout of
+30 seconds and 5 retries. It becomes the readiness probe
+`sh -c extra/healthcheck` with these values. The check is a Go binary that
+gets `/` on port 3001 and fails only when no answer arrives
+(`extra/healthcheck.go`). The image runs as root, so the target's
+namespace needs the Pod Security level `baseline`.
+
+DEC-65: `uptime-kuma` sets `UPTIME_KUMA_DB_TYPE` to `sqlite`, which the
+compose file leaves unset (Uptime Kuma). Without it Uptime Kuma 2 starts
+a database setup page on port 3001, which asks for no login, and waits
+until a visitor chooses SQLite, the MariaDB the image embeds or an external
+MariaDB (`server/setup-database.js` of 2.5.9). With the variable it writes
+`db-config.json` from the environment at every start and serves its web UI
+right away. SQLite keeps the database in `kuma.db` on the claim and runs
+one replica, as the compose file does. Leaving the choice to the setup page
+was considered. The first visitor would choose the database, could point
+Uptime Kuma at a MariaDB of their own, and the choice would not follow the
+inventory. The embedded MariaDB was considered too. It starts a MariaDB
+server inside the container, and SQLite needs none.
+
+DEC-66: `uptime-kuma` renders no admin account. The first visitor of the
+web UI creates it, as with the compose file (Uptime Kuma). Uptime Kuma
+2.5.9 reads no account from the environment and has no HTTP API that
+creates one. Its only path is the socket.io event `setup`, which takes a
+username and a password while the `user` table is empty and needs no login
+(`server/server.js`). A Job that sends the event with a credential
+parameter was considered. It would add a workload and a client that the
+compose file does not have. The event also fails once an account exists,
+so a changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+setup, and the README asks for the account before the exposure.
+
+- RCP-120: The `Source` line of `uptime-kuma` MUST name `compose.yaml` of
+  louislam/uptime-kuma at the commit of the release tag that the image's
+  tag names, with the file's SHA-256.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23). Without a revision label on the image, the release tag is what
+  ties the file to the image. Renovate moves only the image's digest
+  (RCP-16), so a new release changes tag, commit and SHA-256 together by
+  hand.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    `gh api repos/louislam/uptime-kuma/git/ref/tags/<tag>`
+  - Since: #76
+
+- RCP-121: `uptime-kuma` MUST set `UPTIME_KUMA_DB_TYPE` to `sqlite`
+  (DEC-65) and MUST mount the claim `data` at `/app/data`.
+
+  `/app/data` holds `kuma.db`, `db-config.json` and uploaded files. Uptime
+  Kuma rewrites `db-config.json` from the variable at every start, so the
+  database type follows the inventory.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #76
+
+- RCP-122: The `tests/smoke` of `uptime-kuma` MUST, from a pod of its own
+  and through the Service `uptime-kuma` on port 3001, require `entryPage`
+  from `/api/entry-page` and the web UI from `/`, and get 401 from
+  `/metrics`. Over socket.io on the WebSocket transport it MUST create the
+  admin account with the event `setup`, log in, add an HTTP monitor
+  against `http://kube-dns.kube-system:9153/metrics` and wait for a
+  heartbeat UP. It MUST then require the monitor UP from `/metrics` with
+  the account. Once the pod `uptime-kuma-0` was deleted and its successor
+  is ready, it MUST log in again, find the monitor and wait for a new
+  heartbeat UP.
+
+  The setup page of DEC-65 answers `/api/entry-page` with
+  `setup-database`, so `entryPage` shows that RCP-121 took effect. The
+  server depends on socket.io-client 4.8, so the image carries it below
+  `/app/node_modules`, and the test speaks the web UI's protocol with
+  `node` in a pod of the same image. A WebSocket without an `Origin`
+  header passes Uptime Kuma's origin check. The server attaches the
+  handlers of a new connection only after it sent the event `info`, and
+  drops what arrives before, so the client waits for `info` before it
+  sends anything. kubeadm's Service `kube-dns`
+  serves CoreDNS' metrics on port 9153 without a login, on every kind
+  cluster. A heartbeat is sent only while the monitor runs, so the one
+  after the restart shows that the new pod started the monitor from
+  `kuma.db` on the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #76
+
+- AC-70 (RCP-120 to RCP-122): `check uptime-kuma --level deploys` passes
+  in CI on each Kubernetes minor, and its smoke test sees the monitor UP
+  after the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -4299,3 +4411,4 @@ feature's design (OQ-6).
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.14.0, level `deploys` (RCP-95, RCP-96) |
 | vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.14.0, level `deploys` (RCP-110 to RCP-112) |
 | ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.14.0, level `deploys` (RCP-130, RCP-131) |
+| uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.14.0, level `deploys` (RCP-120 to RCP-122) |
