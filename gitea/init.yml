@@ -1,0 +1,30 @@
+classes:
+  - recipes.postgresql
+  - recipes.valkey
+  - .gitea
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    gitea:
+      # The target sets admin.username, admin.password, secret_key and
+      # internal_token.
+      admin:
+        email: gitea@local.domain
+      # The chart's version label, the tag of the image in gitea.yml.
+      labels:
+        version: 28.3.0
+      # The chart's initContainersScriptsVolumeMountPath.
+      scripts: /usr/sbinx
+      # Cache, session and queue on the Valkey of the included recipe. The
+      # kubelet puts the password of valkey-auth in for $(VALKEY_PASSWORD).
+      valkey_url: redis://:$(VALKEY_PASSWORD)@valkey:6379/0?pool_size=100&idle_timeout=180s
