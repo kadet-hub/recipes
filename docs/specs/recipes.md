@@ -3682,7 +3682,7 @@ are off by default and not part of the recipe. The ServiceAccount
   - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
     `applications.open-webui.secret_key` stops with `Interpolation key`
     and its name
-  - Since: this change
+  - Since: #80
 
 - RCP-133: Without an option `open-webui` MUST set `ENABLE_OLLAMA_API` and
   `ENABLE_OPENAI_API` to `False` and render no object of `ollama`. The
@@ -3693,7 +3693,7 @@ are off by default and not part of the recipe. The ServiceAccount
 
   - Test: `check open-webui`; manual: compiles of `tests/target.yml`
     without the options and with each one
-  - Since: this change
+  - Since: #80
 
 - RCP-134: The `tests/smoke` of `open-webui` MUST require `/health`
   through the Service. It MUST sign up the first account through
@@ -3717,7 +3717,7 @@ are off by default and not part of the recipe. The ServiceAccount
   with `WEBUI_SECRET_KEY` set (DEC-80).
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #80
 
 - AC-81 (RCP-132 to RCP-134): `check open-webui --level deploys` passes in
   CI on each Kubernetes minor, its report lists the objects of `ollama`
