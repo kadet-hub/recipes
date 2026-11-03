@@ -1,0 +1,16 @@
+classes:
+  - recipes.authentik
+parameters:
+  namespace: authentik
+  kapitan:
+    vars:
+      target: authentik
+  applications:
+    # The values tests/values.yaml gives the chart.
+    authentik:
+      secret_key: smoke-secret-key
+      bootstrap_password: smoke-password
+      bootstrap_token: smoke-token
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

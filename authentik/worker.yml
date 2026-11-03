@@ -1,0 +1,76 @@
+parameters:
+  components:
+    authentik-worker:
+      application: authentik
+      args:
+        mode: worker
+      healthcheck:
+        startup:
+          type: command
+          command:
+            - ak
+            - healthcheck
+          initial_delay_seconds: 30
+          timeout_seconds: 3
+          failure_threshold: 60
+        liveness:
+          type: command
+          command:
+            - ak
+            - healthcheck
+          initial_delay_seconds: 5
+          timeout_seconds: 3
+        readiness:
+          type: command
+          command:
+            - ak
+            - healthcheck
+          initial_delay_seconds: 5
+          timeout_seconds: 3
+      # The chart's labels, which its anti-affinity selects on.
+      pod_labels:
+        app.kubernetes.io/name: authentik
+        app.kubernetes.io/instance: authentik
+        app.kubernetes.io/component: worker
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: ${components.authentik-worker.pod_labels}
+                topologyKey: kubernetes.io/hostname
+      # The worker deploys and updates outposts through the API, as the
+      # chart's serviceAccount.create sets it up (DEC-42).
+      service_account:
+        create: true
+        name: authentik
+        automount_service_account_token: true
+      role:
+        rules:
+          - apiGroups: [""]
+            resources: [secrets, services, configmaps]
+            verbs: [get, create, delete, list, patch]
+          - apiGroups: [extensions, apps]
+            resources: [deployments]
+            verbs: [get, create, delete, list, patch]
+          - apiGroups: [extensions, networking.k8s.io]
+            resources: [ingresses]
+            verbs: [get, create, delete, list, patch]
+          - apiGroups: [traefik.containo.us, traefik.io]
+            resources: [middlewares]
+            verbs: [get, create, delete, list, patch]
+          - apiGroups: [gateway.networking.k8s.io]
+            resources: [httproutes]
+            verbs: [get, create, delete, list, patch]
+          - apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors]
+            verbs: [get, create, delete, list, patch]
+          - apiGroups: [apiextensions.k8s.io]
+            resources: [customresourcedefinitions]
+            verbs: [list]
+      cluster_role:
+        rules:
+          - apiGroups: [apiextensions.k8s.io]
+            resources: [customresourcedefinitions]
+            verbs: [list]
