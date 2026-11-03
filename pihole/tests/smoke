@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# What the compose example of docker-pi-hole's README sets up (RCP-39, RCP-83):
+# from a pod of its own, through the Service pihole, Pi-hole resolves
+# example.com over UDP and TCP on port 53, the API on port 80 logs in with
+# the password of the Secret pihole and refuses another, port 443 answers,
+# and a domain denied through the API resolves to 0.0.0.0, the answer of
+# Pi-hole's default blocking mode NULL.
+set -euo pipefail
+image=$(kubectl get statefulset pihole -o jsonpath='{.spec.template.spec.containers[0].image}')
+# The Pi-hole image brings dig and curl, so the test pod needs no other image.
+kubectl run pihole-smoke --image="$image" --restart=Never --command -- sleep 600 >/dev/null
+trap 'kubectl delete pod pihole-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/pihole-smoke --for=condition=Ready --timeout=120s >/dev/null
+run() { kubectl exec -i pihole-smoke -- "$@"; }
+query() { run dig @pihole +short +tries=1 +time=5 "$@"; }
+
+# Pi-hole forwards example.com to the upstream that tests/target.yml sets.
+for proto in +notcp +tcp; do
+  out=$(query "$proto" example.com A)
+  grep -qE '^[0-9.]+$' <<<"$out" || { echo "example.com over $proto: $out" >&2; exit 1; }
+done
+
+password=$(kubectl get secret pihole -o jsonpath='{.data.FTLCONF_webserver_api_password}' | base64 -d)
+status=$(jq -nc '{password: "wrong"}' | run curl -sS -o /dev/null -w '%{http_code}' --data @- http://pihole/api/auth)
+[[ $status == 401 ]] || { echo "login with a wrong password: $status" >&2; exit 1; }
+sid=$(jq -nc --arg p "$password" '{password: $p}' | run curl -fsS --data @- http://pihole/api/auth | jq -er '.session | select(.valid) | .sid')
+# FTL serves 443 with a self-signed certificate it generates.
+run curl -fsSk -o /dev/null https://pihole/admin/login
+
+# A name under the reserved TLD .example, NXDOMAIN until it is denied, and
+# independent of the blocklist that gravity downloads at start.
+domain=blocked.smoke.example
+run curl -fsS -o /dev/null -H "X-FTL-SID: $sid" --data "{\"domain\": \"$domain\"}" http://pihole/api/domains/deny/exact
+# FTL answers the API before it reloads its lists (set_event(RELOAD_GRAVITY)
+# in src/api/list.c of FTL v6.8), so ask again for up to 20 seconds.
+for proto in +notcp +tcp; do
+  for _ in $(seq 10); do
+    out=$(query "$proto" "$domain" A)
+    [[ $out == 0.0.0.0 ]] && break
+    sleep 2
+  done
+  [[ $out == 0.0.0.0 ]] || { echo "$domain over $proto: $out" >&2; exit 1; }
+done
+run curl -fsS -o /dev/null -X DELETE -H "X-FTL-SID: $sid" http://pihole/api/auth
+echo "example.com and the denied $domain answered over UDP and TCP, login on port 80, port 443 answers"

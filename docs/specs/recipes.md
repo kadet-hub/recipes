@@ -282,6 +282,48 @@ considered. `valkey` would then run without a client and still require
 its password, and no request of the smoke test could need both services
 (RCP-39).
 
+DEC-28: `pihole` takes its compose file from the code block in `README.md`
+of pi-hole/docker-pi-hole, and its `Source` line names that README
+(Pi-hole). The repository ships no other compose file for Pi-hole alone.
+`examples/docker-compose-caddy-proxy.yml` adds Caddy on a network of its
+own with an external volume, and Compose sources stop on both. `check` and
+the registry gate verify only the SHA-256 of the file a `Source` line
+names, so a README pins the compose file as a compose file would. A
+designed recipe on the image was considered. The project ships a compose
+example, which DEC-10 puts first, and its documentation starts from it.
+
+DEC-29: A compose recipe renders nothing for a `cap_add` whose
+capabilities the project's documentation names as optional or as needed
+only for a feature the recipe does not set up (Compose sources). Pi-hole's
+compose example adds `NET_ADMIN`, `SYS_TIME` and `SYS_NICE`. `NET_ADMIN`
+serves only DHCP and IPv6 router advertisements, and DHCP needs Pi-hole on
+the LAN (Pi-hole). `SYS_TIME` lets FTL's NTP client set the clock, which in
+a pod is the node's clock. `SYS_NICE` only raises FTL's priority. Without
+them FTL logs one warning per capability and answers DNS. Rendering them
+was considered. Pod Security `baseline` allows none of the three, so the
+namespace would need `privileged`, and the pod could set the node's clock.
+Stopping on the gap, as RCP-37 did before, would leave Pi-hole without a
+recipe over capabilities that its DNS blocking does not use.
+
+DEC-30: `pihole` renders one Service `pihole` of type `ClusterIP`, with DNS
+on port 53 over both TCP and UDP (Pi-hole). Kubernetes allows both
+protocols on one Service port, as `powerdns` renders it. A Service per
+protocol was considered. Clients would get two names for one DNS server,
+and two LoadBalancer Services get two addresses unless the implementation
+shares one. Exposing the Service, such
+as with `type: LoadBalancer`, is left to the target, because whether a
+load balancer serves TCP and UDP on one address depends on its
+implementation.
+
+DEC-31: `n8n` runs n8n in queue mode, the default of n8n's chart, with the
+included recipe `valkey` as the queue (n8n). n8n-main receives webhook
+calls and the editor's requests and queues each execution, and the
+Deployment `n8n-worker` runs them. Standalone mode, `queueMode.enabled:
+false`, was considered. It would run one Deployment without Valkey, but
+`tests/values.yaml` would then prove a configuration the chart does not
+default to, and a release installed with the chart's defaults would change
+how it runs its executions when the recipe replaces it.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -844,6 +886,7 @@ and the README lists the renames.
 | `env_file` of a file that the pinned repository does not contain | `env` from the example file that the documentation copies to it | `docker compose config` fails without the file. |
 | the SELinux option `z` or `Z` of a bind mount | nothing | It relabels the host directory for the container. On an SELinux node the container runtime labels a pod's volumes. |
 | relative bind mount of a settings directory that the pinned repository does not contain and the image's entrypoint fills from its own template | `config_maps` with the template's settings, `mount` at the target | DEC-23. The README names the template with its SHA-256. |
+| `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -852,7 +895,7 @@ What the table does not map is a gap, and so is each of these:
 | `build` without a published `image` | There is no image to pin |
 | `network_mode` | `host` puts the pod on the node's network, `service:` and `container:` share a network namespace, which only containers of one pod can |
 | bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
-| `privileged`, `cap_add`, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
+| `privileged`, `cap_add` other than above, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
 | `networks` that separate services, `aliases`, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
 | `extends` or `include` of a file outside the pinned repository | The content is not pinned |
 | a named volume of several services | `ReadWriteOnce` cannot be shared across nodes, and kind has no `ReadWriteMany` storage to prove it on |
@@ -869,10 +912,13 @@ What the table does not map is a gap, and so is each of these:
   the image's `HEALTHCHECK`, all for paperless-ngx. Revised in #66: the
   project `name`, an `env_file` the repository does not contain, the
   SELinux option and the settings directory, all for searxng.
+  Revised in #68: `cap_add` of optional capabilities, which was a gap,
+  for pihole (DEC-29).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
-    `name`, missing `env_file`, SELinux option, settings directory: #66
+    `name`, missing `env_file`, SELinux option, settings directory: #66;
+    `cap_add`: #68
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -2289,6 +2335,336 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
   - Test: CI `check` job, report line `smoke`
   - Since: #64
 
+## Semaphore
+
+Semaphore UI runs Ansible playbooks, Terraform and OpenTofu plans and shell
+scripts from a web UI and an API. `semaphore` deploys it from the chart
+`semaphore` 16.2.2 of semaphoreui/charts, Apache-2.0, which Semaphore's
+installation guide names for Kubernetes
+(`docs/admin-guide/installation/k8s.md` of semaphoreui/semaphore-docs). The
+project publishes the chart at `oci://ghcr.io/semaphoreui/charts/semaphore`
+and in the HTTP repository `https://semaphoreui.github.io/charts`. Both
+serve the same archive, and the `Source` line takes the OCI form, as for
+blackbox-exporter.
+
+The chart's `appVersion` is Semaphore 2.18.3. That release is affected by
+two advisories of semaphoreui/semaphore: GHSA-8cj9-r88m-8945, a CSRF on the
+password change endpoint fixed in 2.18.21, and GHSA-cxvf-gvfq-36w2, a
+privilege escalation up to 2.18.12. `tests/values.yaml` therefore sets the
+image `docker.io/semaphoreui/semaphore:v2.19.17`, which the project builds
+for amd64 and arm64 under the MIT license. It was the newest release with
+an image on 2026-11-03. 2.19.18 was released on GitHub the day before, and
+Docker Hub had no image for it. The image does not follow the chart's
+version, so a maintainer moves it by hand (RCP-16).
+
+Semaphore 2.19 has no BoltDB, the chart's default `database.type`. Its
+configuration rejects the dialect with `BoltDB not supported`
+(`util/config.go` of v2.19.17), and the image's `server-wrapper` stops on
+it. Besides `bolt` the chart takes `mysql` and `postgres`. The database is
+therefore the included recipe `postgresql` (DEC-4, DEC-12). The chart's
+`database.existingSecret` reads the keys `username` and `password`, the
+keys of the Secret `<cluster>-app` that CloudNativePG writes.
+`tests/values.yaml` points the chart at `postgresql-cluster-rw`, the
+database `app` and the Secret `postgresql-cluster-app`, and the recipe
+reads these names from `applications.postgresql` (RCP-60). The chart's
+MariaDB and PostgreSQL subcharts are Bitnami's and stay off.
+
+For PostgreSQL the chart passes `sslmode=disable` unless
+`database.options` sets one, so the database password would cross the
+cluster network in clear text. CloudNativePG serves TLS, and
+`tests/values.yaml` sets `sslmode: require`, which encrypts the connection
+without verifying the server's certificate.
+
+The chart generates three Secrets at render time with random values:
+`semaphore-general` with the cookie hash, the cookie encryption key and the
+access key encryption key, `semaphore-runner` with the runner registration
+token, and `semaphore-admin` with the admin account, which `admin.create`
+adds.
+The recipe renders the same Secrets from parameters the target sets
+(RCP-77). The pod template carries the chart's `checksum/*` annotations of
+its ConfigMap and these Secrets, written as `tests/values.yaml` renders
+them (RCP-42). They do not change with the target's values.
+
+`admin.create` adds the init container `admin`, which creates the admin
+account with `semaphore user add` unless the login exists. Without it a new
+Semaphore has no account to log in with. The init container gets the
+server's environment plus the admin account and `SEMAPHORE_SSH_PATH`, in
+the chart's order, and the recipe interpolates each shared variable from
+the server's.
+
+Remote runners stay off, the chart's default `general.useRemoteRunner:
+false`. Semaphore still registers a new runner for any client that presents
+the global registration token (`RegisterRunner` in `api/runners/runners.go`
+of v2.19.17), so the token is a required parameter like the keys. An empty
+token, which switches that off, was considered. The chart always sets one,
+and a token nobody knows keeps runners out as well.
+
+The `kubernetes` generator renders a `securityContext` on every container,
+`{}` where the inventory sets none. `check` accepts the empty context on
+containers but not on init containers (RCP-12), and the chart renders none
+on its init container. `tests/values.yaml` sets
+`podSecurityContext.runAsNonRoot: true`, which the chart puts on both
+containers, and so does the recipe. The image runs as UID 1001, so nothing
+changes for it. An RCP-12 class for init containers was considered. It
+would need a new `check` release before the registry gate accepts the
+recipe (REC-9 there).
+
+The chart's Ingress, LDAP, OIDC, the mail, Telegram and Slack alerts, extra
+Python packages and a custom CA bundle are off by default and not part of
+the recipe. The chart's Helm test `semaphore-test-connection` is left out
+(RCP-25). The recipe is at level `deploys`.
+
+- RCP-77: `semaphore` MUST take the admin account's login and password,
+  the cookie hash, the cookie encryption key, the access key encryption key
+  and the runner registration token from `applications.semaphore.admin.username`,
+  `.admin.password`, `.cookie_hash`, `.cookie_encryption`,
+  `.access_key_encryption` and `.runner_token`, and MUST leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs for all but the login (RCP-19).
+  Semaphore decodes the three keys from base64. The access key encryption
+  key must decode to 16, 24 or 32 bytes (`validateAccessKeyEncryption` in
+  `util/config.go`), and Semaphore encrypts the stored keys and secrets of
+  its projects with it. The init container creates the account only once,
+  so a later change of the password does not reach it.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the six parameters stops with `Interpolation key` and its name
+  - Since: #67
+
+- RCP-78: The `tests/smoke` of `semaphore` MUST log in as the admin account
+  through `/api/auth/login`, read `/api/user` and `/api/projects` with the
+  session, and require that `/api/info` reports the version of the image
+  tag the Deployment runs and remote runners off. It MUST also get
+  `/api/ping` through the endpoints of the Service `semaphore`.
+
+  The login needs the account that the init container wrote into
+  PostgreSQL, and `/api/user` must name it as admin. A wrong password and
+  a request without the session cookie get 401. The smoke test runs no
+  task, because a task needs a repository, an inventory and a key that the
+  recipe does not render.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #67
+
+## Pi-hole
+
+Pi-hole is a DNS server for a home or office network. It answers queries
+for domains on its blocklists with an unroutable address, so ads and
+trackers fail to load on every device that uses it as its resolver. Its
+DNS core FTL also serves the web interface and the API that manage the
+lists. The project publishes no chart. pi-hole/docker-pi-hole, EUPL-1.2,
+builds the image `docker.io/pihole/pihole` and carries its compose example
+as a code block in `README.md` (DEC-28). `pihole` takes the README at
+commit `ffd0a489a633d0f2512818c46fd651ac50789175` of 2026-10-30, the tag
+of release `2026.10.1`, the newest on 2026-11-03, SHA-256
+`003d42d4097951284d6334af39399076490c696711b21f70081953ca3dd5596d`. The
+commit is the `org.opencontainers.image.revision` of the image
+`2026.10.1`, which `latest` pointed to on 2026-11-03, with Pi-hole Core
+v6.5, Web v6.6.1 and FTL v6.8. The recipe takes from the image what it
+dictates, such as variable names, ports, paths and its `HEALTHCHECK`
+command, and copies no other text, as DEC-16 reads it for a copyleft chart.
+
+The example's one service becomes the StatefulSet `pihole`. Its relative
+bind mount `./etc-pihole`, which the repository does not contain, becomes
+the claim `etc-pihole` at `/etc/pihole` (DEC-21). The published ports, DNS
+on 53 over TCP and UDP, HTTP on 80 and HTTPS on 443, become the Service
+`pihole` (DEC-30). FTL serves HTTPS with a self-signed certificate it
+generates. `FTLCONF_dns_listeningMode: ALL`, which the example sets for
+Docker's bridge network, lets FTL answer clients outside the pod's own
+subnet, such as pods on other nodes.
+
+The image starts as root and runs FTL as the user `pihole`, UID 1000. Its
+start script gives FTL each capability FTL uses that the container has.
+Without `cap_add` these are `CHOWN`, `NET_BIND_SERVICE` and `NET_RAW` of
+the runtime's defaults (DEC-29). The target's namespace needs the Pod
+Security level `baseline`. At its first start the image downloads its
+default blocklist, the hosts file of StevenBlack/hosts on
+raw.githubusercontent.com, into the claim, and a cron job in the container
+updates it weekly.
+
+Pi-hole's DHCP server is not set up. The example leaves its port 67/udp
+commented out, and the server needs `NET_ADMIN`. DHCP broadcasts do not
+cross into a container's network, so Pi-hole's documentation runs DHCP
+with host networking, a macvlan network or a DHCP relay
+(`docs/docker/DHCP.md` of pi-hole/docs). Host networking is `network_mode`,
+a gap of Compose sources. The NTP server that FTL starts on port 123/udp is
+not published either, as in the example.
+
+- RCP-80: The `Source` line of `pihole` MUST name `README.md` of
+  pi-hole/docker-pi-hole at the commit the image's tag was built from, with
+  the README's SHA-256.
+
+  `check` fetches the README at that commit and fails on another SHA-256
+  (RCP-23). The commit is the image's `org.opencontainers.image.revision`.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    the image's label
+  - Since: #68
+
+- RCP-81: `pihole` MUST set `FTLCONF_webserver_api_password` from the
+  Secret `pihole`, whose value is `applications.pihole.password`, which the
+  recipe leaves unset.
+
+  Without the password the compile stops with
+  `Interpolation key 'applications.pihole.password' not found` (RCP-19,
+  RCP-40). Unset, the image would assign a random password and print it to
+  the log.
+
+  - Test: `check pihole`; manual: compile of `tests/target.yml` without
+    the password
+  - Since: #68
+
+### Proof
+
+`pihole` is at level `deploys`. `tests/target.yml` sets the example's
+password and points Pi-hole's upstream at the cluster's DNS,
+`kube-dns.kube-system.svc.cluster.local`. The image's default upstreams
+are Google's resolvers `8.8.8.8` and `8.8.4.4`, which a network may not
+let a pod reach.
+
+- RCP-82: The `tests/smoke` of `pihole` MUST, from a pod of its own and
+  through the Service `pihole`, resolve `example.com` over UDP and over
+  TCP, log in at `/api/auth` on port 80 with the password of the Secret
+  `pihole`, get 401 there with another password, get an answer on port
+  443, deny a domain through the API, and then get `0.0.0.0` for that
+  domain over UDP and over TCP.
+
+  The test pod runs Pi-hole's image, which carries `dig` and `curl`.
+  `0.0.0.0` is the answer of FTL's default blocking mode `NULL`. The domain
+  lies under the reserved TLD `.example`, so it is NXDOMAIN until it is
+  denied, and the check does not depend on the blocklist download. FTL
+  answers the API before it reloads its lists (`src/api/list.c` of FTL
+  v6.8), so the smoke test asks again for up to 20 seconds.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #68
+
+## n8n
+
+n8n is a workflow automation tool. A workflow starts from a trigger, such
+as a webhook call or a schedule, and runs nodes that call web services,
+databases and scripts. `n8n` deploys it from the chart `n8n` 1.18.0 of
+n8n-io/n8n-hosting, which n8n publishes at
+`oci://ghcr.io/n8n-io/n8n-helm-chart/n8n` and describes as its official
+chart. On 2026-11-03 the repository's newest release was 1.18.0 of
+2026-10-28. Next to it was the release candidate 2.0.0-rc.1 of 2026-10-27,
+which the recipe does not take.
+
+The chart is MIT. n8n is under the Sustainable Use License 1.0, which
+allows use and changes of n8n only for internal business purposes and for
+non-commercial or personal use. Files with `.ee.` in their name need an n8n
+Enterprise License (`LICENSE.md` of n8n-io/n8n). The OSI does not approve
+the license as open source. This spec and the registry do not restrict the
+license of an upstream image: `mongodb` runs MongoDB's SSPL-1.0 image, and
+the registry matches `policy/licenses.txt` only against the `LICENSE` of
+the repository a recipe comes from (REC-4 there). The recipe ships no n8n
+code and names the image only, so it is Apache-2.0 like every recipe here.
+Its README names n8n's license for the user who runs the image.
+
+### The image
+
+The chart's `appVersion` is n8n 2.45.5, and its default image
+`docker.n8n.io/n8nio/n8n`. docker.n8n.io sends clients to Docker Hub for
+their tokens and serves Docker Hub's repository `n8nio/n8n`. On 2026-11-03
+it answered every anonymous request with 429 and `ratelimit-remaining: 0`,
+while Docker Hub served the same tag to the same client with 99 of 100
+pulls left. This suggests, without confirmation from n8n, that all
+clients of docker.n8n.io share one anonymous quota. `tests/values.yaml`
+therefore sets `image.repository: docker.io/n8nio/n8n`, and the recipe
+pins that tag's index for amd64 and arm64. Keeping docker.n8n.io was
+considered. Every
+proof of `check` would then depend on a quota that other users of
+docker.n8n.io use up.
+
+Every advisory of n8n-io/n8n published by 2026-11-03 that reaches the 2.x
+line names 2.45.5 or an earlier 2.x release as fixed, except
+GHSA-365g-vjw2-grx8. That one covers every release: the Execute Command
+node runs commands in the container for any user who may edit workflows.
+n8n 2.45.5 does not load the node unless `NODES_EXCLUDE` is changed
+(`packages/@n8n/config/src/configs/nodes.config.ts`), and the chart leaves
+it alone. The recipe therefore runs the chart's version.
+
+### Database and queue
+
+The database is the included recipe `postgresql` (DEC-4, DEC-12). The
+chart takes the host, the database and the user as values, and the
+password from `database.passwordSecret`. `tests/values.yaml` points them at
+`postgresql-cluster-rw`, `app`, `app` and the key `password` of the Secret
+`postgresql-cluster-app` that CloudNativePG writes, and the recipe reads
+these names from `applications.postgresql` (RCP-60). Without
+`database.ssl.enabled` n8n connects without TLS. With it alone, n8n checks
+the server's certificate against the CAs of Node.js, which do not include
+CloudNativePG's own CA. `tests/values.yaml` sets `ssl.enabled: true` and
+`ssl.rejectUnauthorized: false`, which encrypts the connection without
+verifying the certificate, as `semaphore` does with `sslmode=require`.
+Verifying against the CA in the Secret `postgresql-cluster-ca` was
+considered. That Secret is the operator's, and `postgresql` does not name
+it as a Secret its users read (DEC-12).
+
+The queue is the included recipe `valkey` (DEC-31). `tests/values.yaml`
+points `redis.host` at the Service `valkey` and `redis.passwordSecret` at
+the key `default-password` of the Secret `valkey-auth`, with which n8n
+authenticates as Valkey's user `default`. Two workers with a concurrency of
+10, the chart's `queueMode.workerReplicaCount` and `workerConcurrency`,
+stay as the chart sets them. Webhook processors, multi-main and task
+runners are off by default and not part of the recipe. Multi-main needs an
+n8n Enterprise license.
+
+### Secrets and the rest of the chart
+
+The chart renders the Secret `n8n` with `N8N_ENCRYPTION_KEY`, `N8N_HOST`,
+`N8N_PORT` and `N8N_PROTOCOL`, and stops on the placeholder key of its
+`values.yaml`. n8n encrypts the credentials that workflows use with the
+key before it stores them in PostgreSQL. The chart also renders the Secret
+`n8n-task-runners` with a token it generates at render time, also when
+task runners are off and no container reads it. `tests/values.yaml` names
+that Secret in `taskRunners.authToken.existingSecret`, so the chart renders
+none, and neither does the recipe. Rendering it from a parameter was
+considered. Every target would then set a token that nothing reads.
+
+The chart binds its Role `n8n`, which reads every ConfigMap and Secret of
+the namespace, to the ServiceAccount `n8n` of both Deployments, and the
+recipe grants the same (RCP-11). The home directory of n8n-main is an
+emptyDir, the chart's default without `persistence.enabled`. The pod
+templates carry the chart's `checksum/config` and `checksum/secret` as
+`tests/values.yaml` renders them (RCP-42). The ConfigMap `n8n` sets
+`N8N_DEPLOYMENT_ARTIFACT` to `helm-chart/1.18.0`, which n8n reports to its
+telemetry, as the chart renders it. The chart's Helm test
+`n8n-test-connection` is left out (RCP-25). The recipe is at level
+`deploys`.
+
+- RCP-85: `n8n` MUST take `N8N_ENCRYPTION_KEY` from
+  `applications.n8n.encryption_key` and MUST leave it unset.
+
+  The compile then stops with
+  `Interpolation key 'applications.n8n.encryption_key' not found` until
+  the target sets it, as a ref (RCP-19, RCP-40). With another key n8n
+  cannot decrypt the credentials it stored before.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    the key stops with `Interpolation key` and its name
+  - Since: #69
+
+- RCP-86: The `tests/smoke` of `n8n` MUST get `ok` from `/healthz` and
+  `/healthz/readiness` of n8n-main through its Service and from
+  `/healthz/readiness` of each worker pod. It MUST set up the owner account
+  through `/rest/owner/setup` and log in through `/rest/login`, then
+  activate a workflow with a production webhook and require that the
+  webhook answers with the query it was called with. After a restart of
+  n8n-main it MUST log in and get the webhook's answer again.
+
+  A worker reports ready only with its connections to PostgreSQL and to
+  Valkey (`readiness` in `packages/cli/src/scaling/worker-server.ts` of
+  n8n 2.45.5). In queue mode n8n-main queues every execution in Valkey
+  instead of running it (`packages/cli/src/workflow-runner.ts`), so the
+  webhook's answer comes from a worker. The restarted n8n-main starts on an
+  empty home directory, so the owner and the active workflow come from
+  PostgreSQL.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #69
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3023,6 +3399,18 @@ feature's design (OQ-6).
   smoke test finds the link token in Valkey. `tests/target.yml` without
   `applications.searxng.secret_key` stops the compile with
   `Interpolation key 'applications.searxng.secret_key' not found`.
+- AC-32 (RCP-37, RCP-80 to RCP-82): `check pihole --level deploys` passes
+  in CI on each Kubernetes minor, and its smoke test gets `0.0.0.0` for
+  the denied domain over UDP and over TCP. `tests/target.yml` without
+  `applications.pihole.password` stops the compile with
+  `Interpolation key 'applications.pihole.password' not found`.
+- AC-35 (RCP-85, RCP-86): `check n8n --level deploys` passes in CI on each
+  Kubernetes minor, its report lists the objects of `postgresql` and
+  `valkey` as included and `cnpg` as installed, and its smoke test gets the
+  webhook's answer before and after the restart of n8n-main.
+  `tests/target.yml` without `applications.n8n.encryption_key` stops the
+  compile with `Interpolation key 'applications.n8n.encryption_key' not
+  found`.
 
 ## Open questions
 
@@ -3109,4 +3497,7 @@ feature's design (OQ-6).
 | blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
+| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |
+| pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.9.0, level `deploys` (RCP-80 to RCP-82) |
+| n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-85, RCP-86) |
 | jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-76) |

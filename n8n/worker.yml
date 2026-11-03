@@ -1,0 +1,70 @@
+parameters:
+  components:
+    n8n-worker:
+      application: n8n
+      replicas: 2
+      command:
+        - n8n
+      args:
+        mode: worker
+        concurrency: --concurrency=10
+      # The variables of n8n-main that the chart gives the worker too, in
+      # the chart's order.
+      env:
+        TZ: ${components.n8n-main.env.TZ}
+        N8N_DEPLOYMENT_ARTIFACT: ${components.n8n-main.env.N8N_DEPLOYMENT_ARTIFACT}
+        DB_TYPE: ${components.n8n-main.env.DB_TYPE}
+        DB_POSTGRESDB_DATABASE: ${components.n8n-main.env.DB_POSTGRESDB_DATABASE}
+        DB_POSTGRESDB_HOST: ${components.n8n-main.env.DB_POSTGRESDB_HOST}
+        DB_POSTGRESDB_PORT: ${components.n8n-main.env.DB_POSTGRESDB_PORT}
+        DB_POSTGRESDB_USER: ${components.n8n-main.env.DB_POSTGRESDB_USER}
+        DB_POSTGRESDB_SCHEMA: ${components.n8n-main.env.DB_POSTGRESDB_SCHEMA}
+        DB_POSTGRESDB_SSL_ENABLED: ${components.n8n-main.env.DB_POSTGRESDB_SSL_ENABLED}
+        DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED: ${components.n8n-main.env.DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED}
+        EXECUTIONS_MODE: ${components.n8n-main.env.EXECUTIONS_MODE}
+        OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: ${components.n8n-main.env.OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS}
+        QUEUE_BULL_REDIS_HOST: ${components.n8n-main.env.QUEUE_BULL_REDIS_HOST}
+        QUEUE_BULL_REDIS_PORT: ${components.n8n-main.env.QUEUE_BULL_REDIS_PORT}
+        QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD: ${components.n8n-main.env.QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD}
+        QUEUE_WORKER_LOCK_DURATION: ${components.n8n-main.env.QUEUE_WORKER_LOCK_DURATION}
+        QUEUE_WORKER_LOCK_RENEW_TIME: ${components.n8n-main.env.QUEUE_WORKER_LOCK_RENEW_TIME}
+        QUEUE_WORKER_STALLED_INTERVAL: ${components.n8n-main.env.QUEUE_WORKER_STALLED_INTERVAL}
+        QUEUE_WORKER_MAX_STALLED_COUNT: ${components.n8n-main.env.QUEUE_WORKER_MAX_STALLED_COUNT}
+        N8N_GRACEFUL_SHUTDOWN_TIMEOUT: ${components.n8n-main.env.N8N_GRACEFUL_SHUTDOWN_TIMEOUT}
+        DB_POSTGRESDB_PASSWORD: ${components.n8n-main.env.DB_POSTGRESDB_PASSWORD}
+        QUEUE_BULL_REDIS_PASSWORD: ${components.n8n-main.env.QUEUE_BULL_REDIS_PASSWORD}
+        # The worker's health endpoints, which its probes call.
+        QUEUE_HEALTH_CHECK_ACTIVE: "true"
+        QUEUE_HEALTH_CHECK_PORT: 5678
+        EXECUTIONS_TIMEOUT_MAX: ${components.n8n-main.env.EXECUTIONS_TIMEOUT_MAX}
+        EXECUTIONS_DATA_SAVE_ON_ERROR: ${components.n8n-main.env.EXECUTIONS_DATA_SAVE_ON_ERROR}
+        EXECUTIONS_DATA_SAVE_ON_SUCCESS: ${components.n8n-main.env.EXECUTIONS_DATA_SAVE_ON_SUCCESS}
+        EXECUTIONS_DATA_SAVE_ON_PROGRESS: ${components.n8n-main.env.EXECUTIONS_DATA_SAVE_ON_PROGRESS}
+        EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: ${components.n8n-main.env.EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS}
+        EXECUTIONS_DATA_PRUNE: ${components.n8n-main.env.EXECUTIONS_DATA_PRUNE}
+        EXECUTIONS_DATA_MAX_AGE: ${components.n8n-main.env.EXECUTIONS_DATA_MAX_AGE}
+        EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${components.n8n-main.env.EXECUTIONS_DATA_PRUNE_MAX_COUNT}
+        EXECUTIONS_DATA_HARD_DELETE_BUFFER: ${components.n8n-main.env.EXECUTIONS_DATA_HARD_DELETE_BUFFER}
+        EXECUTIONS_DATA_PRUNE_HARD_DELETE_INTERVAL: ${components.n8n-main.env.EXECUTIONS_DATA_PRUNE_HARD_DELETE_INTERVAL}
+        EXECUTIONS_DATA_PRUNE_SOFT_DELETE_INTERVAL: ${components.n8n-main.env.EXECUTIONS_DATA_PRUNE_SOFT_DELETE_INTERVAL}
+        N8N_ENCRYPTION_KEY: ${components.n8n-main.env.N8N_ENCRYPTION_KEY}
+      healthcheck:
+        startup:
+          type: http
+          port: ${components.n8n-worker.env.QUEUE_HEALTH_CHECK_PORT}
+          path: /healthz
+          failure_threshold: 30
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: ${components.n8n-worker.env.QUEUE_HEALTH_CHECK_PORT}
+          path: /healthz/readiness
+          initial_delay_seconds: 30
+          timeout_seconds: 3
+          failure_threshold: 6
+        liveness:
+          type: http
+          port: ${components.n8n-worker.env.QUEUE_HEALTH_CHECK_PORT}
+          path: /healthz
+          initial_delay_seconds: 60
+          period_seconds: 30

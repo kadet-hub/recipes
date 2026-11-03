@@ -1,0 +1,21 @@
+classes:
+  - recipes.semaphore
+parameters:
+  namespace: semaphore
+  kapitan:
+    vars:
+      target: semaphore
+  # The values tests/values.yaml gives the chart, as Semaphore reads them.
+  # The three keys are base64 of 32 bytes.
+  applications:
+    semaphore:
+      admin:
+        username: admin
+        password: smoke-password
+      cookie_hash: c21va2UtY29va2llLWhhc2gtMzItYnl0ZXMtMDAwMDE=
+      cookie_encryption: c21va2UtY29va2llLWVuY3J5cHRpb24tMzJieXRlczE=
+      access_key_encryption: c21va2UtYWNjZXNzLWtleS1lbmNyeXB0aW9uLTAwMDE=
+      runner_token: smoke-runner-token
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

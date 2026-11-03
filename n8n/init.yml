@@ -1,0 +1,62 @@
+classes:
+  - recipes.postgresql
+  - recipes.valkey
+  - .main
+  - .worker
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    n8n:
+      # The target sets encryption_key.
+      # N8N_PORT, a string because the Secret holds it.
+      port: "5678"
+      component_defaults:
+        image: docker.io/n8nio/n8n:2.45.5@sha256:9f6d0a5987ab5a297c4b0b38fbf1a22285dd1364551478e93f03d506908fa74c
+        revision_history_limit: 3
+        grace_period: 60
+        # The chart leaves the token at the API default, true.
+        automount_service_account_token: true
+        service_account:
+          enabled: true
+          name: n8n
+        workload_security_context:
+          fsGroup: 1000
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        security_context:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        lifecycle:
+          preStop:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - sleep 10
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        # The chart's hashes of its ConfigMap and Secret as tests/values.yaml
+        # renders them. They do not follow a change of the recipe or the target.
+        pod_annotations:
+          checksum/config: 7c23807c7b203af4b10c152bc58451b7a808cebaaddd564fd756672bff4d4203
+          checksum/secret: d93a1a97e8e754205a59d17b95052d1b58499f38ac9869dc402722801b61c4ed

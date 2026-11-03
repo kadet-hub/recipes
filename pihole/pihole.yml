@@ -1,0 +1,51 @@
+parameters:
+  components:
+    pihole:
+      application: pihole
+      type: statefulset
+      image: docker.io/pihole/pihole:2026.10.1@sha256:30f803ad5dd60ff96cc0a63008a2e9271af481c1b0399a182192b2e91152c1f9
+      # One Service with DNS over TCP and UDP on port 53 (DEC-30).
+      ports:
+        dns-tcp:
+          service_port: 53
+        dns-udp:
+          service_port: 53
+          protocol: UDP
+        http:
+          service_port: 80
+        https:
+          service_port: 443
+      service:
+        type: ClusterIP
+      env:
+        TZ: Europe/London
+        FTLCONF_webserver_api_password:
+          secretKeyRef:
+            key: FTLCONF_webserver_api_password
+        FTLCONF_dns_listeningMode: ALL
+      secrets:
+        credentials:
+          string_data:
+            FTLCONF_webserver_api_password:
+              value: ${applications.pihole.password}
+      # The image's HEALTHCHECK, which compose runs, with compose's defaults.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - dig -p $(pihole-FTL --config dns.port) +short +norecurse +retry=0 @127.0.0.1 pi.hole || exit 1
+          period_seconds: 30
+          timeout_seconds: 30
+      volume_mounts:
+        etc-pihole:
+          mount_path: /etc/pihole
+      volume_claims:
+        etc-pihole:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
