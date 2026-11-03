@@ -52,6 +52,17 @@ class Lint(unittest.TestCase):
         errors = self.errors_with(f"parameters:\n  applications:\n    cert-manager:\n      rule: {rule}\n")
         self.assertIn("broken.yml:4: flow style on a line longer than 80 characters (RCP-4)", errors)
 
+    def test_anchor_and_alias(self):
+        errors = self.errors_with(
+            "parameters:\n  applications:\n    cert-manager:\n      a: &probe\n        port: 1\n      b: *probe\n"
+        )
+        self.assertIn("broken.yml:4: YAML anchor &probe (RCP-4a)", errors)
+        self.assertIn("broken.yml:6: YAML alias *probe (RCP-4a)", errors)
+
+    def test_merge_key(self):
+        errors = self.errors_with("parameters:\n  applications:\n    cert-manager:\n      <<: {port: 1}\n")
+        self.assertIn("broken.yml:4: YAML merge key << (RCP-4a)", errors)
+
     def test_image_without_digest(self):
         deployment = {
             "kind": "Deployment",

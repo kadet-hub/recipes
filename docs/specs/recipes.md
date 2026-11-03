@@ -342,6 +342,18 @@ belong in the recipe.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #2
 
+- RCP-4a: YAML in a recipe MUST NOT use anchors (`&name`), aliases
+  (`*name`) or merge keys (`<<`). Repeated values are written out. The
+  rule covers the class files of RCP-36 and the files below `tests/`.
+
+  A reader of an alias has to find its anchor to know the value, and a
+  change to the anchor changes every place that uses it without showing
+  up there in the diff. kadet-hub writes no anchors in any of its
+  repositories.
+
+  - Test: `check lint`; `check/tests/test_lint.py::test_anchor_and_alias`
+  - Since: #65
+
 - RCP-43: A recipe on the `kubernetes` generator 1.7.0 or later MUST
   write `args` as a mapping, in a component and in its
   `additional_containers` and `init_containers`. `check lint` MUST warn

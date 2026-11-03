@@ -46,7 +46,7 @@ parameters:
         http:
           container_port: 80
       healthcheck:
-        liveness: &probe
+        liveness:
           type: http
           port: 80
           path: /status.php
@@ -54,7 +54,14 @@ parameters:
             - name: Host
               value: ${applications.nextcloud.host}
           initial_delay_seconds: 10
-        readiness: *probe
+        readiness:
+          type: http
+          port: 80
+          path: /status.php
+          httpHeaders:
+            - name: Host
+              value: ${applications.nextcloud.host}
+          initial_delay_seconds: 10
         # The chart's startupProbe: the image installs only on its first start.
         startup:
           type: http
@@ -160,7 +167,7 @@ parameters:
                 carddav:
                   type: Exact
                   value: /.well-known/carddav
-              redirect: &dav
+              redirect:
                 replace_full_path: /remote.php/dav
                 status_code: 301
             caldav:
@@ -168,7 +175,9 @@ parameters:
                 caldav:
                   type: Exact
                   value: /.well-known/caldav
-              redirect: *dav
+              redirect:
+                replace_full_path: /remote.php/dav
+                status_code: 301
             nextcloud:
               matches:
                 root:

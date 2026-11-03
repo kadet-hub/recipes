@@ -160,7 +160,7 @@ parameters:
                 - rbac.authorization.k8s.io
               resources:
                 - rolebindings
-              verbs: &manage
+              verbs:
                 - get
                 - list
                 - watch
@@ -172,7 +172,14 @@ parameters:
                 - rbac.authorization.k8s.io
               resources:
                 - roles
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - ""
               resources:
@@ -183,7 +190,14 @@ parameters:
                 - endpoints
                 - secrets
                 - persistentvolumeclaims
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - ""
               resources:
@@ -202,7 +216,14 @@ parameters:
               resources:
                 - deployments
                 - replicasets
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - apps
               resources:
@@ -223,19 +244,40 @@ parameters:
                 - buildconfigs
                 - buildconfigs/instantiate
                 - builds
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - networking.k8s.io
               resources:
                 - networkpolicies
                 - ingresses
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - route.openshift.io
               resources:
                 - routes
                 - routes/custom-host
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - image.openshift.io
               resources:
@@ -246,12 +288,26 @@ parameters:
                 - policy
               resources:
                 - poddisruptionbudgets
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - gateway.networking.k8s.io
               resources:
                 - tlsroutes
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - cert-manager.io
               resources:
@@ -271,7 +327,14 @@ parameters:
                 - rbac.authorization.k8s.io
               resources:
                 - clusterrolebindings
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - storage.k8s.io
               resources:
@@ -346,7 +409,7 @@ parameters:
                 - kafkabridges/status
                 - kafkamirrormaker2s/status
                 - kafkarebalances/status
-              verbs: &status
+              verbs:
                 - get
                 - patch
                 - update
@@ -366,12 +429,22 @@ parameters:
                 - core.strimzi.io
               resources:
                 - strimzipodsets
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
             - apiGroups:
                 - core.strimzi.io
               resources:
                 - strimzipodsets/status
-              verbs: *status
+              verbs:
+                - get
+                - patch
+                - update
             - apiGroups:
                 - core.strimzi.io
               resources:
@@ -390,8 +463,7 @@ parameters:
           cluster_wide: true
           service_accounts: ${applications.strimzi.service_accounts}
           rules:
-            - &get_nodes
-              apiGroups:
+            - apiGroups:
                 - ""
               resources:
                 - nodes
@@ -429,7 +501,10 @@ parameters:
               resources:
                 - kafkatopics/status
                 - kafkausers/status
-              verbs: *status
+              verbs:
+                - get
+                - patch
+                - update
             - apiGroups:
                 - kafka.strimzi.io
               resources:
@@ -441,9 +516,21 @@ parameters:
                 - ""
               resources:
                 - secrets
-              verbs: *manage
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
         strimzi-kafka-client:
           cluster_wide: true
           service_accounts: ${applications.strimzi.service_accounts}
           rules:
-            - *get_nodes
+            - apiGroups:
+                - ""
+              resources:
+                - nodes
+              verbs:
+                - get
