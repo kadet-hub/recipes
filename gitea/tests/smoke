@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# RCP-91: /api/healthz reports pass for the database and the cache, and
+# /api/v1/version the version of the image tag. The admin of gitea-admin
+# creates a repository through the API. A pod clones it over HTTP through the
+# Service gitea-http, pushes one commit, and the API reads the commit and the
+# file back. Valkey then holds Gitea's keys.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+health=$(kubectl get --raw "/api/v1/namespaces/$ns/services/gitea-http:http/proxy/api/healthz")
+# Gitea runs the two checks only once installed (INSTALL_LOCK).
+jq -e '.status == "pass" and .checks["database:ping"][0].status == "pass" and .checks["cache:ping"][0].status == "pass"' <<<"$health" >/dev/null || {
+  echo "$health" >&2
+  exit 1
+}
+image=$(kubectl get deployment gitea -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image%@*}
+tag=${tag##*:}
+version=${tag%-rootless}
+
+kubectl port-forward service/gitea-http 13000:3000 >/dev/null &
+trap 'kill $!; kubectl delete pod gitea-smoke --ignore-not-found --wait=false >/dev/null' EXIT
+url=http://127.0.0.1:13000/api/v1
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$url/version" 2>/dev/null && break
+  sleep 2
+done
+user=$(kubectl get secret gitea-admin -o jsonpath='{.data.username}' | base64 -d)
+password=$(kubectl get secret gitea-admin -o jsonpath='{.data.password}' | base64 -d)
+api() { curl -fsS -u "$user:$password" -H 'Content-Type: application/json' "$@"; }
+api "$url/version" | jq -e --arg v "$version" '.version == $v' >/dev/null
+api -d '{"name":"smoke"}' "$url/user/repos" | jq -e '.name == "smoke" and .empty' >/dev/null
+
+auth=$(printf '%s:%s' "$user" "$password" | base64 -w0)
+kubectl run gitea-smoke --image="$image" --restart=Never --env="AUTH=$auth" --env="REPO=http://gitea-http:3000/$user/smoke.git" \
+  --command -- sh -euc '
+    export HOME=/tmp
+    cd /tmp
+    git() { command git -c "http.extraHeader=Authorization: Basic $AUTH" "$@"; }
+    git clone -q "$REPO" smoke
+    cd smoke
+    echo smoke >README.md
+    git add README.md
+    git -c user.name=smoke -c user.email=smoke@example.com commit -qm smoke
+    git push -q origin HEAD:main
+    git rev-parse HEAD' >/dev/null
+for _ in $(seq 90); do
+  phase=$(kubectl get pod gitea-smoke -o jsonpath='{.status.phase}')
+  [[ $phase == Succeeded || $phase == Failed ]] && break
+  sleep 2
+done
+logs=$(kubectl logs gitea-smoke)
+[[ $phase == Succeeded ]] || {
+  echo "$logs" >&2
+  exit 1
+}
+commit=$(tail -n1 <<<"$logs")
+api "$url/repos/$user/smoke/branches/main" | jq -e --arg c "$commit" '.commit.id == $c' >/dev/null
+[[ $(api "$url/repos/$user/smoke/raw/README.md?ref=main") == smoke ]]
+
+valkey=$(kubectl get secret valkey-auth -o jsonpath='{.data.default-password}' | base64 -d)
+keys=$(kubectl exec deployment/valkey -c valkey -- valkey-cli --no-auth-warning --user default --pass "$valkey" dbsize)
+((keys > 0))
+echo "/api/healthz pass, /api/v1/version $version, repository smoke created by $user, cloned and pushed $commit over HTTP, read back, $keys keys in Valkey"

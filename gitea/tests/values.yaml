@@ -1,0 +1,63 @@
+# Gitea 28.3.0 on the PostgreSQL of the included recipe postgresql and the
+# Valkey of the included recipe valkey, with the admin account and the
+# security keys of tests/target.yml. The chart's Bitnami subcharts are off.
+image:
+  tag: 28.3.0
+# The generator renders a securityContext on every container. The rootless
+# image runs as UID 1000, so this changes nothing for it.
+containerSecurityContext:
+  runAsNonRoot: true
+postgresql-ha:
+  enabled: false
+valkey-cluster:
+  enabled: false
+gitea:
+  admin:
+    existingSecret: gitea-admin
+  config:
+    database:
+      DB_TYPE: postgres
+      HOST: postgresql-cluster-rw:5432
+      NAME: app
+      SSL_MODE: require
+    security:
+      SECRET_KEY: smoke-secret-key
+      INTERNAL_TOKEN: smoke-internal-token
+    cache:
+      ADAPTER: redis
+    session:
+      PROVIDER: redis
+    queue:
+      TYPE: redis
+  additionalConfigFromEnvs:
+    - name: GITEA__DATABASE__USER
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-cluster-app
+          key: username
+    - name: GITEA__DATABASE__PASSWD
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-cluster-app
+          key: password
+    - name: VALKEY_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: valkey-auth
+          key: default-password
+    - name: GITEA__CACHE__HOST
+      value: redis://:$(VALKEY_PASSWORD)@valkey:6379/0?pool_size=100&idle_timeout=180s
+    - name: GITEA__SESSION__PROVIDER_CONFIG
+      value: redis://:$(VALKEY_PASSWORD)@valkey:6379/0?pool_size=100&idle_timeout=180s
+    - name: GITEA__QUEUE__CONN_STR
+      value: redis://:$(VALKEY_PASSWORD)@valkey:6379/0?pool_size=100&idle_timeout=180s
+# The Secret that gitea.admin.existingSecret names, as a user creates it next
+# to the chart. The recipe renders it from applications.gitea.admin.
+extraDeploy:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: gitea-admin
+    stringData:
+      username: gitea_admin
+      password: smoke-password

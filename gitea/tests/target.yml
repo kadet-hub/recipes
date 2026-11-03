@@ -1,0 +1,20 @@
+classes:
+  - recipes.gitea
+parameters:
+  namespace: gitea
+  kapitan:
+    vars:
+      target: gitea
+  # The values tests/values.yaml gives the chart.
+  applications:
+    gitea:
+      admin:
+        username: gitea_admin
+        password: smoke-password
+      secret_key: smoke-secret-key
+      internal_token: smoke-internal-token
+    valkey:
+      password: smoke-password
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
