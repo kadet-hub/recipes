@@ -10,7 +10,7 @@ user=$(kubectl get secret rabbitmq-default-user -o jsonpath='{.data.username}' |
 password=$(kubectl get secret rabbitmq-default-user -o jsonpath='{.data.password}' | base64 -d)
 kubectl exec -i rabbitmq-server-0 -c rabbitmq -- bash -s "$user" "$password" <<'SH'
 set -euo pipefail
-admin=(rabbitmqadmin --non-interactive -H rabbitmq -P 15672 -u "$1" -p "$2")
+admin=(rabbitmqadmin --non-interactive -H rabbitmq -P 15672 --username="$1" --password="$2")  # = form: the operator's random password can start with -
 "${admin[@]}" declare queue --name recipe-smoke --type quorum
 "${admin[@]}" publish message --routing-key recipe-smoke --payload recipe-check
 "${admin[@]}" get messages --queue recipe-smoke | grep -q recipe-check
