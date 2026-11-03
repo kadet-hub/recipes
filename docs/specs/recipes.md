@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.14.0 implements renders and deploys, for charts
+Status: Draft. check 0.14.1 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -3366,6 +3366,219 @@ runs one replica, as the example does.
   `applications.vaultwarden.domain` or `admin_token` stops the compile
   with `Interpolation key` and that key.
 
+## NetBox
+
+NetBox is a source of truth for network infrastructure. It models sites,
+racks, devices, cables, IP prefixes and addresses, and serves them through
+a web UI, a REST API and GraphQL. `netbox` deploys it from the chart
+`netbox` 8.3.99 of netbox-community/netbox-chart, which the project calls
+its official chart. The project publishes the chart at
+`oci://ghcr.io/netbox-community/netbox-chart/netbox` and in the HTTP
+repository `https://charts.netbox.oss.netboxlabs.com/`. Both serve the same
+archive, SHA-256
+`681766d72479ac9018c544a3c3fa1798f2f3363260192b7bc200e7d306c63103`, and the
+`Source` line takes the OCI form, as for semaphore. 8.3.99 of 2026-11-03
+was the newest release on that day. The chart released six patch versions
+between 2026-10-23 and 2026-11-03, most of them for updates of its
+dependencies, and Renovate moves the `Source` line once a week (RCP-16).
+
+The chart's `appVersion` is NetBox v4.7.4 of 2026-10-27, the newest
+release on 2026-11-03. The chart runs the image
+`ghcr.io/netbox-community/netbox:v4.7.4`, which netbox-community/netbox-docker
+builds. On 2026-11-03 the tag was the same index for amd64 and arm64 as
+`v4.7.4-5.1.1`, netbox-docker's release 5.1.1, and the recipe pins that
+index. Chart, NetBox and
+netbox-docker are Apache-2.0. The ConfigMap `netbox` carries the chart's
+`files/configuration.py` and the `netbox.yaml` its template renders, so
+`netbox.yml` names both and has `netbox.yml.LICENSE` (RCP-42).
+
+### Database, tasks and cache
+
+The chart's subcharts are Bitnami's PostgreSQL and Valkey, both on by
+default. `tests/values.yaml` switches them off. The database is the
+included recipe `postgresql` (DEC-4, DEC-12). `externalDatabase` points
+NetBox at `postgresql-cluster-rw`, the database `app` and the user `app`,
+and its `existingSecretName` at the key `password` of the Secret
+`postgresql-cluster-app`, so the chart renders no Secret of its own for the
+password. The recipe reads these names from `applications.postgresql`
+(RCP-60). The chart's `sslmode` is `prefer`, which falls back to a plain
+connection when TLS fails. CloudNativePG serves TLS, and
+`tests/values.yaml` sets `require`, which encrypts without verifying the
+server's certificate, as `semaphore` does.
+
+NetBox keeps its task queue and its cache in Redis, each as a database of
+its own. Both point at the included recipe `valkey`: `tasksDatabase` at
+database 0 and `cachingDatabase` at database 1 of the Service `valkey`, each
+with the key `default-password` of the Secret `valkey-auth`, with which
+NetBox authenticates as Valkey's user `default`. The chart then renders no
+Secret `netbox-kv`.
+
+### Secrets and the superuser
+
+The chart renders the Secret `netbox-config` with `secret_key`,
+`api_token_peppers` and `email_password`, and the Secret `netbox-superuser`
+of type `kubernetes.io/basic-auth` with `username`, `password`, `email` and
+`api_token`. It generates the key, a pepper, the password and the token at
+render time when the values leave them empty. `configuration.py` reads
+every secret from a file below `/run/secrets/netbox`, which a projected
+volume of both Secrets and those of the included recipes provides.
+
+The entrypoint of the image runs NetBox's migrations and then
+`super_user.py` on every start of the container `netbox`
+(`docker/docker-entrypoint.sh` of netbox-docker 5.1.1). The script creates
+the superuser from `SUPERUSER_NAME`, `SUPERUSER_EMAIL` and the file
+`/run/secrets/superuser_password` only when no user of that name exists.
+It creates an API token only from `superuser_api_token` together with
+`superuser_api_key`, which the chart does not mount, so the chart's
+generated token is never read.
+
+`API_TOKEN_PEPPERS` maps a pepper ID to a string of at least 50
+characters, with which NetBox hashes v2 API tokens. NetBox runs without
+it, but then creates no v2 token (`docs/configuration/required-parameters.md`
+of NetBox v4.7.4). v1 tokens are deprecated since v4.6. The chart writes
+the peppers as a JSON object, and `configuration.py` converts its keys to
+integers.
+
+DEC-85: `netbox` requires the superuser's name, address and password,
+`SECRET_KEY` and the pepper as parameters (RCP-140). The chart generates
+the password, the key and the pepper at render time, which a recipe turns
+into parameters the target sets as refs (RCP-19). The chart's defaults
+`admin` and `admin@example.com` for the name and the address were
+considered. The address is a placeholder that no mail reaches. The name
+of the only account NetBox creates belongs in the target next to its
+password.
+
+DEC-86: `netbox` takes one pepper, ID 1, from
+`applications.netbox.api_token_pepper` and renders it as
+`{"1": "<pepper>"}` into `api_token_peppers`, the object the chart
+generates. A parameter for the whole JSON object was considered. A target
+would then write JSON around a ref, and the omegaconf backend has no
+built-in resolver that turns a mapping into JSON. A second pepper, to
+rotate the hashes, is a change of the Secret's value in the target, which
+the README shows.
+
+DEC-87: `netbox` renders the key `api_token` of `netbox-superuser` with an
+empty value. The projected volume names the key, so the Secret needs it.
+Rendering it from a parameter was considered. Every target would then set
+a token that netbox-docker 5.1.1 does not read. `n8n` leaves out its task
+runners' token for the same reason. `email_password` keeps the chart's
+empty default.
+
+### Workloads
+
+The Deployment `netbox` runs NetBox under granian on port 8080, behind the
+Service `netbox` on port 80. Its init container `init-dirs` runs busybox
+1.38.0 and creates two directories on an emptyDir, and NetBox keeps
+uploaded images and attachments on the claim `netbox-media`, 1Gi with
+`ReadWriteOnce`. The chart's probes get `/login/` and connect to port 8080,
+and its `resourcesPreset` `medium` and `nano` become the containers'
+resources.
+
+The Deployment `netbox-worker` runs `manage.py rqworker`, which schedules
+NetBox's system jobs and runs the jobs of the queues `high`, `default` and
+`low` (`netbox/core/management/commands/rqworker.py` of v4.7.4). Its init
+container `wait-for-backend` runs `rancher/kubectl` v1.36.2 and waits for
+the rollout of `netbox`, so the worker starts on a migrated database. It
+reads the Deployment through the Role `netbox`, which the chart binds to
+the ServiceAccount `netbox` of both Deployments, and only the worker's pod
+mounts the token. The recipe grants the same (RCP-11). The worker mounts
+the media claim as well, so with `ReadWriteOnce` it runs on NetBox's node.
+
+The chart's housekeeping CronJob is off by default. Its `values.yaml`
+calls it useful only before NetBox v4.6, which runs housekeeping as a
+system job of the worker. The Ingress, the HTTPRoute, LDAP, metrics with
+their ServiceMonitors, PodDisruptionBudgets, autoscalers, `extraConfig`
+and the claims for reports and scripts are off by default and not part of
+the recipe either. The pod templates carry the chart's `checksum/config`
+and `checksum/secret` as `tests/values.yaml` renders them (RCP-42). The
+chart's only hook is its Helm test `netbox-test-connection`, which is left
+out (RCP-25).
+
+### Proof
+
+`netbox` is at level `deploys`. `tests/target.yml` runs one PostgreSQL
+instance.
+
+NetBox migrates its empty database on its first start before it answers
+`/login/`. On kind with Kubernetes 1.37.0 the migrations ran for five and
+a half minutes, and the Deployment became available about 470 seconds
+after the apply. The container used 343 CPU seconds, and the chart's CPU
+limit of 750m throttled it for 54 seconds. check 0.14.0 waited 300 seconds
+for each rollout and failed there. Two more runs, on 1.37.0 and 1.35.8
+while other `check` runs used the same host, took about 550 and 570
+seconds. The chart's own startup probe allows 1005 seconds, 5 seconds of
+initial delay and 100 failures 10 seconds apart.
+
+DEC-88: check 0.14.1 waits up to 900 seconds for the rollout of each
+workload at `deploys` (RCP-26). It gives every other command it runs the
+same 900 seconds. The CPU limit makes the start slower on a slower core,
+and a runner's core speed is not measured, so the wait leaves room above
+the 570 seconds. A longer wait delays only a proof that fails, and the CI
+job keeps its limit of 30 minutes. 600 seconds, the
+`progressDeadlineSeconds` that Kubernetes gives a Deployment that sets
+none, was considered and leaves 30 seconds above the slowest run. Level
+`renders` for `netbox` was considered too. It would prove no request
+against NetBox. A higher CPU limit would render other resources than the
+chart, and without the 54 seconds of throttling the start would still have
+taken about seven minutes.
+
+- RCP-140: `netbox` MUST take the superuser's name, address and password,
+  `SECRET_KEY` and the pepper with ID 1 from
+  `applications.netbox.superuser.name`, `.superuser.email`,
+  `.superuser.password`, `.secret_key` and `.api_token_pepper`, and MUST
+  leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs for the password, the key and the
+  pepper (RCP-19, RCP-40). The parent's README names
+  `applications.valkey.password` as well (RCP-51). A later change of the
+  address or the password does not reach the superuser, which exists
+  already, and a new name creates a second superuser. Another key ends
+  every session, and another pepper invalidates the v2 tokens hashed with
+  the old one.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the five parameters stops with `Interpolation key` and its name
+  - Since: tbd
+
+- RCP-141: `netbox` MUST point NetBox at the Service, the database and the
+  Secret of `postgresql` with `sslmode=require`, and its tasks and cache at
+  databases 0 and 1 of the Service `valkey` with the password of
+  `valkey-auth`.
+
+  - Test: `check netbox`; `tests/smoke`
+  - Since: tbd
+
+- RCP-142: The `tests/smoke` of `netbox` MUST get `/login/` and
+  `/api/status/` through the Service `netbox`, and the status MUST report
+  the version of the image tag the Deployment runs and at least one
+  running worker. It MUST provision a token through
+  `/api/users/tokens/provision/` with the superuser's login, get 403 with
+  another token, create a site and a prefix through the API with the token
+  and read both back. It MUST sync a data source through
+  `/api/core/data-sources/<id>/sync/` and require that the job completes
+  and that `/api/core/background-tasks/` reports its task as finished by a
+  worker. Every connection of `app` to PostgreSQL MUST use TLS.
+
+  The status counts the workers registered in Valkey. The token's
+  plaintext is hashed with the pepper, so the token works only with the
+  pepper the target set. The sync runs as a job that NetBox queues in
+  Valkey's database 0 and the worker runs, so the finished task needs the
+  API, Valkey, the worker and PostgreSQL. On kind with the worker scaled
+  to zero the status reported no running worker, and the smoke test
+  failed.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: tbd
+
+- AC-90 (RCP-140 to RCP-142): `check netbox --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `postgresql`
+  and `valkey` as included and `cnpg` as installed, the permissions of the
+  ServiceAccount `netbox` are equal on both sides, and its smoke test
+  reads back the prefix it created and finds the sync finished.
+  `tests/target.yml` without one of the five parameters of RCP-140 stops
+  the compile with `Interpolation key` and that key.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -4216,3 +4429,4 @@ feature's design (OQ-6).
 | immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.9.0, level `deploys` (RCP-103, RCP-104) |
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.9.0, level `deploys` (RCP-95, RCP-96) |
 | vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.9.0, level `deploys` (RCP-110 to RCP-112) |
+| netbox | chart `netbox` 8.3.99 of netbox-community/netbox-chart, NetBox v4.7.4 with its RQ worker, includes postgresql and valkey, pepper ID 1 (DEC-86), `kubernetes` generator 1.9.0, level `deploys` (RCP-140 to RCP-142) |
