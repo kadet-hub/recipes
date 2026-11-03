@@ -1640,7 +1640,7 @@ with `AttributeError`, so the object needs a `check` change first.
 
   - Test: `check postgresql`; manual: a compile of `tests/target.yml`
     without the option
-  - Since: #71; "that statement": this change
+  - Since: #71; "that statement": #73
 
 - RCP-101: The `tests/smoke` of `postgresql` MUST, as the owner through
   `postgresql-cluster-rw`, require that `pg_extension` of the database
@@ -1685,7 +1685,7 @@ lists the two statements in the same order.
 
   - Test: `check postgresql`; CI `check` job, report line `smoke`;
     manual: a compile of `tests/target.yml` without the option
-  - Since: #TBD
+  - Since: #73
 
 - AC-52 (RCP-102): `check postgresql --level deploys` passes in CI on each
   Kubernetes minor, and its smoke test reports `earthdistance`. On a
