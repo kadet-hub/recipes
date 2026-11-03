@@ -1,0 +1,28 @@
+classes:
+  - recipes.searxng
+parameters:
+  namespace: searxng
+  kapitan:
+    vars:
+      target: searxng
+  applications:
+    searxng:
+      secret_key: smoke-secret-key
+    valkey:
+      password: smoke-password
+  components:
+    searxng:
+      config_maps:
+        config:
+          data:
+            # The recipe's settings plus the json format, which the smoke
+            # test searches with.
+            settings.yml:
+              value: |
+                use_default_settings: true
+                server:
+                  image_proxy: true
+                search:
+                  formats:
+                    - html
+                    - json
