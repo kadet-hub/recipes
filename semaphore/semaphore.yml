@@ -1,0 +1,203 @@
+parameters:
+  components:
+    semaphore:
+      application: semaphore
+      image: docker.io/semaphoreui/semaphore:v2.19.17@sha256:008dacd9f1adbd92e8a048f1786ae1dd9bed2a352aca2eb30b9837de5706e7f7
+      update_strategy:
+        type: Recreate
+      env:
+        SEMAPHORE_PORT: ${components.semaphore.ports.http.service_port}
+        SEMAPHORE_GIT_CLIENT: cmd_git
+        SEMAPHORE_TMP_PATH: /tmp/semaphore
+        SEMAPHORE_MAX_PARALLEL_TASKS: "0"
+        SEMAPHORE_PASSWORD_LOGIN_DISABLED: "false"
+        SEMAPHORE_NON_ADMIN_CAN_CREATE_PROJECT: "false"
+        SEMAPHORE_USE_REMOTE_RUNNER: "false"
+        SEMAPHORE_DB_DIALECT: postgres
+        SEMAPHORE_DB_HOST: ${applications.postgresql.cluster}-rw
+        SEMAPHORE_DB_PORT: "5432"
+        SEMAPHORE_DB: ${applications.postgresql.database}
+        SEMAPHORE_DB_USER:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: username
+        SEMAPHORE_DB_PASS:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+        # The chart's default is sslmode disable. CloudNativePG serves TLS.
+        SEMAPHORE_DB_OPTIONS: '{"sslmode":"require"}'
+        SEMAPHORE_LDAP_ENABLE: "false"
+        SEMAPHORE_EMAIL_ALERT: "false"
+        SEMAPHORE_TELEGRAM_ALERT: "false"
+        SEMAPHORE_SLACK_ALERT: "false"
+        SEMAPHORE_RUNNER_REGISTRATION_TOKEN:
+          secretKeyRef:
+            name: semaphore-runner
+            key: token
+        SEMAPHORE_COOKIE_HASH:
+          secretKeyRef:
+            name: semaphore-general
+            key: cookieHash
+        SEMAPHORE_COOKIE_ENCRYPTION:
+          secretKeyRef:
+            name: semaphore-general
+            key: cookieEncryption
+        SEMAPHORE_ACCESS_KEY_ENCRYPTION:
+          secretKeyRef:
+            name: semaphore-general
+            key: accesskeyEncryption
+      ports:
+        http:
+          service_port: 3000
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /
+          timeout_seconds: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi
+      # The chart leaves the token at the API default, true.
+      automount_service_account_token: true
+      service_account:
+        create: true
+        automount_service_account_token: true
+      workload_security_context:
+        fsGroup: 1001
+      # The chart's podSecurityContext, on both containers.
+      security_context:
+        runAsNonRoot: true
+      # The chart's hashes of its ConfigMap and Secrets as tests/values.yaml
+      # renders them. They do not follow a change of the recipe or the target.
+      pod_annotations:
+        checksum/config: 6db2d80fdda45e7be278174345179b6ece77d6ca957902f08bb3ba861921e4a8
+        checksum/secret-admin: 42ff9d09842cef6ace449a25a7540abfdf25581330cd0e3f3fc3e55d13724dfc
+        checksum/secret-general: 338804326f75578833191c813c0de9ac708d5cc1e91e515a39841a5a44967865
+        checksum/secret-runner: 14f457bdc195d526f990d7c0aedee5121801c3642bb44d80fd64f181ae31d4fd
+      volumes:
+        config:
+          configMap:
+            name: semaphore-config
+        workdir:
+          persistentVolumeClaim:
+            claimName: semaphore-workdir
+      volume_mounts:
+        config:
+          mount_path: /etc/semaphore/config.json
+          sub_path: config.json
+        workdir:
+          mount_path: ${components.semaphore.env.SEMAPHORE_TMP_PATH}
+      persistent_volume_claims:
+        semaphore-workdir:
+          storage: 10G
+      # The chart's admin.create: adds the admin account once.
+      init_containers:
+        admin:
+          image: ${components.semaphore.image}
+          # From templates/deployment.yaml of the semaphore chart 16.2.2,
+          # Apache-2.0 (semaphore.yml.LICENSE).
+          command:
+            - sh
+            - -c
+            - |
+              if ! semaphore user get --config=/etc/semaphore/config.json --login $(SEMAPHORE_ADMIN_USERNAME) >/dev/null; then
+                semaphore user add \
+                  --config=/etc/semaphore/config.json \
+                  --admin \
+                  --name=$(SEMAPHORE_ADMIN_FULLNAME) \
+                  --login=$(SEMAPHORE_ADMIN_USERNAME) \
+                  --password=$(SEMAPHORE_ADMIN_PASSWORD) \
+                  --email=$(SEMAPHORE_ADMIN_EMAIL)
+              else
+                echo "Admin already extists"
+              fi
+          env:
+            SEMAPHORE_ADMIN_FULLNAME:
+              secretKeyRef:
+                name: semaphore-admin
+                key: fullname
+            SEMAPHORE_ADMIN_USERNAME:
+              secretKeyRef:
+                name: semaphore-admin
+                key: username
+            SEMAPHORE_ADMIN_PASSWORD:
+              secretKeyRef:
+                name: semaphore-admin
+                key: password
+            SEMAPHORE_ADMIN_EMAIL:
+              secretKeyRef:
+                name: semaphore-admin
+                key: email
+            SEMAPHORE_PORT: ${components.semaphore.env.SEMAPHORE_PORT}
+            SEMAPHORE_GIT_CLIENT: ${components.semaphore.env.SEMAPHORE_GIT_CLIENT}
+            SEMAPHORE_TMP_PATH: ${components.semaphore.env.SEMAPHORE_TMP_PATH}
+            SEMAPHORE_SSH_PATH: ""
+            SEMAPHORE_MAX_PARALLEL_TASKS: ${components.semaphore.env.SEMAPHORE_MAX_PARALLEL_TASKS}
+            SEMAPHORE_PASSWORD_LOGIN_DISABLED: ${components.semaphore.env.SEMAPHORE_PASSWORD_LOGIN_DISABLED}
+            SEMAPHORE_NON_ADMIN_CAN_CREATE_PROJECT: ${components.semaphore.env.SEMAPHORE_NON_ADMIN_CAN_CREATE_PROJECT}
+            SEMAPHORE_USE_REMOTE_RUNNER: ${components.semaphore.env.SEMAPHORE_USE_REMOTE_RUNNER}
+            SEMAPHORE_DB_DIALECT: ${components.semaphore.env.SEMAPHORE_DB_DIALECT}
+            SEMAPHORE_DB_HOST: ${components.semaphore.env.SEMAPHORE_DB_HOST}
+            SEMAPHORE_DB_PORT: ${components.semaphore.env.SEMAPHORE_DB_PORT}
+            SEMAPHORE_DB: ${components.semaphore.env.SEMAPHORE_DB}
+            SEMAPHORE_DB_USER: ${components.semaphore.env.SEMAPHORE_DB_USER}
+            SEMAPHORE_DB_PASS: ${components.semaphore.env.SEMAPHORE_DB_PASS}
+            SEMAPHORE_DB_OPTIONS: ${components.semaphore.env.SEMAPHORE_DB_OPTIONS}
+            SEMAPHORE_LDAP_ENABLE: ${components.semaphore.env.SEMAPHORE_LDAP_ENABLE}
+            SEMAPHORE_EMAIL_ALERT: ${components.semaphore.env.SEMAPHORE_EMAIL_ALERT}
+            SEMAPHORE_TELEGRAM_ALERT: ${components.semaphore.env.SEMAPHORE_TELEGRAM_ALERT}
+            SEMAPHORE_SLACK_ALERT: ${components.semaphore.env.SEMAPHORE_SLACK_ALERT}
+            SEMAPHORE_RUNNER_REGISTRATION_TOKEN: ${components.semaphore.env.SEMAPHORE_RUNNER_REGISTRATION_TOKEN}
+            SEMAPHORE_COOKIE_HASH: ${components.semaphore.env.SEMAPHORE_COOKIE_HASH}
+            SEMAPHORE_COOKIE_ENCRYPTION: ${components.semaphore.env.SEMAPHORE_COOKIE_ENCRYPTION}
+            SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${components.semaphore.env.SEMAPHORE_ACCESS_KEY_ENCRYPTION}
+          resources: ${components.semaphore.resources}
+          security_context: ${components.semaphore.security_context}
+          volume_mounts: ${components.semaphore.volume_mounts}
+  generators:
+    kubernetes:
+      configs:
+        semaphore-config:
+          data:
+            # From templates/configmap.yaml of the semaphore chart 16.2.2 with
+            # no LDAP, OIDC or forwarded variables, Apache-2.0
+            # (semaphore.yml.LICENSE).
+            config.json:
+              value: |
+                {
+                }
+      # Component Secrets would also be mounted as volumes.
+      secrets:
+        semaphore-admin:
+          string_data:
+            fullname:
+              value: ${applications.semaphore.admin.fullname}
+            username:
+              value: ${applications.semaphore.admin.username}
+            password:
+              value: ${applications.semaphore.admin.password}
+            email:
+              value: ${applications.semaphore.admin.email}
+        semaphore-general:
+          string_data:
+            cookieHash:
+              value: ${applications.semaphore.cookie_hash}
+            cookieEncryption:
+              value: ${applications.semaphore.cookie_encryption}
+            accesskeyEncryption:
+              value: ${applications.semaphore.access_key_encryption}
+        semaphore-runner:
+          string_data:
+            token:
+              value: ${applications.semaphore.runner_token}
