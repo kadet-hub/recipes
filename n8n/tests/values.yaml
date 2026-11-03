@@ -1,0 +1,31 @@
+# n8n in queue mode, the chart's default, on the PostgreSQL of the included
+# recipe postgresql and the Valkey of the included recipe valkey.
+# docker.n8n.io serves Docker Hub's n8nio/n8n through a shared anonymous pull
+# quota that answered 429, so the image comes from Docker Hub directly.
+image:
+  repository: docker.io/n8nio/n8n
+secretRefs:
+  env:
+    N8N_ENCRYPTION_KEY: smoke-encryption-key
+database:
+  host: postgresql-cluster-rw
+  database: app
+  user: app
+  passwordSecret:
+    name: postgresql-cluster-app
+    key: password
+  # CloudNativePG serves TLS. n8n encrypts without verifying the certificate.
+  ssl:
+    enabled: true
+    rejectUnauthorized: false
+redis:
+  host: valkey
+  passwordSecret:
+    name: valkey-auth
+    key: default-password
+# The chart renders the Secret n8n-task-runners with a random token also
+# with task runners off, when no container reads it. Naming the Secret here
+# keeps the chart from rendering it.
+taskRunners:
+  authToken:
+    existingSecret: n8n-task-runners
