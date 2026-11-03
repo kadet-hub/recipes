@@ -1,0 +1,43 @@
+parameters:
+  components:
+    ollama:
+      application: ollama
+      image: docker.io/ollama/ollama:0.33.2@sha256:020e4134285e2ef4d8fd801234176de3b4faadc992a3eb06c8e66a2f9d4c4ba2
+      update_strategy:
+        type: Recreate
+      grace_period: 120
+      env:
+        OLLAMA_HOST: 0.0.0.0:11434
+      ports:
+        http:
+          service_port: 11434
+          # The chart's Service port has no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /
+          initial_delay_seconds: 60
+          failure_threshold: 6
+        readiness:
+          type: http
+          port: http
+          path: /
+          initial_delay_seconds: 30
+          period_seconds: 5
+          timeout_seconds: 3
+          failure_threshold: 6
+      # The chart leaves the pod's token unset and the ServiceAccount's at true.
+      automount_service_account_token: true
+      service_account:
+        create: true
+        automount_service_account_token: true
+      # The models, lost with the pod as in the chart's default.
+      volume_mounts:
+        ollama-data:
+          mount_path: /root/.ollama
+      volumes:
+        ollama-data:
+          emptyDir: {}

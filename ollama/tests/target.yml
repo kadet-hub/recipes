@@ -1,0 +1,7 @@
+classes:
+  - recipes.ollama
+parameters:
+  namespace: ollama
+  kapitan:
+    vars:
+      target: ollama

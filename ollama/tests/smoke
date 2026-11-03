@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# RCP-131: Ollama answers through its Service and reports the version of its
+# image tag. It pulls smollm:135m, a 92 MB model, lists it with the digest of
+# its manifest and generates a reply on the CPU. The test prints how long the
+# pull and the generation took.
+set -euo pipefail
+model=smollm:135m
+# The manifest of smollm:135m in registry.ollama.ai on 2026-11-03.
+digest=b0b2a46174385c0adcaa77ff245ffeced5fc4a61447b6f221b2beb5c5a760133
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+[[ $(kubectl get --raw "/api/v1/namespaces/$ns/services/ollama:http/proxy/") == "Ollama is running" ]]
+image=$(kubectl get deployment ollama -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image%@*}
+tag=${tag##*:}
+
+kubectl port-forward service/ollama 21434:11434 >/dev/null &
+pf=$!
+trap 'kill $pf' EXIT
+url=http://localhost:21434/api
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$url/version" 2>/dev/null && break
+  sleep 2
+done
+api() { curl -fsS --max-time 300 -H 'Content-Type: application/json' "$@"; }
+api "$url/version" | jq -e --arg tag "$tag" '.version == $tag' >/dev/null
+
+start=$(date +%s)
+jq -n --arg model "$model" '{$model, stream: false}' | api -d @- "$url/pull" | jq -e '.status == "success"' >/dev/null
+pulled=$(date +%s)
+api "$url/tags" | jq -e --arg model "$model" --arg digest "$digest" \
+  'any(.models[]; .name == $model and .digest == $digest)' >/dev/null
+reply=$(jq -n --arg model "$model" \
+  '{$model, prompt: "What colour is the sky? Answer in one word.", stream: false, options: {num_predict: 16, temperature: 0, seed: 1}}' |
+  api -d @- "$url/generate")
+jq -e '.done == true and (.response | length > 0)' <<<"$reply" >/dev/null || { echo "$reply" >&2; exit 1; }
+echo "Ollama $tag: pulled $model in $((pulled - start))s, $(jq -r '"generated \(.eval_count) tokens in \(.total_duration / 1e8 | round / 10)s: \(.response | gsub("\\s+"; " "))"' <<<"$reply")"
