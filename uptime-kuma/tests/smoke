@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# What the compose file of Uptime Kuma sets up (RCP-39, RCP-122): from a pod
+# of its own, through the Service uptime-kuma on port 3001, Uptime Kuma serves
+# its web UI and the entry page without the database setup, creates the admin
+# account over socket.io, refuses /metrics without it, runs an HTTP monitor
+# against CoreDNS until it reports UP, and keeps account and monitor in SQLite
+# on the claim across a restart of its pod.
+set -euo pipefail
+username=smoke
+password=Smoke-test-password-42
+monitor=http://kube-dns.kube-system:9153/metrics
+url=http://uptime-kuma:3001
+image=$(kubectl get statefulset uptime-kuma -o jsonpath='{.spec.template.spec.containers[0].image}')
+# The Uptime Kuma image brings curl, node and socket.io-client, so the test pod
+# needs no other image.
+kubectl run uptime-kuma-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod uptime-kuma-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/uptime-kuma-smoke --for=condition=Ready --timeout=300s >/dev/null
+run() { kubectl exec -i uptime-kuma-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs uptime-kuma-0 --tail=40 >&2; exit 1; }
+
+# The socket.io client of the web UI, over the WebSocket transport. "first"
+# creates the admin account and the monitor, "again" finds both. Each waits
+# for a live heartbeat UP of the monitor.
+client=$(cat <<'EOF'
+const { io } = require("/app/node_modules/socket.io-client");
+const [mode, url, username, password, target] = process.argv.slice(1);
+const fail = (msg) => { console.error(msg); process.exit(1); };
+const socket = io(url, { transports: ["websocket"], reconnection: false });
+const call = (event, ...args) => new Promise((resolve) => socket.emit(event, ...args, resolve));
+let id;
+let last = "no heartbeat";
+const beats = [];
+const check = () => {
+  for (const beat of beats.splice(0).filter((b) => b.monitorID === id)) {
+    if (beat.status === 1) {
+      console.log(`monitor ${id} UP: ${beat.msg}`);
+      process.exit(0);
+    }
+    last = `status ${beat.status}: ${beat.msg}`;
+  }
+};
+setTimeout(() => fail(`monitor ${id}: no heartbeat UP within 120s, last ${last}`), 120000);
+socket.on("connect_error", (e) => fail(`socket.io: ${e.message}`));
+socket.on("heartbeat", (beat) => { beats.push(beat); if (id !== undefined) check(); });
+const monitors = new Promise((resolve) => socket.on("monitorList", resolve));
+// The server attaches its handlers only after it sent info, and drops what
+// arrives before.
+socket.once("info", async () => {
+  const needSetup = await call("needSetup");
+  if (needSetup !== (mode === "first")) fail(`needSetup is ${needSetup} on the ${mode} connection`);
+  if (mode === "first") {
+    const setup = await call("setup", username, password);
+    if (!setup.ok) fail(`setup: ${setup.msg}`);
+  }
+  const login = await call("login", { username, password, token: "" });
+  if (!login.ok) fail(`login: ${login.msg}`);
+  if (mode === "first") {
+    const added = await call("add", {
+      type: "http", name: "smoke", url: target, method: "GET",
+      interval: 20, retryInterval: 20, maxretries: 0,
+      accepted_statuscodes: ["200-299"], notificationIDList: {},
+      conditions: [], kafkaProducerBrokers: [], rabbitmqNodes: [],
+    });
+    if (!added.ok) fail(`add: ${added.msg}`);
+    id = added.monitorID;
+  } else {
+    const found = Object.values(await monitors).find((m) => m.name === "smoke");
+    if (!found) fail("monitor smoke is gone");
+    id = found.id;
+  }
+  check();
+});
+EOF
+)
+
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready, and refuses connections until then.
+entry() {
+  for _ in $(seq 30); do
+    page=$(run curl -fsS "$url/api/entry-page" 2>/dev/null) && break
+    sleep 2
+  done
+  [[ $(jq -r .type <<<"${page:-}") == entryPage ]] || fail "/api/entry-page through the Service uptime-kuma: ${page:-no answer}"
+}
+entry
+ui=$(run curl -fsSL "$url/")
+grep -q '<title>Uptime Kuma</title>' <<<"$ui" || fail "/ serves no web UI"
+status=$(run curl -sS -o /dev/null -w '%{http_code}' "$url/metrics")
+[[ $status == 401 ]] || fail "/metrics without login: $status"
+run node -e "$client" first "$url" "$username" "$password" "$monitor" || fail "socket.io, first connection"
+metrics=$(run curl -fsS -u "$username:$password" "$url/metrics")
+grep -q '^monitor_status{.*monitor_name="smoke".*} 1$' <<<"$metrics" ||
+  fail "/metrics with the admin account does not report the monitor smoke UP"
+
+# The new pod reads account and monitor from kuma.db on the claim data.
+kubectl delete pod uptime-kuma-0 --wait >/dev/null
+kubectl wait pod/uptime-kuma-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/uptime-kuma-0 --for=condition=Ready --timeout=300s >/dev/null
+entry
+run node -e "$client" again "$url" "$username" "$password" "$monitor" || fail "socket.io after the restart"
+echo "Uptime Kuma answered through the Service uptime-kuma, and the monitor smoke, added over socket.io, reported UP before and after a restart"
