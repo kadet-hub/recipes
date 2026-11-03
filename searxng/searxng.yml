@@ -1,0 +1,48 @@
+parameters:
+  components:
+    searxng:
+      application: searxng
+      type: statefulset
+      image: docker.io/searxng/searxng:2026.11.2-cccbc9e15@sha256:892ed5710603e38f9dc201e6a0b2f3f14dbdb8108edcadac30e55b165c979fb7
+      ports:
+        http:
+          service_port: 8080
+      service:
+        type: ClusterIP
+      env:
+        # Overrides server.secret_key of settings.yml.
+        SEARXNG_SECRET:
+          secretKeyRef:
+            key: SEARXNG_SECRET
+        VALKEY_PASSWORD:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+        SEARXNG_VALKEY_URL: valkey://:$(VALKEY_PASSWORD)@valkey:6379/0
+      secrets:
+        credentials:
+          string_data:
+            SEARXNG_SECRET:
+              value: ${applications.searxng.secret_key}
+      config_maps:
+        config:
+          mount: /etc/searxng
+          data:
+            # The settings of container/settings.template.yml without
+            # secret_key, which SEARXNG_SECRET sets.
+            settings.yml:
+              value: |
+                use_default_settings: true
+                server:
+                  image_proxy: true
+      volume_mounts:
+        core-data:
+          mount_path: /var/cache/searxng
+      volume_claims:
+        core-data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
