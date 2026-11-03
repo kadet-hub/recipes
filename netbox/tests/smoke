@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# RCP-142: /login/ and /api/status/ answer through the Service, the status
+# names the version of the image tag and a running worker. A token
+# provisioned with the superuser's login creates a site and a prefix, which
+# read back from PostgreSQL. A data source sync, queued in Valkey, finishes
+# in the worker. Every connection of NetBox to PostgreSQL is encrypted.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+proxy() { kubectl get --raw "/api/v1/namespaces/$ns/services/netbox:http/proxy/$1"; }
+proxy login/ | grep -q 'name="password"'
+image=$(kubectl get deployment netbox -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image##*:v}
+tag=${tag%%@*}
+# The worker registers in Valkey after its init container saw NetBox roll out.
+for _ in $(seq 30); do
+  status=$(proxy api/status/)
+  jq -e '."rq-workers-running" >= 1' <<<"$status" >/dev/null && break
+  sleep 5
+done
+jq -e --arg tag "$tag" '."netbox-version" == $tag and ."rq-workers-running" >= 1' <<<"$status" >/dev/null
+
+kubectl port-forward service/netbox 18080:80 >/dev/null &
+pf=$!
+trap 'kill $pf' EXIT
+url=http://localhost:18080/api
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$url/status/" 2>/dev/null && break
+  sleep 2
+done
+secret() { kubectl get secret netbox-superuser -o jsonpath="{.data.$1}" | base64 -d; }
+token=$(jq -n --arg username "$(secret username)" --arg password "$(secret password)" '{$username, $password}' |
+  curl -fsS -H 'Content-Type: application/json' -d @- "$url/users/tokens/provision/" |
+  jq -er 'select(.version == 2) | "nbt_\(.key).\(.token)"')
+api() { curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' "$@"; }
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer nbt_smoke.wrong' "$url/dcim/sites/") == 403 ]]
+
+site=$(api -d '{"name": "smoke", "slug": "smoke"}' "$url/dcim/sites/" | jq -er .id)
+prefix=$(jq -n --argjson site "$site" '{prefix: "192.0.2.0/24", scope_type: "dcim.site", scope_id: $site}' |
+  api -d @- "$url/ipam/prefixes/" | jq -er .id)
+api "$url/dcim/sites/$site/" | jq -e '.name == "smoke" and .slug == "smoke"' >/dev/null
+api "$url/ipam/prefixes/?prefix=192.0.2.0/24" |
+  jq -e --argjson id "$prefix" --argjson site "$site" '.count == 1 and .results[0].id == $id and .results[0].scope.id == $site' >/dev/null
+
+# The worker syncs a local data source from its own media directory.
+source=$(api -d '{"name": "smoke", "type": "local", "source_url": "file:///opt/netbox/netbox/media"}' "$url/core/data-sources/" |
+  jq -er .id)
+api -X POST "$url/core/data-sources/$source/sync/" >/dev/null
+for _ in $(seq 60); do
+  job=$(api "$url/core/jobs/?object_type=core.datasource" | jq -c --argjson id "$source" '[.results[] | select(.object_id == $id)][0]')
+  jq -e '.status.value == "completed" or .status.value == "errored" or .status.value == "failed"' <<<"$job" >/dev/null && break
+  sleep 2
+done
+jq -e '.status.value == "completed"' <<<"$job" >/dev/null
+api "$url/core/data-sources/$source/" | jq -e '.status.value == "completed"' >/dev/null
+task=$(api "$url/core/background-tasks/$(jq -r .job_id <<<"$job")/")
+jq -e '.is_finished and (.worker_name | length > 0)' <<<"$task" >/dev/null
+
+primary=$(kubectl get cluster postgresql-cluster -o jsonpath='{.status.currentPrimary}')
+[[ $(kubectl exec "$primary" -c postgres -- psql -d app -tAc \
+  "select count(*) > 0 and bool_and(ssl) from pg_stat_activity join pg_stat_ssl using (pid) where usename = 'app'") == t ]]
+echo "NetBox $tag: login page, status with $(jq '."rq-workers-running"' <<<"$status") worker, site $site and prefix $prefix read back, data source sync finished by $(jq -r .worker_name <<<"$task")"

@@ -1,0 +1,21 @@
+classes:
+  - recipes.netbox
+parameters:
+  namespace: netbox
+  kapitan:
+    vars:
+      target: netbox
+  # The values tests/values.yaml gives the chart.
+  applications:
+    netbox:
+      superuser:
+        name: admin
+        email: admin@example.com
+        password: smoke-password
+      secret_key: smoke-secret-key-smoke-secret-key-smoke-secret-key-smoke
+      api_token_pepper: smoke-pepper-smoke-pepper-smoke-pepper-smoke-pepper-smoke
+    valkey:
+      password: smoke-password
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
