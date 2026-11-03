@@ -1,0 +1,57 @@
+# Shared by the server and machine learning.
+controllers:
+  main:
+    containers:
+      main:
+        image:
+          # The chart's default v3.2.0 has GHSA-q89f-h332-8q2h.
+          tag: v3.3.5
+        env:
+          # The Service of the included recipe valkey.
+          REDIS_HOSTNAME: valkey
+immich:
+  persistence:
+    library:
+      existingClaim: immich-library
+server:
+  controllers:
+    main:
+      containers:
+        main:
+          env:
+            REDIS_PASSWORD:
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-auth
+                  key: default-password
+            # The Service, database and Secret of the included recipe
+            # postgresql.
+            DB_HOSTNAME: postgresql-cluster-rw
+            DB_DATABASE_NAME: app
+            DB_USERNAME:
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cluster-app
+                  key: username
+            DB_PASSWORD:
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cluster-app
+                  key: password
+            # Encrypted, without verifying CloudNativePG's certificate.
+            DB_SSL_MODE: require
+            # The extension the option pgvector of postgresql creates.
+            DB_VECTOR_EXTENSION: pgvector
+  # The claim the chart expects to exist, created next to the chart.
+  rawResources:
+    library:
+      forceRename: immich-library
+      manifest:
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi

@@ -1,0 +1,13 @@
+classes:
+  - recipes.immich
+parameters:
+  namespace: immich
+  kapitan:
+    vars:
+      target: immich
+  applications:
+    valkey:
+      password: smoke-password
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

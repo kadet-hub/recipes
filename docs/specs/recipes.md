@@ -1692,6 +1692,169 @@ lists the two statements in the same order.
   cluster kept with `--keep`, `tests/smoke` fails after
   `DROP EXTENSION earthdistance` as superuser.
 
+## Immich
+
+Immich manages photos and videos. Clients upload them through its API, the
+server keeps the files on its library volume and their metadata in
+PostgreSQL, and background jobs create thumbnails and, through the machine
+learning service, the embeddings of smart search and face recognition.
+`immich` deploys it from the chart `immich` 0.13.4 of
+immich-app/immich-charts, which Immich publishes at
+`oci://ghcr.io/immich-app/immich-charts/immich`. It was the newest release
+on 2026-11-03. The chart builds on the bjw-s common library 5.2.1, which
+it carries as a subchart. Chart and Immich are AGPL-3.0. The recipe
+carries no template, file or values text of the chart, so DEC-16 applies
+as for nextcloud.
+
+DEC-47: `immich` runs Immich v3.3.5 instead of the chart's v3.2.0.
+GHSA-q89f-h332-8q2h, rated high, lets an authenticated user run code in
+the server's container through an SVG upload that reaches ImageMagick. It
+names v3.2.2 as affected and v3.2.4 as fixed and gives no lower bound, so
+v3.2.0 is probably affected. v3.3.5 of 2026-10-21 was the newest release
+on 2026-11-03, and v3.4.0-rc.1 is a release candidate. The chart's README
+asks its users to set the image tag, because the chart does not follow
+every Immich release. `tests/values.yaml` sets `v3.3.5` for the server and
+machine learning, and the recipe pins both images to their indexes for
+amd64 and arm64. The images do not follow the chart's version, so a
+maintainer moves them and the tag in `tests/values.yaml` together
+(RCP-16). The chart's v3.2.0 was considered. It would run a version with a
+known path to code execution.
+
+### Database and queue
+
+The database is the included recipe `postgresql` with its options
+`pgvector` and `earthdistance` (DEC-4, DEC-12, PostgreSQL with pgvector).
+Immich creates its other extensions, `uuid-ossp`, `unaccent`, `cube` and
+`pg_trgm`, itself, since they are trusted. The chart renders no
+database and passes `DB_*` variables to the server, which
+`tests/values.yaml` points at `postgresql-cluster-rw`, the database `app`
+and the keys `username` and `password` of the Secret
+`postgresql-cluster-app`. The recipe reads these names from
+`applications.postgresql` (RCP-60).
+
+DEC-48: `immich` stores its embeddings with pgvector and sets
+`DB_VECTOR_EXTENSION=pgvector`. Immich v3.3.5 takes VectorChord or
+pgvector. Without the variable it takes VectorChord when the server offers
+it, and otherwise pgvector (`getVectorExtension` in
+`server/src/repositories/database.repository.ts`). The image of
+`postgresql` ships pgvector 0.8.7, inside the range `>=0.5 <1` that Immich
+accepts. Neither extension is trusted, so a superuser creates it, which
+the option `pgvector` does. The variable keeps Immich on that extension
+when the image changes. VectorChord, which Immich's documentation and the
+chart's example cluster use, was considered. It needs an image with
+VectorChord, or an image volume, and `vchord.so` in
+`shared_preload_libraries`, which `postgresql` does not render. Immich's
+documentation describes VectorChord as faster and lighter on memory than
+pgvecto.rs, but publishes no comparison with pgvector. Moving to
+VectorChord later means installing it and letting Immich rebuild its
+indexes `clip_index` and `face_index` ("Migrating from pgvector" in
+`docs/docs/administration/postgres-standalone.md`).
+
+Immich connects as `app`, the owner of the database, which is no
+superuser, the setup that Immich's documentation calls "without superuser
+permission". Its nightly database backup, on by default at 02:00, runs
+`pg_dump` of the one database (`createDatabaseBackup` in
+`server/src/services/database-backup.service.ts`) and works as `app`. On
+kind a backup started through `POST /api/jobs` wrote
+`immich-db-backup-...-v3.3.5-pg18.6.sql.gz` below `/data/backups` on the
+library claim. The documentation still says that backups need a superuser
+for `pg_dumpall`, which v3.3.5 does not run. A restore through Immich
+replays the dump with `psql` as `app`. The dump starts with
+`DROP EXTENSION IF EXISTS vector` and the same for `earthdistance`, which
+`app` may not run on the extensions the superuser created, so the restore
+is expected to fail. It is not tested. A backup of the Cluster itself
+follows DEC-18.
+
+Without `DB_SSL_MODE` Immich connects without TLS. CloudNativePG serves
+TLS, and `tests/values.yaml` sets `require`, which postgres.js 3.4.9, the
+driver of Immich v3.3.5, maps to TLS without verifying the server's
+certificate (`secure` in `src/connection.js`), as `semaphore` does with
+`sslmode=require`. On kind every connection of `app` used TLS by
+`pg_stat_ssl`.
+
+The queue is the included recipe `valkey`. The chart's own Valkey is off
+by default, and its `REDIS_HOSTNAME` names `immich-valkey`.
+`tests/values.yaml` sets `REDIS_HOSTNAME` to `valkey` for both components,
+as the chart sets it, and `REDIS_PASSWORD` for the server from the key
+`default-password` of `valkey-auth`, with which Immich authenticates as
+Valkey's user `default`. Immich queues its background jobs there, the
+thumbnails among them.
+
+### Storage and machine learning
+
+The chart mounts the library at `/data` from a claim that must exist and
+renders none. Its README asks users to create one and name it in
+`immich.persistence.library.existingClaim`, and the chart stops without
+it. A claim that only the recipe rendered would fail `check` as an object
+only in the recipe (RCP-12).
+
+DEC-49: `immich` renders the PersistentVolumeClaim `immich-library`, 10Gi
+with `ReadWriteOnce`, and `tests/values.yaml` creates the same claim
+through the bjw-s library's `rawResources` under `server`, with
+`existingClaim: immich-library`. `rawResources` renders a manifest as it
+is given, with the library's labels, which RCP-9 leaves out of the
+comparison. `check` then compares the claim like the chart's own objects,
+as `gitea` creates its admin Secret through `extraDeploy` (DEC-38). A
+required parameter that names an existing claim, as the chart has it, was
+considered. `check` could not reach `deploys` with it, because the server
+stays Pending until a claim exists. A `persistence` entry of the bjw-s
+library, which renders claims, was considered as well. The chart always
+adds the entry `data` with `existingClaim`, so a second entry would be a
+second volume of the pod.
+
+Machine learning is on by default and runs on the CPU. The server calls
+it at `http://immich-machine-learning:3003` for smart search and face
+recognition. Its image is 268 MB compressed for amd64 and 241 MB
+for arm64, the server's 609 MB and 360 MB (sums of the layer sizes in the
+registry manifests, MB = 10^6 bytes). It downloads its models from Hugging
+Face into the emptyDir `/cache` when the first job needs them, so every
+new pod downloads them again. Their size and the download in CI are not
+measured. GPU images and hardware acceleration are not tested, because
+kind has no GPU.
+
+The chart's Ingress, its ServiceMonitors behind `immich.metrics.enabled`
+and the configuration file behind `immich.configuration` are off by
+default and not part of the recipe. The ServiceAccounts `immich-server`
+and `immich-machine-learning` have no Role. The chart renders no hook.
+
+### Proof
+
+`immich` is at level `deploys`. `tests/target.yml` runs one PostgreSQL
+instance.
+
+- RCP-103: `immich` MUST point the server at the Service, the database and
+  the Secret of `postgresql` with `DB_VECTOR_EXTENSION=pgvector` and
+  `DB_SSL_MODE=require`, and at the Service `valkey` with the password of
+  `valkey-auth`. It MUST include `recipes.postgresql.pgvector` and
+  `recipes.postgresql.earthdistance`.
+
+  - Test: `check immich`; `tests/smoke`
+  - Since: #74
+
+- RCP-104: The `tests/smoke` of `immich` MUST require `pong` from
+  `/api/server/ping` of the server and `/ping` of machine learning through
+  their Services, and that `/api/server/version` reports the version of
+  the image tag the Deployment runs. It MUST sign up the admin through
+  `/api/auth/admin-sign-up`, log in through `/api/auth/login`, upload a
+  JPEG through `POST /api/assets`, and read back the asset's details with
+  its SHA-1, the original byte for byte and a thumbnail. Every connection
+  of `app` to PostgreSQL MUST use TLS.
+
+  A login with a wrong password gets 401. The asset's details come from
+  PostgreSQL and the original from the library claim. The server creates
+  the thumbnail in a job that it queues in Valkey, so the thumbnail shows
+  that the queue works. On kind with Valkey scaled to zero the upload
+  itself failed with 500. The test does not wait for the machine learning
+  jobs, which need the models from Hugging Face.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #74
+
+- AC-51 (RCP-103, RCP-104): `check immich --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `postgresql`
+  and `valkey` as included and `cnpg` as installed, and its smoke test
+  reads back the thumbnail of the asset it uploaded.
+
 ## Keycloak
 
 The Keycloak project's guides deploy Keycloak on Kubernetes through the
@@ -4050,5 +4213,6 @@ feature's design (OQ-6).
 | n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-85, RCP-86) |
 | jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-76) |
 | gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-90, RCP-91) |
+| immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.9.0, level `deploys` (RCP-103, RCP-104) |
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.9.0, level `deploys` (RCP-95, RCP-96) |
 | vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.9.0, level `deploys` (RCP-110 to RCP-112) |

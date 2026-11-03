@@ -1,0 +1,35 @@
+classes:
+  - recipes.postgresql
+  - recipes.postgresql.pgvector
+  - recipes.postgresql.earthdistance
+  - recipes.valkey
+  - .server
+  - .machine-learning
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    immich:
+      library_storage: 10Gi
+      component_defaults:
+        revision_history_limit: 3
+        enable_service_links: false
+        # The chart leaves the ServiceAccount's token at the API default,
+        # true, and the pod's at false.
+        service_account:
+          create: true
+          automount_service_account_token: true
+        # The label the chart's library puts on its controller main.
+        labels:
+          app.kubernetes.io/controller: main
+        pod_labels:
+          app.kubernetes.io/controller: main

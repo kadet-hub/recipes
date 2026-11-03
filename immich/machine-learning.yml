@@ -1,0 +1,54 @@
+parameters:
+  components:
+    immich-machine-learning:
+      application: immich
+      image: ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56
+      # In the chart's order, sorted by name. The chart gives both components
+      # the server's IMMICH_MACHINE_LEARNING_URL and REDIS_HOSTNAME.
+      env:
+        HF_XET_CACHE: /cache/huggingface-xet
+        IMMICH_MACHINE_LEARNING_URL: ${components.immich-server.env.IMMICH_MACHINE_LEARNING_URL}
+        MPLCONFIGDIR: /cache/matplotlib-config
+        REDIS_HOSTNAME: ${components.immich-server.env.REDIS_HOSTNAME}
+        TRANSFORMERS_CACHE: /cache
+      ports:
+        http:
+          container_port: 3003
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /ping
+          failure_threshold: 60
+          timeout_seconds: 1
+        liveness:
+          type: http
+          port: http
+          path: /ping
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /ping
+          timeout_seconds: 1
+      # The models machine learning downloads.
+      volume_mounts:
+        cache:
+          mount_path: /cache
+      volumes:
+        cache:
+          emptyDir: {}
+  generators:
+    kubernetes:
+      services:
+        immich-machine-learning:
+          labels:
+            app.kubernetes.io/service: immich-machine-learning
+          selector:
+            name: immich-machine-learning
+          ports:
+            http:
+              service_port: 3003
+              container_port: http
+              # The chart sets no appProtocol.
+              app_protocol: ""

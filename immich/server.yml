@@ -1,0 +1,72 @@
+parameters:
+  components:
+    immich-server:
+      application: immich
+      image: ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6
+      # In the chart's order, sorted by name.
+      env:
+        DB_DATABASE_NAME: ${applications.postgresql.database}
+        DB_HOSTNAME: ${applications.postgresql.cluster}-rw
+        DB_PASSWORD:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+        # CloudNativePG serves TLS. Immich encrypts without verifying its
+        # certificate.
+        DB_SSL_MODE: require
+        DB_USERNAME:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: username
+        # The extension of the option pgvector of postgresql.
+        DB_VECTOR_EXTENSION: pgvector
+        IMMICH_MACHINE_LEARNING_URL: http://immich-machine-learning:3003
+        REDIS_HOSTNAME: valkey
+        REDIS_PASSWORD:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+      ports:
+        http:
+          container_port: 2283
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /api/server/ping
+          failure_threshold: 30
+          timeout_seconds: 1
+        liveness:
+          type: http
+          port: http
+          path: /api/server/ping
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /api/server/ping
+          timeout_seconds: 1
+      volume_mounts:
+        data:
+          mount_path: /data
+      volumes:
+        data:
+          persistentVolumeClaim:
+            claimName: immich-library
+      persistent_volume_claims:
+        immich-library:
+          storage: ${applications.immich.library_storage}
+  generators:
+    kubernetes:
+      # The chart labels its Services apart from its Deployments.
+      services:
+        immich-server:
+          labels:
+            app.kubernetes.io/service: immich-server
+          selector:
+            name: immich-server
+          ports:
+            http:
+              service_port: 2283
+              container_port: http
+              app_protocol: kubernetes.io/ws

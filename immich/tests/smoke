@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# RCP-104: the server and machine learning answer /ping through their
+# Services, and the server reports the version of its image tag. The admin
+# signs up and logs in, uploads a JPEG through /api/assets and reads back
+# the asset's details, the original and the thumbnail, which a job queued in
+# Valkey generates. Every connection of the server to PostgreSQL is encrypted.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+proxy() { kubectl get --raw "/api/v1/namespaces/$ns/services/$1/proxy/$2"; }
+proxy immich-server:http api/server/ping | jq -e '.res == "pong"' >/dev/null
+[[ $(proxy immich-machine-learning:http ping) == pong ]]
+image=$(kubectl get deployment immich-server -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image##*:v}
+tag=${tag%%@*}
+proxy immich-server:http api/server/version | jq -e --arg tag "$tag" '"\(.major).\(.minor).\(.patch)" == $tag' >/dev/null
+
+work=$(mktemp -d)
+kubectl port-forward service/immich-server 12283:2283 >/dev/null &
+pf=$!
+trap 'kill $pf; rm -rf "$work"' EXIT
+url=http://localhost:12283/api
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$url/server/ping" 2>/dev/null && break
+  sleep 2
+done
+api() { curl -fsS -H 'Content-Type: application/json' "$@"; }
+email=admin@example.com
+password=Smoke-Passw0rd
+jq -n --arg email "$email" --arg password "$password" '{$email, $password, name: "Smoke Admin"}' |
+  api -d @- "$url/auth/admin-sign-up" | jq -e --arg email "$email" '.email == $email and .isAdmin' >/dev/null
+[[ $(jq -n --arg email "$email" '{$email, password: "wrong"}' |
+  curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d @- "$url/auth/login") == 401 ]]
+token=$(jq -n --arg email "$email" --arg password "$password" '{$email, $password}' |
+  api -d @- "$url/auth/login" | jq -er '.accessToken')
+auth=(-H "Authorization: Bearer $token")
+
+# A 64x48 JPEG, 412 bytes.
+base64 -d > "$work/smoke.jpg" <<'EOF'
+/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEP
+ERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4e
+Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwAEADASIA
+AhEBAxEB/8QAFgABAQEAAAAAAAAAAAAAAAAAAAUG/8QAGBABAQEBAQAAAAAAAAAAAAAAABNhAVH/
+xAAWAQEBAQAAAAAAAAAAAAAAAAAABgf/xAAXEQEAAwAAAAAAAAAAAAAAAAAAFBVh/9oADAMBAAIR
+AxEAPwDHw74Q74pwILm01Pw0yHfCHfFOBAtNIaZDvhDvinAgWmkNMh3wh3xTgQLTSGqQwhipAgze
+01UQ0uGEMVIEC00hpcMIYqQIFppDS4YQxUgQLTSGpwIKkMIYzi01Uw0uBBUhhDC00hpcCCpDCGFp
+pDS4EFSGEMLTSG//2Q==
+EOF
+id=$(curl -fsS "${auth[@]}" -F assetData=@"$work/smoke.jpg" \
+  -F fileCreatedAt=2026-01-01T00:00:00.000Z -F fileModifiedAt=2026-01-01T00:00:00.000Z \
+  "$url/assets" | jq -er 'select(.status == "created") | .id')
+checksum=$(openssl dgst -sha1 -binary "$work/smoke.jpg" | base64)
+api "${auth[@]}" "$url/assets/$id" |
+  jq -e --arg checksum "$checksum" '.originalFileName == "smoke.jpg" and .type == "IMAGE" and .checksum == $checksum' >/dev/null
+curl -fsS "${auth[@]}" -o "$work/original" "$url/assets/$id/original"
+cmp -s "$work/smoke.jpg" "$work/original"
+for _ in $(seq 60); do
+  type=$(curl -sS "${auth[@]}" -o "$work/thumbnail" -w '%{http_code} %{content_type}' "$url/assets/$id/thumbnail" || true)
+  [[ $type == "200 image/"* ]] && break
+  sleep 2
+done
+[[ $type == "200 image/"* && -s $work/thumbnail ]]
+
+primary=$(kubectl get cluster postgresql-cluster -o jsonpath='{.status.currentPrimary}')
+[[ $(kubectl exec "$primary" -c postgres -- psql -d app -tAc \
+  "select count(*) > 0 and bool_and(ssl) from pg_stat_activity join pg_stat_ssl using (pid) where usename = 'app'") == t ]]
+echo "Immich $tag: admin signed up and logged in, asset $id uploaded, original and thumbnail (${type#200 }) read back"
