@@ -17,12 +17,16 @@ parameters:
           app_protocol: ""
       service: {}
       healthcheck:
-        liveness: &probe
+        liveness:
           type: http
           port: http
           path: /-/healthy
           timeout_seconds: 1
-        readiness: *probe
+        readiness:
+          type: http
+          port: http
+          path: /-/healthy
+          timeout_seconds: 1
       # The chart leaves the ServiceAccount's token at the API default, true,
       # and opts out in the pod.
       service_account:

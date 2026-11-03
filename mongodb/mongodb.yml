@@ -32,10 +32,12 @@ parameters:
           type: tcp
           port: mongodb
           failure_threshold: 30
-        readiness: &probe
+        readiness:
           type: tcp
           port: mongodb
-        liveness: *probe
+        liveness:
+          type: tcp
+          port: mongodb
       resources:
         requests:
           cpu: 100m
