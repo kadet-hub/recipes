@@ -2,7 +2,7 @@
 
 external-dns writing a record for every annotated Service into a zone on a
 PowerDNS Authoritative Server, rendered by the kadet-hub `kubernetes`
-generator 1.9.0 from the external-dns project's own Helm chart 1.23.0.
+generator 1.14.0 from the external-dns project's own Helm chart 1.23.0.
 PowerDNS is the included recipe `powerdns`.
 
 Source: `https://kubernetes-sigs.github.io/external-dns/external-dns:1.23.0@sha256:6d149b9b04db1dc9e46b3693a4eca4ac90d6bba5e3b2a0fdd067ce3f7bfbc31e`
