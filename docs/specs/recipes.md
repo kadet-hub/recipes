@@ -309,7 +309,8 @@ DEC-30: `pihole` renders one Service `pihole` of type `ClusterIP`, with DNS
 on port 53 over both TCP and UDP (Pi-hole). Kubernetes allows both
 protocols on one Service port, as `powerdns` renders it. A Service per
 protocol was considered. Clients would get two names for one DNS server,
-and two load balancers would get two addresses. Exposing the Service, such
+and two LoadBalancer Services get two addresses unless the implementation
+shares one. Exposing the Service, such
 as with `type: LoadBalancer`, is left to the target, because whether a
 load balancer serves TCP and UDP on one address depends on its
 implementation.
@@ -2413,10 +2414,10 @@ The image starts as root and runs FTL as the user `pihole`, UID 1000. Its
 start script gives FTL each capability FTL uses that the container has.
 Without `cap_add` these are `CHOWN`, `NET_BIND_SERVICE` and `NET_RAW` of
 the runtime's defaults (DEC-29). The target's namespace needs the Pod
-Security level `baseline`. At its
-first start the image downloads its default blocklist, the hosts file of
-StevenBlack/hosts on raw.githubusercontent.com, into the claim, and a cron
-job in the container updates it weekly.
+Security level `baseline`. At its first start the image downloads its
+default blocklist, the hosts file of StevenBlack/hosts on
+raw.githubusercontent.com, into the claim, and a cron job in the container
+updates it weekly.
 
 Pi-hole's DHCP server is not set up. The example leaves its port 67/udp
 commented out, and the server needs `NET_ADMIN`. DHCP broadcasts do not
