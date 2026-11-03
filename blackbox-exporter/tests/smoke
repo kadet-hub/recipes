@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# The exporter's /probe with the module http_2xx, called through its Service,
+# against CoreDNS's metrics endpoint on the Service kube-dns: /metrics answers
+# 200, so probe_success is 1. A path CoreDNS does not serve answers 404, and
+# probe_success is 0.
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+probe() {
+  kubectl get --raw "/api/v1/namespaces/$ns/services/blackbox-exporter-prometheus-blackbox-exporter:http/proxy/probe?module=http_2xx&target=$1"
+}
+target=http://kube-dns.kube-system.svc:9153
+for _ in $(seq 30); do
+  out=$(probe "$target/metrics" || true)
+  grep -qx 'probe_success 1' <<<"$out" && break
+  sleep 2
+done
+grep -qx 'probe_success 1' <<<"$out" || { echo "$out" >&2; exit 1; }
+out=$(probe "$target/not-served")
+grep -qx 'probe_success 0' <<<"$out" || { echo "$out" >&2; exit 1; }
+echo "http_2xx through the Service: $target/metrics probe_success 1, $target/not-served probe_success 0"
