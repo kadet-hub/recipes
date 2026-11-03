@@ -1,0 +1,14 @@
+classes:
+  - recipes.vaultwarden
+parameters:
+  namespace: vaultwarden
+  kapitan:
+    vars:
+      target: vaultwarden
+  applications:
+    vaultwarden:
+      # The compose example's domain.
+      domain: https://vw.domain.tld
+      # The Argon2id PHC string of smoke-admin-token, the token tests/smoke
+      # logs in with, with the parameters of `vaultwarden hash`.
+      admin_token: '$argon2id$v=19$m=65540,t=3,p=4$Zmvc/TfoNlw9+SAKuOoYCVTv+Ap74wycimE6KoqDaD8$EaWJe/+2MSFOVoXt7uKVSXrgu2DhvQDnbygLpEQ6NKs'
