@@ -1,0 +1,7 @@
+classes:
+  - recipes.blackbox-exporter
+parameters:
+  namespace: blackbox-exporter
+  kapitan:
+    vars:
+      target: blackbox-exporter
