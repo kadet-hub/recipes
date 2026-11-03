@@ -2827,6 +2827,163 @@ instance and sets the values `tests/values.yaml` gives the chart.
   `applications.gitea.secret_key` stops the compile with
   `Interpolation key 'applications.gitea.secret_key' not found`.
 
+## authentik
+
+authentik is an identity provider. Applications sign their users in
+through it with OAuth2 and OpenID Connect, SAML, LDAP or RADIUS, and
+authentik keeps the users and groups and runs the flows that log them in.
+`authentik` deploys it from the chart `authentik` 2026.8.5 of
+goauthentik/helm, which authentik's installation guide for Kubernetes uses
+(`website/docs/install-config/install/kubernetes.mdx` of
+goauthentik/authentik). The project publishes the chart in the HTTP
+repository `https://charts.goauthentik.io` and at
+`oci://ghcr.io/goauthentik/helm-charts/authentik`. Both serve the same
+archive, and the `Source` line takes the OCI form, as for semaphore.
+
+On 2026-11-03 the chart's newest release was 2026.8.5 of 2026-10-21. Its
+`appVersion` is authentik 2026.8.5, the newest stable release, and the
+recipe pins the image `ghcr.io/goauthentik/server:2026.8.5` to its index
+for amd64 and arm64. Every advisory of goauthentik/authentik published by
+2026-11-03 names 2026.8.2 or an earlier release as fixed. The chart is
+GPL-3.0. The recipe carries no template, file or values text of the chart,
+so DEC-16 applies as for nextcloud, and no class file has a `.LICENSE`
+(RCP-42). authentik is MIT outside `authentik/enterprise/`, which has a
+license of its own (`LICENSE` of goauthentik/authentik).
+
+### Database without Redis
+
+authentik needs no Redis since 2025.10. Its tasks moved to PostgreSQL in
+2025.8, and 2025.10 moved the cache, the embedded outpost's sessions and
+the WebSocket connections there too
+([release notes](https://docs.goauthentik.io/releases/2025.10/)). The
+chart 2026.8.5 has no Redis subchart, and the recipe includes no `valkey`.
+
+The database is the included recipe `postgresql` (DEC-4, DEC-12). The
+chart writes the host, the database and the user from
+`authentik.postgresql` into its Secret `authentik`. `tests/values.yaml`
+points them at `postgresql-cluster-rw`, `app` and `app`, and passes the key
+`password` of the Secret `postgresql-cluster-app` to both containers as
+`AUTHENTIK_POSTGRESQL__PASSWORD` through `global.env`, so the chart's
+Secret holds no password. The recipe reads these names from
+`applications.postgresql` (RCP-60). authentik connects without TLS by
+default (`postgresql.sslmode: disable` in `authentik/lib/default.yml` of
+2026.8.5). `tests/values.yaml` sets `sslmode: require`, which encrypts the
+connection without verifying CloudNativePG's certificate, as `semaphore`
+does. Since 2025.10 authentik needs TLS 1.3 or the Extended Master Secret
+extension for that. On kind its connections used TLS 1.3 (`pg_stat_ssl`).
+The chart's Bitnami PostgreSQL subchart is off by default and stays off.
+
+### Keys and the admin account
+
+The chart writes every key below `authentik` in its values into the Secret
+`authentik` as an `AUTHENTIK_` variable, with `__` between nested keys,
+and both Deployments read the whole Secret. The recipe renders the same
+Secret. `AUTHENTIK_SECRET_KEY` signs authentik's cookies, so another key
+ends every session (`website/docs/install-config/configuration/configuration.mdx`).
+
+The worker creates the admin account `akadmin` from the blueprint
+`blueprints/system/bootstrap.yaml`. It sets the password from
+`AUTHENTIK_BOOTSTRAP_PASSWORD` and creates the API token
+`authentik-bootstrap-token` from `AUTHENTIK_BOOTSTRAP_TOKEN`, each only
+when it creates the object. It applies the blueprint when it first finds
+it and again when its file changes, which a new authentik release can do
+(`check_blueprint_v1_file` in `authentik/blueprints/v1/tasks.py`). A
+deleted token then comes back. Without a usable password of `akadmin` the
+initial setup flow lets the first visitor set one
+(`blueprints/default/flow-oobe.yaml`). The chart has no values for either
+variable. `tests/values.yaml` sets them as `authentik.bootstrap_password`
+and `authentik.bootstrap_token`, which the chart writes into its Secret.
+
+DEC-41: `authentik` requires the admin password and the bootstrap token as
+parameters (RCP-95). With both unset, as the chart leaves them, the admin
+account belongs to whoever reaches the initial setup flow first after the
+rollout, and nothing outside authentik can call its API until someone
+creates a token in the web UI. A required password with an optional token
+was considered. The token is then a value the target sets or not, and
+`tests/smoke` needs it to reach the API. A target that has no use for the
+token sets a random value that nobody keeps and deletes the token in
+authentik.
+
+- RCP-95: `authentik` MUST take `AUTHENTIK_SECRET_KEY`,
+  `AUTHENTIK_BOOTSTRAP_PASSWORD` and `AUTHENTIK_BOOTSTRAP_TOKEN` from
+  `applications.authentik.secret_key`, `.bootstrap_password` and
+  `.bootstrap_token`, and MUST leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs (RCP-19, RCP-40). A later change of
+  the password or the token does not reach the account, which the worker
+  created before.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the three parameters stops with `Interpolation key` and its
+    name
+  - Since: this change
+
+### Server, worker and outposts
+
+The chart renders the Deployments `authentik-server` and
+`authentik-worker`, which run the same image as `server` and `worker`, and
+the Service `authentik-server` with HTTP on port 80 and HTTPS on port 443.
+Each Deployment prefers its pods on different nodes through an
+anti-affinity that selects on the chart's labels `app.kubernetes.io/name`,
+`instance` and `component`. The recipe renders the same anti-affinity and
+puts these labels on the pods as `pod_labels`, so it selects the recipe's
+pods. RCP-9 drops the labels before the comparison, and the Service, which
+selects on every pod label, selects the same pods (RCP-10). The pod
+templates carry the chart's `checksum/secret` as `tests/values.yaml`
+renders it (RCP-42).
+
+The chart's default `serviceAccount.create` renders its subchart
+`authentik-remote-cluster` under the alias `serviceAccount`. It holds the
+ServiceAccount `authentik` of the worker, a Role that lets it manage
+Secrets, Services, ConfigMaps, Deployments, Ingresses, HTTPRoutes, Traefik
+middlewares and ServiceMonitors in the namespace, and a ClusterRole that
+lists CRDs. authentik detects the ServiceAccount and deploys the outposts it
+manages, the components that serve its LDAP, RADIUS, proxy and remote
+access providers, into the namespace. On kind the worker registered the
+cluster as the outpost integration `Local Kubernetes Cluster`, which
+reported itself healthy. The server runs as the namespace's `default`
+ServiceAccount.
+
+DEC-42: `authentik` renders the objects of the subchart
+`authentik-remote-cluster` itself, as RBAC of its worker component
+(Server, worker and outposts). The subchart grants only the parent's
+worker. On its own it connects a second cluster to an authentik elsewhere
+with a ServiceAccount token Secret, which the parent switches off. A recipe
+of its own, as DEC-4 asks for a subchart, would be included only by
+`authentik`. DEC-12 forbids the parent to override it, so it would have to
+default to the parent's values, which differ from the subchart's own.
+Switching `serviceAccount.create` off was considered. A release installed
+with the chart's defaults would then lose its managed outposts when the
+recipe replaces it.
+
+GeoIP, email, the Ingress, the HTTPRoute, the metrics Services,
+ServiceMonitors, the PrometheusRule, HPAs, PodDisruptionBudgets and
+mounted blueprints are off by default and not part of the recipe. The
+chart has no hooks. The recipe is at level `deploys`.
+
+- RCP-96: The `tests/smoke` of `authentik` MUST get `/-/health/live/` and
+  `/-/health/ready/` of the server through the Service `authentik-server`.
+  With the token of `AUTHENTIK_BOOTSTRAP_TOKEN` it MUST require that
+  `/api/v3/core/users/me/` names `akadmin` as a superuser and that
+  `/api/v3/admin/version/` reports the Deployment's image tag, and with
+  another token it MUST get 403. It MUST create an OAuth2 provider and an
+  application through the API and get the application's
+  `/.well-known/openid-configuration` with an `issuer` that names it.
+
+  The worker applies the blueprints that create `akadmin`, its token and
+  the default flows the provider needs, so the requests with the token
+  need the server, the worker and PostgreSQL. The worker applies the
+  blueprints one by one after its rollout. In a first run on kind the
+  token already worked and the request for the provider still got 400,
+  most likely because a flow it names did not exist yet. The smoke test
+  therefore waits up to five minutes for the token and again for the
+  flows. It reads the tag from the Deployment, so it follows a Renovate
+  update of the pin.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3573,6 +3730,14 @@ feature's design (OQ-6).
   `tests/target.yml` without `applications.n8n.encryption_key` stops the
   compile with `Interpolation key 'applications.n8n.encryption_key' not
   found`.
+- AC-45 (RCP-95, RCP-96): `check authentik --level deploys` passes in CI on
+  each Kubernetes minor, its report lists the objects of `postgresql` as
+  included and `cnpg` as installed, the permissions of the ServiceAccount
+  `authentik` are equal on both sides, and its smoke test gets the OpenID
+  configuration of the application it created. `tests/target.yml` without
+  `applications.authentik.secret_key`, `bootstrap_password` or
+  `bootstrap_token` stops the compile with `Interpolation key` and that
+  key.
 
 ## Open questions
 
@@ -3664,3 +3829,4 @@ feature's design (OQ-6).
 | n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-85, RCP-86) |
 | jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-76) |
 | gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-90, RCP-91) |
+| authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.9.0, level `deploys` (RCP-95, RCP-96) |
