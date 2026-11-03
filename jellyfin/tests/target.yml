@@ -1,0 +1,7 @@
+classes:
+  - recipes.jellyfin
+parameters:
+  namespace: jellyfin
+  kapitan:
+    vars:
+      target: jellyfin

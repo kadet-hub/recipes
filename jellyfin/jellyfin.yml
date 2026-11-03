@@ -1,0 +1,66 @@
+parameters:
+  components:
+    jellyfin:
+      application: jellyfin
+      image: docker.io/jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+      revision_history_limit: 3
+      ports:
+        http:
+          container_port: 8096
+      healthcheck:
+        startup:
+          type: tcp
+          port: http
+          failure_threshold: 30
+          timeout_seconds: 1
+        liveness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 10
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 10
+          timeout_seconds: 1
+      # The chart leaves the pod's token unset and the ServiceAccount's at true.
+      automount_service_account_token: true
+      service_account:
+        create: true
+        automount_service_account_token: true
+      volume_mounts:
+        config:
+          mount_path: /config
+        media:
+          mount_path: /media
+          read_only: true
+        cache:
+          mount_path: /cache
+      volumes:
+        config:
+          persistentVolumeClaim:
+            claimName: jellyfin-config
+        media:
+          persistentVolumeClaim:
+            claimName: jellyfin-media
+        cache:
+          emptyDir: {}
+      persistent_volume_claims:
+        jellyfin-config:
+          storage: 5Gi
+        jellyfin-media:
+          storage: 25Gi
+  generators:
+    kubernetes:
+      # The chart names the Service port service, a component's Service names
+      # it after the container port.
+      services:
+        jellyfin:
+          selector:
+            name: jellyfin
+          ports:
+            service:
+              service_port: 8096
+              container_port: http

@@ -2280,6 +2280,61 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
   - Test: CI `check` job, report line `smoke`
   - Since: #62
 
+## Jellyfin
+
+Jellyfin is a media server. It indexes the files below `/media` and serves
+a web client and an HTTP API on port 8096. `jellyfin` deploys it from the
+chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm, which runs Jellyfin 12.4,
+the newest stable release, as `docker.io/jellyfin/jellyfin:12.4`. The
+recipe pins that tag to its multi-arch index for amd64 and arm64.
+
+The Jellyfin organization maintains the chart in jellyfin/jellyfin-helm.
+Its release workflow publishes each version with chart-releaser as a
+GitHub release asset and in the HTTP repository
+`https://jellyfin.github.io/jellyfin-helm`. It pushes no OCI artifact, so
+the `Source` line takes the HTTP form of RCP-23. The archive's SHA-256 is
+also the `digest` of its entry in the repository's `index.yaml`.
+
+The chart and Jellyfin are GPL-2.0. The recipe carries no template, file
+or values text of the chart, so DEC-16 applies as for nextcloud, and no
+class file has a `.LICENSE` (RCP-42).
+
+`tests/values.yaml` keeps the chart's defaults. The release name
+`jellyfin` equals the chart's name, so the chart names its Deployment,
+Service and ServiceAccount `jellyfin` and its claims `jellyfin-config` and
+`jellyfin-media`. The claims ask for 5Gi and 25Gi with ReadWriteOnce and
+name no StorageClass, so the cluster's default class provisions them,
+`standard` on kind. `/media` is mounted read-only, and `/cache` is an
+`emptyDir`. The chart's Service names its port `service` and targets the
+container port `http`. A component's Service names each port after its
+container port, so the recipe renders the Service as an entry of
+`generators.kubernetes.services`.
+
+The chart's Ingress, HTTPRoute, NetworkPolicy, ServiceMonitor with its
+metrics hook, and DLNA on the host network are off by default and not part
+of the recipe. Hardware transcoding is not tested, because it needs a GPU
+in the pod and kind has none. The chart's README enables it with the
+capability `SYS_ADMIN` and the host's `/dev/dri` as a `hostPath` volume,
+which a target sets on the component.
+
+The recipe is at level `deploys`. check 0.14.0 fails every recipe at
+`migrates` (RCP-14).
+
+- RCP-76: The `tests/smoke` of `jellyfin` MUST call `/health` and
+  `/System/Info/Public` through the Service `jellyfin`. It MUST require
+  `Healthy` from the first, and from the second JSON whose `Version` is the
+  Deployment's image tag.
+
+  `/System/Info/Public` answers without a login, also before the startup
+  wizard has run. Its `Version` comes from the running server, so the test
+  fails when the pod runs another release than the tag names, as when tag
+  and digest disagree. Jellyfin reports the tag `12.4` as `12.4.0`, and the
+  test accepts both forms. The test reads the tag from the Deployment, so
+  it follows a Renovate update of the pin.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #64
+
 ## Semaphore
 
 Semaphore UI runs Ansible playbooks, Terraform and OpenTofu plans and shell
@@ -3607,4 +3662,5 @@ feature's design (OQ-6).
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |
 | pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.9.0, level `deploys` (RCP-80 to RCP-82) |
 | n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-85, RCP-86) |
+| jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.9.0, level `deploys` (RCP-76) |
 | gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-90, RCP-91) |
