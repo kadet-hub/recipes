@@ -1,0 +1,62 @@
+parameters:
+  components:
+    blackbox-exporter-prometheus-blackbox-exporter:
+      application: blackbox-exporter
+      image: quay.io/prometheus/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
+      update_strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+      args:
+        config-file: --config.file=/config/blackbox.yaml
+      ports:
+        http:
+          service_port: 9115
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        liveness: &probe
+          type: http
+          port: http
+          path: /-/healthy
+          timeout_seconds: 1
+        readiness: *probe
+      # The chart leaves the ServiceAccount's token at the API default, true,
+      # and opts out in the pod.
+      service_account:
+        create: true
+        automount_service_account_token: true
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      # The chart's hash of its rendered configmap.yaml. It does not follow a
+      # change of the recipe's config.
+      pod_annotations:
+        checksum/config: f43e733459690a84886aec93596a01748c2f936776a534eeaeb9f084e62ebb91
+      config_maps:
+        config:
+          mount: /config
+          data:
+            # config of values.yaml of the prometheus-blackbox-exporter chart
+            # 11.20.2, as templates/configmap.yaml renders it, Apache-2.0
+            # (blackbox-exporter.yml.LICENSE).
+            blackbox.yaml:
+              value: |
+                modules:
+                  http_2xx:
+                    http:
+                      follow_redirects: true
+                      preferred_ip_protocol: ip4
+                      valid_http_versions:
+                      - HTTP/1.1
+                      - HTTP/2.0
+                    prober: http
+                    timeout: 5s

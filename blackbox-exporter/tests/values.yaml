@@ -1,0 +1,2 @@
+# The chart's defaults: no ServiceMonitor, Ingress, route or config reloader.
+{}
