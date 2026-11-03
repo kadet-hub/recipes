@@ -1908,6 +1908,58 @@ all replicas ready and `rabbitmq-diagnostics check_running`. Through the
 Service `rabbitmq` it then sends a message through a quorum queue over the
 HTTP API and reaches the AMQP and Prometheus ports.
 
+## Blackbox exporter
+
+The Prometheus blackbox exporter probes a target that a request names,
+such as `/probe?target=<url>&module=http_2xx`, and answers with metrics
+like `probe_success`. Prometheus scrapes it once per target.
+`blackbox-exporter` deploys it from the chart `prometheus-blackbox-exporter`
+11.20.2 of prometheus-community/helm-charts, Apache-2.0, which runs
+blackbox_exporter 0.29.1.
+
+prometheus-community publishes the chart in the HTTP repository
+`https://prometheus-community.github.io/helm-charts` and at
+`oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter`.
+Both serve the same archive. The `Source` line takes the OCI form, because
+`check` pulls an OCI chart by its digest, and an HTTP repository has no
+digest a client checks (RCP-23).
+
+`tests/values.yaml` keeps the chart's defaults. The chart then renders a
+Deployment, its Service and ServiceAccount, and a ConfigMap with the
+module `http_2xx`, all named `<release>-prometheus-blackbox-exporter`. With
+the release name `blackbox-exporter` that is
+`blackbox-exporter-prometheus-blackbox-exporter`, which the recipe keeps as
+its component's name. A release of that name installed with the chart's
+defaults then keeps its object names when the recipe replaces it.
+`fullnameOverride` in `tests/values.yaml` was considered. It would shorten
+the names, but such a release would get new ones.
+
+The chart's ServiceMonitor, PodMonitoring, PrometheusRule, Ingress, route,
+NetworkPolicy, PodDisruptionBudget and config reloader are off by default
+and are not part of the recipe. A ServiceMonitor needs the CRDs of the
+Prometheus Operator, which no recipe of this repository installs and
+`check` does not provide. The module configuration is the chart's `config`
+value as its template renders it, carried with the chart's license
+(RCP-42).
+
+The recipe is at level `deploys`. check 0.14.0 fails every recipe at
+`migrates` (RCP-14).
+
+- RCP-71: The `tests/smoke` of `blackbox-exporter` MUST call `/probe` with
+  the module `http_2xx` through the exporter's Service against an HTTP
+  endpoint in the cluster that the recipe does not render, and require
+  `probe_success 1`. It MUST also require `probe_success 0` for a target
+  that answers with a status outside 2xx.
+
+  The target is CoreDNS's metrics endpoint, port 9153 of the Service
+  `kube-dns` in `kube-system`, which kubeadm sets up in every kind cluster. A
+  probe of another Service shows that the exporter reaches the cluster
+  network, not only its own pod. The failing probe of a path CoreDNS does
+  not serve shows that `probe_success` follows the target's answer.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -2713,3 +2765,4 @@ feature's design (OQ-6).
 | keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.9.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
+| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.9.0, level `deploys` (RCP-71) |
