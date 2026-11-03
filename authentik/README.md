@@ -2,7 +2,7 @@
 
 authentik 2026.8.5, the identity provider for OAuth2, OpenID Connect, SAML,
 LDAP and RADIUS, as one server and one worker, rendered by the kadet-hub
-`kubernetes` generator 1.9.0 from authentik's Helm chart 2026.8.5. The
+`kubernetes` generator 1.14.0 from authentik's Helm chart 2026.8.5. The
 database is the included recipe `postgresql`.
 
 Source: `oci://ghcr.io/goauthentik/helm-charts/authentik:2026.8.5@sha256:9683518d02b5e41f69d045b59a779c40260608b5631d18273407ea2cfe708712`

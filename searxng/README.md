@@ -2,7 +2,7 @@
 
 SearXNG, a metasearch engine that merges the results of other search
 engines without tracking its users, rendered by the kadet-hub `kubernetes`
-generator 1.9.0 from the Docker Compose file of the SearXNG repository.
+generator 1.14.0 from the Docker Compose file of the SearXNG repository.
 Valkey is the included recipe `valkey`.
 
 Source: `https://github.com/searxng/searxng/blob/cccbc9e158b0ac3bb2158e9841a647a5bec57b57/container/docker-compose.yml@sha256:0e56d5fa968a06e441353261f3134e7cea620c8a81d45a890842aef6c4d3ee11`
