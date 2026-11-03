@@ -13,13 +13,18 @@ parameters:
           port: http
           failure_threshold: 30
           timeout_seconds: 1
-        liveness: &probe
+        liveness:
           type: http
           port: http
           path: /health
           initial_delay_seconds: 10
           timeout_seconds: 1
-        readiness: *probe
+        readiness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 10
+          timeout_seconds: 1
       # The chart leaves the pod's token unset and the ServiceAccount's at true.
       automount_service_account_token: true
       service_account:
