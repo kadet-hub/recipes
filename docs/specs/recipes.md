@@ -1597,6 +1597,67 @@ Apache-2.0. Of the recipe's 41 lines of 30 characters or more, one occurs
 verbatim in the chart 9.4.1 (templates, `files/`, `values.yaml`): the label
 `app.kubernetes.io/monitor: enabled`.
 
+## PostgreSQL with pgvector
+
+pgvector adds the column type `vector` and nearest-neighbour indexes to
+PostgreSQL. Immich stores the embeddings of its smart search and face
+recognition in such columns and, as of v3.3.5, takes pgvector 0.5 or later
+below 1.0 when VectorChord is not available (`VECTOR_VERSION_RANGE` in
+`server/src/constants.ts` of immich-app/immich). `postgresql` has the option
+`pgvector`, which a target or a parent includes as
+`recipes.postgresql.pgvector`.
+
+The image needs no change. `postgresql` pins
+`ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie`. CloudNativePG
+builds its `system` images on the `standard` ones, which ship pgvector
+(`README.md` of cloudnative-pg/postgres-containers). The pinned digest
+carries the package `postgresql-18-pgvector` 0.8.7. pgvector's control file
+does not mark the extension as trusted, so only a superuser can create it.
+The owner `app` that CloudNativePG creates is no superuser.
+
+DEC-46: The option creates the extension through the Cluster's
+`bootstrap.initdb.postInitApplicationSQL`, which CloudNativePG runs as
+superuser in the application database once, right after it has created
+the Cluster. The chart renders the same statement from
+`cluster.initdb.postInitApplicationSQL`. On a Cluster that exists already
+the option has no effect, and a superuser runs the statement by hand, as
+the README says. A `Database` object with `extensions` was considered.
+The operator would reconcile it on a running Cluster as well, and both the
+`cloudnative-pg` generator 1.1.0 and the chart's `databases` value render
+it. Its `spec.template` is the name of a database template, a string,
+and `check` reads every `spec.template` as a pod template. `lint_output`
+in `check/lint.py` and `pod_templates` in `check/compare.py` stop on it
+with `AttributeError`, so the object needs a `check` change first.
+
+`tests/target.yml` of `postgresql` includes the option, so
+`check postgresql` proves the Cluster with the statement. A parent that includes
+`recipes.postgresql` alone compiles the same Cluster without it.
+
+- RCP-100: With the option `pgvector`, `postgresql` MUST render its Cluster
+  with `CREATE EXTENSION IF NOT EXISTS vector` in
+  `bootstrap.initdb.postInitApplicationSQL`. Without the option it MUST
+  render no `postInitApplicationSQL`.
+
+  - Test: `check postgresql`; manual: a compile of `tests/target.yml`
+    without the option
+  - Since: #71
+
+- RCP-101: The `tests/smoke` of `postgresql` MUST, as the owner through
+  `postgresql-cluster-rw`, require that `pg_extension` of the database
+  lists `vector` and compute the distance between two vectors.
+
+  The owner cannot create the extension, so a listed `vector` shows that
+  the statement ran as superuser. The distance shows that the owner can use
+  the type.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #71
+
+- AC-50 (RCP-100, RCP-101): `check postgresql --level deploys` passes in
+  CI on each Kubernetes minor, and its smoke test reports the version of
+  `vector`. On a cluster kept with `--keep`, `tests/smoke` fails after
+  `DROP EXTENSION vector` as superuser.
+
 ## Keycloak
 
 The Keycloak project's guides deploy Keycloak on Kubernetes through the
@@ -3650,6 +3711,7 @@ feature's design (OQ-6).
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.9.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
+| postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
