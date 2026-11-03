@@ -231,6 +231,37 @@ in `check/check.py` were considered. Renovate would move each pin's patch
 and digest, but it cannot add a new minor and drop the oldest, so that step
 would be a manual edit that nothing prompts.
 
+DEC-20: A compose service that runs a project this repository has a recipe
+for becomes that included recipe (Compose sources). paperless-ngx's `db`
+runs PostgreSQL and its `broker` Valkey, which `postgresql` and `valkey`
+prove already. The database then runs on CloudNativePG with the operator's
+generated password, and Valkey with the ACL password of `valkey`, where the
+compose broker has none. A component per service, as miniflux keeps its
+database, was considered. It would run PostgreSQL a third way next to
+`postgresql` and miniflux, without the failover and the backup path that
+`nextcloud` documents.
+
+DEC-21: A relative bind mount of a directory that the pinned repository
+does not contain becomes a volume claim, as a named volume does (Compose
+sources). Docker creates such a source as an empty directory, so the
+container starts with an empty directory either way. What the claim does
+not give is access from the host, which in a cluster the storage behind
+the claim takes over, without a hostPath. Directories the repository
+contains carry content, and absolute paths and the Docker socket carry
+host state, so they stay gaps. Leaving such a mount out was considered.
+Kubernetes ignores the image's `VOLUME`, so paperless-ngx's `export`
+directory, where its exporter writes backups, would be lost with the pod.
+
+DEC-22: paperless-ai is the option `ai` of `paperless-ngx`, designed on its
+image like a designed recipe (Paperless-ngx). It runs only against a
+paperless-ngx API and needs a token of it. A recipe of its own was
+considered. clusterzx/paperless-ai ships a compose file, which would be its
+source (DEC-10), and that file sets `network_mode`, `cap_drop` and
+`security_opt`, on which Compose sources stop. paperless-ai reads its
+settings only from the file `/app/data/.env`, which its web setup writes.
+The option renders that file from a Secret, so the target sets every
+setting, and the web setup and the settings page cannot save.
+
 Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/main/docs/authors.md),
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
 [chart-vs-kapitan](https://github.com/kadet-hub/examples/tree/main/chart-vs-kapitan)
@@ -774,6 +805,9 @@ and the README lists the renames.
 | `user` | `security_context.runAsUser` and `runAsGroup` | The API takes numbers only, so a user name is resolved from the image's `/etc/passwd`. |
 | `labels` | `pod_annotations` | Values such as Traefik rules are not valid Kubernetes label values. |
 | `container_name`, `networks` that every service shares | nothing | Pods are named by their workload, and one namespace already reaches every Service. |
+| a service that runs a project this repository has a recipe for | the included recipe (RCP-47) | The parent connects through the Service and Secret that recipe renders (DEC-12, DEC-20). |
+| relative bind mount of a directory the pinned repository does not contain | `volume_claims` with `volume_mounts`, as a named volume | Docker creates the directory empty (DEC-21). |
+| the image's `HEALTHCHECK`, where the service sets no `healthcheck` | as `healthcheck` | Compose runs the image's check unless the service overrides it. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -781,7 +815,7 @@ What the table does not map is a gap, and so is each of these:
 |---|---|
 | `build` without a published `image` | There is no image to pin |
 | `network_mode` | `host` puts the pod on the node's network, `service:` and `container:` share a network namespace, which only containers of one pod can |
-| bind mounts of directories or of paths outside the repository, the Docker socket among them | They carry host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
+| bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
 | `privileged`, `cap_add`, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
 | `networks` that separate services, `aliases`, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
 | `extends` or `include` of a file outside the pinned repository | The content is not pinned |
@@ -794,10 +828,12 @@ What the table does not map is a gap, and so is each of these:
 
   A gap is reported to kadet-hub/registry like a missing generator
   (RCP-7). A mapping is added to the table only with the migration that
-  needs it.
+  needs it. Revised in this change: the included recipe, the bind mount
+  of a directory the repository does not contain, which was a gap, and
+  the image's `HEALTHCHECK`, all for paperless-ngx.
 
   - Test: manual: review against the compose file
-  - Since: #8
+  - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: this change
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -1908,6 +1944,111 @@ all replicas ready and `rabbitmq-diagnostics check_running`. Through the
 Service `rabbitmq` it then sends a message through a quorum queue over the
 HTTP API and reaches the AMQP and Prometheus ports.
 
+## Paperless-ngx
+
+Paperless-ngx is a document management system that runs OCR on scanned
+documents and keeps them searchable. The project publishes no chart. Its
+repository ships compose files in `docker/compose/`, one per database, each
+also in a variant with Tika and Gotenberg for office documents.
+`paperless-ngx` takes `docker-compose.postgres.yml` of v3.4.1, the newest
+release on 2026-11-03, at commit `b67cfdf3fdfcde4883c4ac136c8545835f679d21`,
+SHA-256 `85206b8ae6cd74db70998de6479b4c1f7b50c077772a1af2c026c9ecb35b689c`.
+Its `env_file`, `docker-compose.env` in the same directory, sets only
+`PAPERLESS_SECRET_KEY`, to `change-me`. Every compose file of the directory
+also mounts the directories `./export` and `./consume`, which the
+repository does not contain (DEC-21). The compose file and the image are
+GPL-3.0. The recipe takes from them what the image dictates, such as
+variable names, paths and the port, and copies no text, as DEC-16 reads it
+for a copyleft chart.
+
+| Service | Recipe |
+|---|---|
+| `webserver`, `ghcr.io/paperless-ngx/paperless-ngx:latest` | StatefulSet `paperless-ngx` on `3.4.1`, the tag `latest` pointed to, with the claims `data`, `media`, `consume` and `export` |
+| `db`, `docker.io/library/postgres:18` | the included recipe `postgresql` (DEC-20) |
+| `broker`, `docker.io/valkey/valkey:9-alpine` | the included recipe `valkey` (DEC-20) |
+
+Paperless-ngx reads the database's host, name, user and password from the
+Secret `<cluster>-app` of `postgresql`. The compose file sets the host `db`
+and relies on the image's default `paperless` for the rest. It reaches
+Valkey as `redis://:<password>@valkey:6379`, with the password from the
+Secret `valkey-auth`, where the compose file has `redis://broker:6379`. The
+password is part of a URL, so it must not contain characters a URL
+reserves. The image's `HEALTHCHECK` requests port 8000 with `curl` and
+becomes the readiness probe. The image starts as root and runs
+paperless-ngx as the user `paperless`, UID 1000, so the target's namespace
+needs the Pod Security level `baseline`. The compose file creates no
+account. Paperless-ngx asks for a superuser on the first visit of its web
+interface.
+
+### The option `ai`
+
+paperless-ai, MIT, analyzes the documents of a paperless-ngx instance with
+an LLM and sets their title, tags and correspondent through the
+paperless-ngx API. Its newest release is 3.0.9 of 2025-11-04, which the
+option runs as
+`docker.io/clusterzx/paperless-ai:3.0.9@sha256:2b65888163fd59716f1c8285b31c5bd0b30c9c3c192c42b516688e3887d4ba60`.
+Its amd64 image is 4.3 GiB compressed, as it carries PyTorch next to
+Node.js. The arm64 image is 0.6 GiB. On start its search service downloads
+two models from Hugging Face.
+
+The option, which a target includes as `recipes.paperless-ngx.ai`, renders
+the StatefulSet `paperless-ngx-ai` with the claim `data` at `/app/data`, its
+Service on port 3000 and the Secret `paperless-ngx-ai`, mounted as
+`/app/data/.env` (DEC-22). The file points paperless-ai at
+`http://paperless-ngx:8000/api` with the provider `custom`, which takes any
+OpenAI-compatible endpoint, Ollama's among them. The target sets the rest:
+the paperless-ngx user and its API token, the endpoint, the model, its API
+key, and `JWT_SECRET`, which signs the logins of paperless-ai's web
+interface and is a fixed string when unset (`routes/auth.js` of
+clusterzx/paperless-ai 3.0.9).
+
+paperless-ai checks the file at start and every 5 seconds until it
+succeeds, up to 60 times: the token against `/api/documents/` and one chat
+completion at the endpoint. Its `HEALTHCHECK`, `/health`, answers once that
+check passed, and becomes the readiness probe. Its web setup creates the
+login user only after it has written the file
+(`POST /setup` in `routes/setup.js`), so with the option the web interface
+has no user. The tagging runs without one. The image sets no `USER`. The
+option drops every capability and privilege escalation, as paperless-ai's
+own compose file does.
+
+- RCP-72: With the option `ai`, `paperless-ngx` MUST render paperless-ai
+  with `/app/data/.env` from a Secret, whose values come from
+  `applications.paperless-ngx.ai.user`, `.token`, `.url`, `.model`,
+  `.api_key` and `.jwt_secret`, which the target sets. Without the option
+  it MUST render no object of paperless-ai.
+
+  - Test: `check paperless-ngx`; manual: compile of `tests/target.yml`
+    without the option
+  - Since: this change
+
+### Proof
+
+`paperless-ngx` is at level `deploys`, with `cnpg` installed through
+`postgresql`. `tests/target.yml` sets a secret key other than the compose
+file's `change-me`, which paperless-ngx 3.4.1 refuses at start
+(`src/paperless/settings/__init__.py`), runs one PostgreSQL instance and
+includes the option `ai`. It adds two
+components that only the proof uses. `paperless-ngx-llm` runs busybox's
+`httpd` with a script that answers every chat completion with the same
+reply. The Job `paperless-ngx-token` waits until paperless-ngx has migrated
+its database, then creates the superuser `admin` and its API token with
+the value the option's settings name, through `manage.py shell`. A real
+LLM is not tested.
+
+- RCP-73: The `tests/smoke` of `paperless-ngx` MUST copy a PDF into the
+  claim `consume` and find the document by its text through
+  `/api/documents/` on the Service port as the superuser. With the option
+  `ai` it MUST get `healthy` from `/health` of `paperless-ngx-ai` through
+  its Service.
+
+  Consuming the file needs the consumer, the task queue in Valkey, the
+  database and the claim `media`. paperless-ai is ready only after its
+  check of the API token and the endpoint passed.
+
+  - Test: CI `check` job
+  - Since: this change
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -2630,6 +2771,12 @@ feature's design (OQ-6).
   `kubernetes-versions.json`, each report names that minor's node image,
   and `ci` stays the one required check. `check`'s tests pass
   `--node-image` to `kind create cluster` and no `--image` without it.
+- AC-27 (RCP-37, RCP-72, RCP-73): `check paperless-ngx --level deploys`
+  passes in CI, its report lists the objects of `postgresql` and `valkey`
+  as included and `cnpg` as installed, and its smoke test finds the PDF
+  copied into `consume` through the API and gets `healthy` from
+  paperless-ai. `tests/target.yml` without the option `ai` compiles
+  without the objects of `paperless-ngx-ai`.
 
 ## Open questions
 
@@ -2713,3 +2860,4 @@ feature's design (OQ-6).
 | keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.9.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
+| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.9.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` |
