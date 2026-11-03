@@ -2476,6 +2476,166 @@ let a pod reach.
   - Test: CI `check` job, report line `smoke`
   - Since: #68
 
+## Gitea
+
+Gitea is a self-hosted Git service with a web UI and an API. `gitea`
+deploys it from the chart `gitea` 12.7.0 of gitea/helm-gitea, MIT, which
+the project publishes in the HTTP repository `https://dl.gitea.com/charts/`
+and at `oci://docker.gitea.com/charts/gitea`. Both serve the same archive,
+and the `Source` line takes the OCI form, as for semaphore. 12.7.0 was the
+newest release on 2026-11-03. The chart's `main` has moved on with breaking
+changes, such as CloudNativePG in place of its PostgreSQL HA subchart, that
+no release carries yet.
+
+The chart's `appVersion` is Gitea 1.27.0. `tests/values.yaml` sets the
+image tag `28.3.0`, so the chart renders
+`docker.gitea.com/gitea:28.3.0-rootless`, built for amd64, arm64 and
+riscv64 (DEC-37). The image does not follow the chart's version, so a
+maintainer moves it by hand (RCP-16), together with the chart's label
+`version: "28.3.0"`. That label is not one of the identifying labels of
+RCP-9, so the recipe renders it on every object the chart puts it on, from
+`applications.gitea.labels`. On the pod template it becomes part of the
+Services' selectors, which select the same pods as the chart's (RCP-10).
+
+The chart's subcharts are Bitnami's PostgreSQL, PostgreSQL HA, Valkey and
+Valkey Cluster. `tests/values.yaml` switches PostgreSQL HA and Valkey
+Cluster off, the two on by default. The database is the included recipe
+`postgresql` (DEC-4, DEC-12). `gitea.config.database` points Gitea at
+`postgresql-cluster-rw`, the database `app` and `SSL_MODE=require`, which
+encrypts the connection without verifying the server's certificate.
+`gitea.additionalConfigFromEnvs` takes the user and the password from the
+Secret `postgresql-cluster-app`, as the chart's README shows for a database
+password. The recipe reads these names from
+`applications.postgresql` (RCP-60). Cache, sessions and queues are the
+included recipe `valkey` (DEC-36).
+
+The chart configures Gitea in the init container `init-app-ini`. It writes
+`app.ini` on the claim `gitea-shared-storage` on every start, from the
+Secret `gitea-inline-config`, which holds `gitea.config` one section per
+key, and then from the `GITEA__<SECTION>__<KEY>` variables of its
+environment, which win. The init container `configure-gitea` then migrates
+the database and creates the admin account. The scripts both run come from
+the Secrets `gitea` and `gitea-init`, which the recipe renders with the
+chart's text (RCP-42). The pod template carries the chart's
+`checksum/config` of these Secrets, written as `tests/values.yaml` renders
+it.
+
+The chart writes `SECRET_KEY` and `INTERNAL_TOKEN` from
+`gitea.config.security` into `gitea-inline-config`. Without them
+`init-app-ini` generates both, as it generates `JWT_SECRET` of `[oauth2]`
+and `LFS_JWT_SECRET` of `[server]`. It keeps whatever an existing `app.ini`
+holds for these four. The recipe takes the first two from parameters
+(RCP-90). The admin account comes from the Secret
+`gitea-admin` that `gitea.admin.existingSecret` names (DEC-38).
+
+The chart renders the Services `gitea-http` on port 3000 and `gitea-ssh` on
+port 22, both headless and of type `ClusterIP`. The recipe keeps both.
+Gitea's built-in SSH server listens on 2222 in the rootless image. The
+chart's `ROOT_URL` is `http://git.example.com`, from the default host of
+its Ingress, also with the Ingress off. A target sets the address users
+reach Gitea at as `GITEA__SERVER__ROOT_URL` and its neighbours in the
+environment of `init-app-ini`.
+
+The `kubernetes` generator renders a `securityContext` on every container,
+`{}` where the inventory sets none, which `check` does not accept on init
+containers (RCP-12). `tests/values.yaml` sets the chart's
+`containerSecurityContext` to `runAsNonRoot: true`, which the chart puts on
+all four containers, as semaphore does with its `podSecurityContext`. The
+image runs as UID 1000.
+
+The chart 12.7.0 renders no Actions runner. act_runner, which needs Docker
+in Docker, has moved to the chart gitea/helm-actions, and the recipe
+renders none. The chart's Ingress, Gateway API routes, OpenShift Route,
+LDAP and OAuth sources, GPG signing and metrics are off by default and not
+part of the recipe. Its Helm test `gitea-test-connection` is left out
+(RCP-25).
+
+DEC-36: `gitea` puts Gitea's cache, sessions and queues on the included
+recipe `valkey`. The chart has no value for an external Redis. It sets
+`[cache]`, `[session]` and `[queue]` to Redis only for its own Valkey
+subcharts, and otherwise to Gitea's defaults: memory for cache and
+sessions and a LevelDB queue on the claim. Its README advises against
+these defaults in production, because the one pod holds cache and
+sessions in its memory. `tests/values.yaml` sets the adapters to `redis`
+in `gitea.config`, and `gitea.additionalConfigFromEnvs` gives each its URL
+`redis://:$(VALKEY_PASSWORD)@valkey:6379/0` with the chart's pool options.
+The kubelet puts in the password from `valkey-auth`, the Secret the
+included recipe renders, as `nextcloud` builds its `REDIS_URL`. The URL
+carries the password unencoded, so the README asks for a password of
+letters and digits. The defaults were considered. They need no second
+service, but sessions end with every restart of the pod, and `valkey` is
+proven already.
+
+DEC-37: `gitea` runs Gitea 28.3.0 instead of the chart's 1.27.0. Gitea
+publishes security fixes only for its most recent major release
+(`SECURITY.md` of go-gitea/gitea v28.3.0), and 1.27.3 of 2026-08-29 is the
+last 1.27 release. Advisories rated high that affect 1.27, such as
+GHSA-9v6p-xpcp-7488 and GHSA-8hhh-mqpg-jpxc, are fixed in 28.3.0 and 28.1.0
+only. 28.3.0, released on 2026-11-01, was the newest release on
+2026-11-03. The chart's `main` moved to 28.0.0 by its `appVersion` alone,
+without a change to its templates. 1.27.3, the newest release of the line
+the chart was released for, was considered. It stays without the fixes of
+28.
+
+DEC-38: `gitea` renders the admin account's Secret `gitea-admin` from
+`applications.gitea.admin`, and `tests/values.yaml` sets
+`gitea.admin.existingSecret` to it. The chart has two ways to set the
+account: `gitea.admin.username` and `.password`, which it writes as plain
+values into the environment of `configure-gitea`, or a Secret the user
+creates. With the first, a ref of the target would end up in the
+Deployment. The chart renders no Secret for `existingSecret`, so
+`tests/values.yaml` creates the same Secret through the chart's
+`extraDeploy`, as a user would next to the chart. `check` then compares it
+like the chart's own objects.
+
+- RCP-90: `gitea` MUST take the admin account's login and password,
+  `SECRET_KEY` and `INTERNAL_TOKEN` from
+  `applications.gitea.admin.username`, `.admin.password`, `.secret_key` and
+  `.internal_token`, and MUST leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs for all but the login (RCP-19). The
+  parent's README names `applications.valkey.password` as well (RCP-51).
+  `configure-gitea` sets the admin password on every start, the chart's
+  default `gitea.admin.passwordMode: keepUpdated`. `init-app-ini` writes
+  the key and the token only into a new `app.ini`, so a later change in
+  the target does not reach Gitea. Gitea encrypts stored secrets, such as
+  two-factor keys, with `SECRET_KEY`.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the four parameters stops with `Interpolation key` and its name
+  - Since: this change
+
+### Proof
+
+`gitea` is at level `deploys`. `tests/target.yml` runs one PostgreSQL
+instance and sets the values `tests/values.yaml` gives the chart.
+
+- RCP-91: The `tests/smoke` of `gitea` MUST require that `/api/healthz`
+  reports `pass` for `database:ping` and `cache:ping` through the endpoints
+  of the Service `gitea-http` and that
+  `/api/v1/version` reports the version of the image tag the Deployment
+  runs. As the admin account it MUST create a repository through
+  `POST /api/v1/user/repos`, clone it over HTTP through `gitea-http` from a
+  pod of its own, push one commit, and read the commit and the file back
+  through the API. Valkey MUST then hold keys.
+
+  Gitea runs the two checks only with `INSTALL_LOCK` set, and the overall
+  `pass` alone would also hold without them. The push runs Gitea's
+  hooks, which call its internal API with `INTERNAL_TOKEN`. The test pod
+  runs Gitea's image, which carries `git`. Nothing but Gitea writes into
+  the test's Valkey, so a key there shows that Gitea uses it.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-40 (RCP-90, RCP-91): `check gitea --level deploys` passes in CI on
+  each Kubernetes minor, its report lists the objects of `postgresql` and
+  `valkey` as included and `cnpg` as installed, and its smoke test reads
+  back the commit it pushed. `tests/target.yml` without
+  `applications.gitea.secret_key` stops the compile with
+  `Interpolation key 'applications.gitea.secret_key' not found`.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -3303,3 +3463,4 @@ feature's design (OQ-6).
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.9.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.9.0, level `deploys` (RCP-77, RCP-78) |
 | pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.9.0, level `deploys` (RCP-80 to RCP-82) |
+| gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.9.0, level `deploys` (RCP-90, RCP-91) |
