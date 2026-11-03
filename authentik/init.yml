@@ -1,0 +1,96 @@
+classes:
+  - recipes.postgresql
+  - .server
+  - .worker
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.9.0@sha256:987694d4d8b061a6937fb5b8acd17416a16ed3fea36786a7604e6d607c210e24
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    authentik:
+      # The target sets secret_key, bootstrap_password and bootstrap_token.
+      component_defaults:
+        image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+        revision_history_limit: 3
+        # The chart leaves the token at the API default, true.
+        automount_service_account_token: true
+        # The chart sets the API default explicitly.
+        enable_service_links: true
+        env:
+          AUTHENTIK_POSTGRESQL__PASSWORD:
+            secretKeyRef:
+              name: ${applications.postgresql.cluster}-app
+              key: password
+        env_from:
+          authentik:
+            - secretRef:
+                name: authentik
+        ports:
+          http:
+            container_port: 9000
+          metrics:
+            container_port: 9300
+        # The chart's hash of the Secret authentik as tests/values.yaml renders
+        # it. It does not follow a change of the recipe or the target.
+        pod_annotations:
+          checksum/secret: a28c21d89150399e7214cc1167a8e286f3466806e77e554a15e644c9d28e9f9b
+  generators:
+    kubernetes:
+      secrets:
+        authentik:
+          string_data:
+            AUTHENTIK_BOOTSTRAP_PASSWORD:
+              value: ${applications.authentik.bootstrap_password}
+            AUTHENTIK_BOOTSTRAP_TOKEN:
+              value: ${applications.authentik.bootstrap_token}
+            AUTHENTIK_EMAIL__PORT:
+              value: "587"
+            AUTHENTIK_EMAIL__TIMEOUT:
+              value: "30"
+            AUTHENTIK_EMAIL__USE_SSL:
+              value: "false"
+            AUTHENTIK_EMAIL__USE_TLS:
+              value: "false"
+            # The chart's switch for this Secret, which authentik does not read.
+            AUTHENTIK_ENABLED:
+              value: "true"
+            AUTHENTIK_ERROR_REPORTING__ENABLED:
+              value: "false"
+            AUTHENTIK_ERROR_REPORTING__ENVIRONMENT:
+              value: k8s
+            AUTHENTIK_ERROR_REPORTING__SEND_PII:
+              value: "false"
+            # GeoIP is off. authentik skips the lookups while these files are
+            # missing.
+            AUTHENTIK_EVENTS__CONTEXT_PROCESSORS__ASN:
+              value: /geoip/GeoLite2-ASN.mmdb
+            AUTHENTIK_EVENTS__CONTEXT_PROCESSORS__GEOIP:
+              value: /geoip/GeoLite2-City.mmdb
+            AUTHENTIK_LOG_LEVEL:
+              value: info
+            AUTHENTIK_OUTPOSTS__CONTAINER_IMAGE_BASE:
+              value: ghcr.io/goauthentik/%(type)s:%(version)s
+            AUTHENTIK_POSTGRESQL__HOST:
+              value: ${applications.postgresql.cluster}-rw
+            AUTHENTIK_POSTGRESQL__NAME:
+              value: ${applications.postgresql.database}
+            AUTHENTIK_POSTGRESQL__PORT:
+              value: "5432"
+            # CloudNativePG serves TLS. authentik encrypts without verifying the
+            # server's certificate.
+            AUTHENTIK_POSTGRESQL__SSLMODE:
+              value: require
+            AUTHENTIK_POSTGRESQL__USER:
+              value: ${applications.postgresql.owner}
+            AUTHENTIK_SECRET_KEY:
+              value: ${applications.authentik.secret_key}
+            AUTHENTIK_WEB__PATH:
+              value: /

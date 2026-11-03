@@ -1,0 +1,49 @@
+parameters:
+  components:
+    authentik-server:
+      application: authentik
+      args:
+        mode: server
+      ports:
+        http:
+          service_port: 80
+          # The chart sets no appProtocol.
+          app_protocol: ""
+        https:
+          container_port: 9443
+          service_port: 443
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /-/health/live/
+          initial_delay_seconds: 5
+          timeout_seconds: 3
+          failure_threshold: 60
+        liveness:
+          type: http
+          port: http
+          path: /-/health/live/
+          initial_delay_seconds: 5
+          timeout_seconds: 3
+        readiness:
+          type: http
+          port: http
+          path: /-/health/ready/
+          initial_delay_seconds: 5
+          timeout_seconds: 3
+      # The chart's labels, which its anti-affinity selects on.
+      pod_labels:
+        app.kubernetes.io/name: authentik
+        app.kubernetes.io/instance: authentik
+        app.kubernetes.io/component: server
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: ${components.authentik-server.pod_labels}
+                topologyKey: kubernetes.io/hostname

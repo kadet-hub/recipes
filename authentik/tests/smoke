@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# RCP-96: the server answers /-/health/live/ and /-/health/ready/ through its
+# Service. With the bootstrap token, which the worker creates from authentik's
+# blueprints, the API names akadmin and the version of the image tag, and
+# refuses another token. An OAuth2 provider and an application created
+# through the API serve their OpenID configuration.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+kubectl get --raw "/api/v1/namespaces/$ns/services/authentik-server:http/proxy/-/health/live/" >/dev/null
+kubectl get --raw "/api/v1/namespaces/$ns/services/authentik-server:http/proxy/-/health/ready/" >/dev/null
+
+kubectl port-forward service/authentik-server 19000:80 >/dev/null &
+pf=$!
+trap 'kill $pf' EXIT
+url=http://localhost:19000
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$url/-/health/live/" 2>/dev/null && break
+  sleep 2
+done
+token=$(kubectl get secret authentik -o jsonpath='{.data.AUTHENTIK_BOOTSTRAP_TOKEN}' | base64 -d)
+api() { curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' "$@"; }
+
+# The worker applies the blueprints with the account and its token after it
+# starts.
+me=
+for _ in $(seq 60); do
+  me=$(api "$url/api/v3/core/users/me/" 2>/dev/null) && break
+  sleep 5
+done
+jq -e '.user.username == "akadmin" and .user.is_superuser' <<<"$me" >/dev/null
+tag=$(kubectl get deployment authentik-server -o jsonpath='{.spec.template.spec.containers[0].image}' | sed 's/@.*//; s/.*://')
+api "$url/api/v3/admin/version/" | jq -e --arg tag "$tag" '.version_current == $tag' >/dev/null
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer not-the-token' "$url/api/v3/core/users/me/")
+[[ $status == 403 ]]
+
+# The default flows come from blueprints the worker may still be applying.
+flow() { api "$url/api/v3/flows/instances/?slug=$1" | jq -er '.results[0].pk // empty'; }
+authorization='' invalidation=''
+for _ in $(seq 60); do
+  authorization=$(flow default-provider-authorization-implicit-consent) &&
+    invalidation=$(flow default-provider-invalidation-flow) && break
+  sleep 5
+done
+[[ $authorization && $invalidation ]]
+slug=smoke-$RANDOM
+provider=$(jq -n --arg name "$slug" --arg authorization "$authorization" --arg invalidation "$invalidation" '{
+    name: $name,
+    authorization_flow: $authorization,
+    invalidation_flow: $invalidation,
+    client_type: "confidential",
+    redirect_uris: [{matching_mode: "strict", url: "https://app.example.com/callback"}]
+  }' | api -d @- "$url/api/v3/providers/oauth2/" | jq -er .pk)
+jq -n --arg slug "$slug" --argjson provider "$provider" '{name: $slug, slug: $slug, provider: $provider}' |
+  api -d @- "$url/api/v3/core/applications/" >/dev/null
+curl -fsS "$url/application/o/$slug/.well-known/openid-configuration" |
+  jq -e --arg slug "$slug" '.issuer | endswith("/application/o/\($slug)/")' >/dev/null
+echo "health of authentik-server, akadmin and version $tag through the bootstrap token, 403 for another token, OpenID configuration of the application $slug"

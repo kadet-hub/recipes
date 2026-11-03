@@ -1,0 +1,21 @@
+# authentik on the PostgreSQL of the included recipe postgresql, with the
+# keys and the admin credentials of tests/target.yml. The chart writes every
+# key below authentik into its Secret as an AUTHENTIK_ variable.
+authentik:
+  secret_key: smoke-secret-key
+  bootstrap_password: smoke-password
+  bootstrap_token: smoke-token
+  postgresql:
+    host: postgresql-cluster-rw
+    name: app
+    user: app
+    # CloudNativePG serves TLS. authentik encrypts without verifying the
+    # server's certificate.
+    sslmode: require
+global:
+  env:
+    - name: AUTHENTIK_POSTGRESQL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-cluster-app
+          key: password
