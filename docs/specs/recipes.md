@@ -1636,11 +1636,11 @@ with `AttributeError`, so the object needs a `check` change first.
 - RCP-100: With the option `pgvector`, `postgresql` MUST render its Cluster
   with `CREATE EXTENSION IF NOT EXISTS vector` in
   `bootstrap.initdb.postInitApplicationSQL`. Without the option it MUST
-  render no `postInitApplicationSQL`.
+  NOT render that statement.
 
   - Test: `check postgresql`; manual: a compile of `tests/target.yml`
     without the option
-  - Since: #71
+  - Since: #71; "that statement": this change
 
 - RCP-101: The `tests/smoke` of `postgresql` MUST, as the owner through
   `postgresql-cluster-rw`, require that `pg_extension` of the database
@@ -1657,6 +1657,40 @@ with `AttributeError`, so the object needs a `check` change first.
   CI on each Kubernetes minor, and its smoke test reports the version of
   `vector`. On a cluster kept with `--keep`, `tests/smoke` fails after
   `DROP EXTENSION vector` as superuser.
+
+### The option `earthdistance`
+
+earthdistance computes great-circle distances on the surface of the
+Earth, built on the type `cube`. Both are contrib modules of PostgreSQL in
+the pinned image. Immich v3.3.5 creates both in its first migration
+(`@Extensions` in `server/src/schema/index.ts`) and uses earthdistance for
+reverse geocoding (`server/src/repositories/map.repository.ts`). `cube`
+is a trusted extension, which the owner may create. `earthdistance` is
+not, and Immich as `app` stopped on kind with `permission denied to create
+extension "earthdistance"`.
+
+The option `earthdistance`, included as `recipes.postgresql.earthdistance`,
+adds `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` to the
+Cluster's `postInitApplicationSQL`, as DEC-46 does for `vector`. CASCADE
+creates `cube` with it. The omegaconf backend extends the list with the
+statements of each option in the order the target includes the classes.
+`tests/target.yml` includes `pgvector` first, and `tests/values.yaml`
+lists the two statements in the same order.
+
+- RCP-102: With the option `earthdistance`, `postgresql` MUST render its
+  Cluster with `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in
+  `bootstrap.initdb.postInitApplicationSQL`, and without it MUST NOT. Its
+  `tests/smoke` MUST, as the owner, require that `pg_extension` lists
+  `cube` and `earthdistance` and compute a distance with `earth_distance`.
+
+  - Test: `check postgresql`; CI `check` job, report line `smoke`;
+    manual: a compile of `tests/target.yml` without the option
+  - Since: #TBD
+
+- AC-52 (RCP-102): `check postgresql --level deploys` passes in CI on each
+  Kubernetes minor, and its smoke test reports `earthdistance`. On a
+  cluster kept with `--keep`, `tests/smoke` fails after
+  `DROP EXTENSION earthdistance` as superuser.
 
 ## Keycloak
 
@@ -3877,6 +3911,7 @@ feature's design (OQ-6).
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.9.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.9.0, level `deploys` |
 | postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
+| postgresql option `earthdistance` | `recipes.postgresql.earthdistance`, `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in the same list, with `cube` (RCP-102) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
