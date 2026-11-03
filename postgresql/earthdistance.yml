@@ -1,0 +1,9 @@
+parameters:
+  generators:
+    cloudnative-pg:
+      clusters:
+        postgresql:
+          bootstrap:
+            initdb:
+              postInitApplicationSQL:
+                - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE

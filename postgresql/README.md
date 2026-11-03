@@ -52,7 +52,8 @@ The move is not tested.
 ```yaml
 classes:
   - recipes.postgresql
-  - recipes.postgresql.pgvector   # the extension vector in the database
+  - recipes.postgresql.pgvector         # the extension vector in the database
+  - recipes.postgresql.earthdistance    # the extensions cube and earthdistance
 parameters:
   namespace: <namespace>
   kapitan:
@@ -90,6 +91,15 @@ trusted extension. The image needs no change, because the pinned
 already the option does nothing. There a superuser runs the statement in
 the database by hand.
 
+## The option `earthdistance`
+
+`recipes.postgresql.earthdistance` adds
+`CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` to the same list,
+which creates `cube` with it. Both are contrib modules of PostgreSQL in the
+image. The owner may create `cube` but not `earthdistance`. On a Cluster
+that exists already the option does nothing, as `pgvector` does not. With
+both options the statements run in the order the target includes them.
+
 ## Left out
 
 `Job/postgresql-cluster-ping-test`, the chart's Helm test.
@@ -100,10 +110,13 @@ the database by hand.
 `tests/target.yml`, on kind for each Kubernetes minor CI tests, with `cnpg`
 installed first. `tests/values.yaml` sets the database and owner that
 CloudNativePG gives an empty `initdb`, so the chart renders them like the
-recipe. `tests/target.yml` includes the option `pgvector`,
-which `tests/values.yaml` sets as `cluster.initdb.postInitApplicationSQL`.
+recipe. `tests/target.yml` includes the options `pgvector` and
+`earthdistance`, whose statements `tests/values.yaml` sets as
+`cluster.initdb.postInitApplicationSQL`.
 `tests/smoke` checks what the chart's ping test and the
 kadet-hub/examples recipe checked: the Cluster is ready, and the owner
 reaches its database through `postgresql-cluster-rw` with the credentials of
 `postgresql-cluster-app`. As the owner it then reads the version of `vector`
-from `pg_extension` and computes a distance between two vectors.
+from `pg_extension` and computes a distance between two vectors, and it
+requires `cube` and `earthdistance` in `pg_extension` and computes the
+length of one degree of longitude on the equator with `earth_distance`.
