@@ -1,0 +1,20 @@
+classes:
+  - recipes.wordpress
+parameters:
+  namespace: wordpress
+  kapitan:
+    vars:
+      target: wordpress
+  applications:
+    mariadb:
+      password: aaaaaaaaaaaaaaaa
+      root_password: bbbbbbbbbbbbbbbb
+    wordpress:
+      auth_key: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      secure_auth_key: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+      logged_in_key: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+      nonce_key: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+      auth_salt: gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg
+      secure_auth_salt: hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+      logged_in_salt: iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
+      nonce_salt: jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj

@@ -4099,6 +4099,248 @@ therefore makes the timestamp optional for the image.
   on each Kubernetes minor, and its smoke test reads the row after the
   restart.
 
+## WordPress
+
+WordPress is a PHP application for websites. It keeps posts, users and
+settings in MySQL or MariaDB, and uploads, plugins and themes in its
+directory `wp-content`. Bitnami's `wordpress` chart was the most installed
+way to run it on Kubernetes, and Bitnami stopped publishing its free
+images.
+
+The WordPress project publishes no chart, no Kustomize base and no image
+for a site. WordPress/wordpress-develop carries `docker-compose.yml` for
+the development environment of WordPress core. It serves the repository's
+own checkout through the bind mount `./:/var/www`, on which Compose sources
+stop, and runs no WordPress release. WordPress/wpdev-docker-images builds
+that environment's images `wordpressdevelop/php` and `wordpressdevelop/cli`,
+which contain PHP and WP-CLI without WordPress.
+
+The Docker Official Image `wordpress` packages every WordPress release. Its
+Dockerfile downloads the release from wordpress.org and checks the SHA-1
+that the build pins. docker-library/wordpress, GPL-2.0, holds the
+Dockerfiles, and `library/wordpress` in docker-library/official-images
+names Tianon Gravi and Joseph Ferguson of docker-library as maintainers,
+the same as `library/rabbitmq`. The packaging is therefore docker-library's
+and not the project's, unlike that of `mariadb` (MariaDB).
+
+DEC-110: `wordpress` is a designed recipe on `docker.io/library/wordpress`
+(DEC-11). DEC-11 names the project's image, and WordPress publishes none
+for a site, so the Docker Official Image takes its place, as
+`docker.io/library/rabbitmq` does for `rabbitmq`. The compose file of
+wordpress-develop was considered as the source (DEC-10). It stops on its
+bind mounts and runs a development checkout. Bitnami's chart is a
+third-party chart, which DEC-11 rules out.
+
+WordPress 7.1.4 was the newest release on 2026-11-04, by the version check
+API of api.wordpress.org. docker-library builds it for PHP 8.2 to 8.5, each
+as `apache`, `fpm` and `fpm-alpine`, and the tag `7.1.4-apache` without a
+PHP version is PHP 8.3. The tag `7.1.4-php8.5-apache` is the index
+`sha256:41666f6d61dd038f87ceacd6323685bd9818a3a9b3d80d98af3ce9797c403dce`
+for amd64, arm/v5, arm/v7, arm64/v8, 386, ppc64le, riscv64 and s390x,
+built from docker-library/wordpress at
+`ef1166e08e869848d1633c0ae2078a486a305b68`. It runs PHP 8.5.12 and Apache
+2.4.69 on Debian 13.
+
+DEC-111: `wordpress` runs the tag `7.1.4-php8.5-apache`. php.net gives PHP
+8.5 active support until 2027-12-31, 8.4 until 2026-12-31, and 8.3 none
+since 2025-12-31. The PHP compatibility table of the WordPress core
+handbook lists WordPress 7.1 as compatible with PHP 7.4 to 8.5, and
+wordpress.org recommends PHP 8.3 or later. Renovate's docker versioning
+proposes only tags with the pinned suffix, here `-php8.5-apache`, so the
+PHP version changes only by hand. The variant `apache` serves PHP from one
+container, where `fpm` needs a web server next to it. The image's default
+`7.1.4-apache` was considered. It runs PHP 8.3, which gets security fixes
+only, and its PHP version would change whenever docker-library moves the
+default. A plugin that does not run on PHP 8.5 yet needs another tag,
+which the README names as a setting.
+
+### Files, database and keys
+
+At its start the image's entrypoint copies WordPress from
+`/usr/src/wordpress` to `/var/www/html` when that directory holds neither
+`index.php` nor `wp-includes/version.php`. It skips every directory
+`wp-content/<type>/<name>` that already exists, and writes `wp-config.php`
+from `wp-config-docker.php` when the file is missing and a `WORDPRESS_*`
+variable is set (`docker-entrypoint.sh`). `wp-config-docker.php` reads the
+database settings and the eight keys and salts from `WORDPRESS_*`
+variables.
+
+`wordpress` mounts the claim `data` only at `/var/www/html/wp-content`,
+from the claim's subdirectory `wp-content` (DEC-113), so uploads, plugins
+and themes outlive the pod. The core files and `wp-config.php` are written
+anew at every start, from the image and the inventory. The image tag is
+then the WordPress version. WordPress's own automatic core update writes
+into the container and is lost with the pod, whose successor runs the
+image's version again. The claim is 8Gi, as `mariadb`'s, and the README
+names the size as a setting. The whole `/var/www/html` on the claim, as
+the image's documentation mounts it, was considered. The entrypoint copies
+WordPress only onto an empty directory, so WordPress would update itself
+on the claim and a new image tag would change nothing.
+
+The database is the included recipe `mariadb` (DEC-4, DEC-12).
+`WORDPRESS_DB_HOST` is its Service `mariadb`, `WORDPRESS_DB_NAME` and
+`WORDPRESS_DB_USER` come from `applications.mariadb.database` and `.user`,
+and `WORDPRESS_DB_PASSWORD` from the key `password` of its Secret
+`mariadb`.
+
+DEC-112: WordPress connects to MariaDB without TLS. WordPress 7.1.4 passes
+the constant `MYSQL_CLIENT_FLAGS`, 0 when `wp-config.php` does not define
+it, to `mysqli_real_connect` (`wp-includes/class-wpdb.php`), and MariaDB
+accepts a client without TLS (DEC-97). On kind, mysqli of the pinned image
+connected without TLS with the flags 0, and over TLSv1.3 with
+`MYSQLI_CLIENT_SSL` alone, although no CA was given for the certificate
+that MariaDB generates. Defining the constant with `MYSQLI_CLIENT_SSL`
+through `WORDPRESS_CONFIG_EXTRA` was considered. It encrypts without
+verifying the server, and the variable is the one place where a target
+adds its own settings.
+
+Without the eight variables `WORDPRESS_AUTH_KEY` to `WORDPRESS_NONCE_SALT`
+the entrypoint replaces each placeholder with a random value when it
+writes `wp-config.php`. Since `wp-config.php` is written at every start,
+every new pod would sign cookies with new keys and log every user out, and
+two replicas would reject each other's cookies. The keys are therefore
+parameters under `applications.wordpress` that the target sets (RCP-19),
+in the Secret `wordpress`.
+
+### Pod Security
+
+The image starts as root. The entrypoint then copies WordPress and Apache
+binds port 80 as root, and Apache's workers switch to `www-data`, UID 33.
+Started as another user, the entrypoint copies as that user and Apache runs
+as it. In the image, Apache's lock, PID and log directories and
+`/var/www/html` belong to `www-data` with mode 1777. For another user the
+image's documentation refers to that of the `php` image, which names two
+ways for its Apache variants: the sysctl
+`net.ipv4.ip_unprivileged_port_start` at 0, or an Apache configuration on
+a port above 1024. On kind with the node image of Kubernetes 1.37, a pod
+of the pinned image as UID and GID 33, with every capability dropped,
+served WordPress. With the pod's sysctl at 1024, the kernel's default,
+Apache stopped with `(13)Permission denied: AH00072: make_sock: could not
+bind to address 0.0.0.0:80`, also with `NET_BIND_SERVICE` added. A
+process that does not run as root keeps none of the container's
+capabilities in its effective set. The node's containerd 2.3.4 sets the
+sysctl to 0 for every pod (`enable_unprivileged_ports`), which a runtime
+need not do.
+
+Run as another user than root, the entrypoint's `tar` stops with
+`./wp-content: Cannot change mode to rwxrwxrwx: Operation not permitted`
+when a volume mounted at `wp-content` belongs to another user, and the
+container exits. The root directory of a new volume belongs to root.
+kind's local-path provisioner creates it with mode 0777, and the kubelet
+gives a volume that supports `fsGroup` the group 33 and mode 2775. With
+Docker and UID 33 the copy stopped in both modes, also with the volume at
+`/var/www/html`, and passed only on a directory that UID 33 owns. On kind,
+with the claim's root at `wp-content`, the container exited on this error
+at every start.
+
+DEC-113: `wordpress` runs as `www-data`, UID, GID and `fsGroup` 33, under
+`security_profile: restricted`, and sets the pod's sysctl
+`net.ipv4.ip_unprivileged_port_start` to 0, so Apache binds port 80
+without a capability on any runtime. Pod Security `baseline` and
+`restricted` allow this sysctl, and it applies to the pod's network
+namespace only. The init container `wp-content`, of the same image and
+user, creates the directory `wp-content` on the claim, which the
+container mounts as its subdirectory. UID 33 then owns the mount point
+wherever the claim's root is writable for the group 33 or for everyone.
+Root under Pod Security `baseline`, as the image's default, was
+considered. Apache's parent process would run as root. Apache on port 8080
+was considered as well. It would take `/etc/apache2/ports.conf` and the
+site `000-default.conf` of the image as ConfigMaps, which the recipe would
+have to keep in step with the image, and the claim would still need the
+init container. `tests/smoke` checks that the pods pass the level
+`restricted`.
+
+### Probe and installation
+
+DEC-114: `wordpress` has one probe, the readiness probe `GET /wp-login.php`
+on port `http` at the generator's period of 10 seconds, timeout of 5
+seconds and 3 failures. The image has no `HEALTHCHECK`, and its
+documentation names no check. `wp-login.php` loads WordPress with its
+options from the database. It answers 302 to `wp-admin/install.php`
+before the installation, 200 after it, and 500 while the database is
+unreachable, so the pod leaves the Service while it cannot serve pages. On
+kind, with MariaDB scaled to zero, the pod became unready without a
+restart and ready again once MariaDB was back. A liveness probe was
+considered. Through WordPress it would restart every WordPress pod while
+MariaDB is down, and on a static file it would test Apache alone.
+
+DEC-115: `wordpress` renders no installation and no admin account. The
+first visitor of `wp-admin/install.php` names the site and creates the
+admin, as with the image alone. A Job with WP-CLI from the image tag
+`cli`, with the admin's credentials as parameters, was considered. It
+needs WordPress's files and `wp-config.php`, which only the WordPress pod
+writes, and the claim is `ReadWriteOnce`. It would install only once, so a
+changed parameter would not reach the account. The Service is `ClusterIP`,
+so until the target exposes it only the cluster reaches the installation,
+and the README asks for it before the exposure.
+
+- RCP-180: `wordpress` MUST run `docker.io/library/wordpress` with the tag
+  of DEC-111, pinned to its index, as the StatefulSet `wordpress` with the
+  user `www-data`, UID 33, the sysctl and the profile of DEC-113. It MUST
+  mount the claim `data` at `/var/www/html/wp-content` from the
+  subdirectory that the init container `wp-content` creates, and MUST set
+  the keys and salts from the parameters of `applications.wordpress` through
+  the Secret `wordpress`.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
+  - Since: #88
+
+- RCP-181: `wordpress` MUST include `recipes.mariadb` and connect to the
+  Service `mariadb` with the database and user of `applications.mariadb`
+  and the key `password` of the Secret `mariadb`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #88
+
+- RCP-182: `wordpress` MUST have the readiness probe of DEC-114 and no
+  liveness or startup probe.
+
+  - Test: manual: review; CI `check` job, which waits for the rollout
+  - Since: #88
+
+- RCP-183: The `tests/smoke` of `wordpress` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace before
+  it starts a pod of its own. From that pod, through the Service
+  `wordpress` on port 80, it MUST get the redirect to
+  `wp-admin/install.php`, install WordPress with a POST to
+  `wp-admin/install.php?step=2`, and require the version of the image tag
+  in the front page's generator tag. It MUST get no session for a wrong
+  password, log in through `wp-login.php`, publish a post through
+  `/wp/v2/posts` of the REST API and read it without the session on its
+  permalink. It MUST upload a PNG through `/wp/v2/media` and fetch it byte
+  for byte from its `source_url`. Once the pod `wordpress-0` was deleted
+  and its successor is ready, it MUST read the post and the PNG again and
+  reach `/wp/v2/users/me` with the session of the login.
+
+  The installation goes through the Service as a visitor's would, so the
+  test needs no image besides WordPress's and no access to the claim
+  (DEC-115). Application passwords need HTTPS unless the environment type
+  is `local` (`wp_is_application_passwords_supported`), so the REST calls
+  use the login's cookie with the nonce of
+  `wp-admin/admin-ajax.php?action=rest-nonce`. The post comes back from
+  MariaDB and the PNG from the claim. The session after the restart shows
+  that the keys come from the Secret. On kind, with the eight variables
+  removed, a session got 400 from `admin-ajax.php` after the restart, where
+  the entrypoint had written new random keys.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #88
+
+- RCP-184: Renovate MUST NOT need a release timestamp for the image of
+  `wordpress`.
+
+  Docker Hub listed 5982 tags of `library/wordpress` on 2026-11-04, so
+  Renovate gets no release timestamps for it, as for `rabbitmq` (RCP-16).
+
+  - Test: manual: Renovate dry run
+  - Since: #88
+
+- AC-110 (RCP-180 to RCP-183): `check wordpress --level deploys` passes in
+  CI on each Kubernetes minor, its report lists the objects of `mariadb`
+  as included, and its smoke test reads the post and the PNG after the
+  restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -4995,3 +5237,4 @@ feature's design (OQ-6).
 | uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.14.0, level `deploys` (RCP-120 to RCP-122) |
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
+| wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
