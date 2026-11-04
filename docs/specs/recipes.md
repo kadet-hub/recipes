@@ -653,7 +653,7 @@ helm, kubectl, kind, oras and gh come from `PATH`; CI installs them pinned
   with `next` and verifies nothing.
 
   - Test: `check/tests/test_check.py` (`NextAttestation`); CI `check` job, report line `kapitan next`
-  - Since: #PR
+  - Since: #84
 
 - RCP-25: `check` MUST leave out every chart object with the annotation
   `helm.sh/hook`, and MUST fail unless the README names each of them as
