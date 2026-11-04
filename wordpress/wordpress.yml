@@ -1,0 +1,106 @@
+parameters:
+  components:
+    wordpress:
+      application: wordpress
+      type: statefulset
+      # renovate: Source
+      image: docker.io/library/wordpress:7.1.4-php8.5-apache@sha256:41666f6d61dd038f87ceacd6323685bd9818a3a9b3d80d98af3ce9797c403dce
+      security_profile: restricted
+      # Apache runs as www-data, UID 33 in the image's /etc/passwd, and binds
+      # port 80 through the sysctl, which the php image's documentation names.
+      workload_security_context:
+        runAsUser: 33
+        runAsGroup: 33
+        fsGroup: 33
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      env:
+        WORDPRESS_DB_HOST: mariadb
+        WORDPRESS_DB_NAME: ${applications.mariadb.database}
+        WORDPRESS_DB_USER: ${applications.mariadb.user}
+        WORDPRESS_DB_PASSWORD:
+          secretKeyRef:
+            name: mariadb
+            key: password
+        WORDPRESS_AUTH_KEY:
+          secretKeyRef:
+            key: auth-key
+        WORDPRESS_SECURE_AUTH_KEY:
+          secretKeyRef:
+            key: secure-auth-key
+        WORDPRESS_LOGGED_IN_KEY:
+          secretKeyRef:
+            key: logged-in-key
+        WORDPRESS_NONCE_KEY:
+          secretKeyRef:
+            key: nonce-key
+        WORDPRESS_AUTH_SALT:
+          secretKeyRef:
+            key: auth-salt
+        WORDPRESS_SECURE_AUTH_SALT:
+          secretKeyRef:
+            key: secure-auth-salt
+        WORDPRESS_LOGGED_IN_SALT:
+          secretKeyRef:
+            key: logged-in-salt
+        WORDPRESS_NONCE_SALT:
+          secretKeyRef:
+            key: nonce-salt
+      secrets:
+        keys:
+          string_data:
+            auth-key:
+              value: ${applications.wordpress.auth_key}
+            secure-auth-key:
+              value: ${applications.wordpress.secure_auth_key}
+            logged-in-key:
+              value: ${applications.wordpress.logged_in_key}
+            nonce-key:
+              value: ${applications.wordpress.nonce_key}
+            auth-salt:
+              value: ${applications.wordpress.auth_salt}
+            secure-auth-salt:
+              value: ${applications.wordpress.secure_auth_salt}
+            logged-in-salt:
+              value: ${applications.wordpress.logged_in_salt}
+            nonce-salt:
+              value: ${applications.wordpress.nonce_salt}
+      ports:
+        http:
+          service_port: 80
+      # WordPress with its options from the database, at the generator's
+      # default period, timeout and threshold.
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /wp-login.php
+      # The entrypoint copies WordPress as www-data and stops on a wp-content
+      # that another user owns, such as the root of a new volume.
+      init_containers:
+        wp-content:
+          image: ${components.wordpress.image}
+          command:
+            - mkdir
+            - -p
+            - /data/wp-content
+          volume_mounts:
+            data:
+              mount_path: /data
+      # The core files come from the image at every start, wp-content from
+      # the claim.
+      volume_mounts:
+        data:
+          mount_path: /var/www/html/wp-content
+          sub_path: wp-content
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 8Gi
+      service:
+        type: ClusterIP

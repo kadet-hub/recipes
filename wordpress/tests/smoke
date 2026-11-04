@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# RCP-183: the pods under Pod Security restricted, then from a pod of the
+# WordPress image and through the Service wordpress on port 80 the
+# installation, a login, a post through the REST API read on its permalink
+# and a PNG uploaded and fetched, and all three again after wordpress-0
+# restarted.
+set -euo pipefail
+url=http://wordpress
+user=admin
+password=smoke-admin-password
+marker=smoke-post-kept-in-mariadb
+image=$(kubectl get statefulset wordpress -o jsonpath='{.spec.template.spec.containers[?(@.name=="wordpress")].image}')
+tag=${image#*:}
+tag=${tag%@*}
+version=${tag%%-*}
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod, which runs as root.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image brings curl and PHP, so the test pod needs no other image.
+kubectl run wordpress-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod wordpress-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/wordpress-smoke --for=condition=Ready --timeout=120s >/dev/null
+run() { kubectl exec -i wordpress-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs wordpress-0 --tail=40 >&2; exit 1; }
+# The Service gets the ready pod as its endpoint a moment after the pod is ready.
+reachable() {
+  for _ in $(seq 30); do run curl -fsS -o /dev/null "$url/wp-login.php" 2>/dev/null && return; sleep 2; done
+  fail "wp-login.php does not answer through the Service wordpress"
+}
+# REST requests by rest_route, which needs no rewrite rules. The nonce request
+# reads no stdin, which carries the request body.
+rest() {
+  local nonce
+  nonce=$(run curl -fsS -b /tmp/jar "$url/wp-admin/admin-ajax.php?action=rest-nonce" </dev/null)
+  run curl -fsS -b /tmp/jar -H "X-WP-Nonce: $nonce" "$@"
+}
+
+reachable
+location=$(run curl -sS -o /dev/null -w '%{redirect_url}' "$url/")
+[[ $location == "$url/wp-admin/install.php" ]] || fail "/ redirects to '$location', not to the installation"
+run curl -fsS --max-time 60 --data-urlencode weblog_title=Smoke --data-urlencode user_name="$user" \
+  --data-urlencode admin_password="$password" --data-urlencode admin_password2="$password" \
+  --data-urlencode admin_email=smoke@example.com --data-urlencode blog_public=0 \
+  "$url/wp-admin/install.php?step=2" | grep -F 'WordPress has been installed' >/dev/null || fail "the installation did not succeed"
+run curl -fsS "$url/" | grep -F "content=\"WordPress $version\"" >/dev/null || fail "the front page names no WordPress $version"
+
+# wp-login.php sets the session cookie only with the test cookie it sent before.
+login() {
+  run curl -sS -o /dev/null -w '%{http_code}' -c /tmp/jar -b 'wordpress_test_cookie=WP%20Cookie%20check' \
+    --data-urlencode log="$user" --data-urlencode pwd="$1" --data-urlencode testcookie=1 "$url/wp-login.php"
+}
+status=$(login wrong-password)
+[[ $status == 200 ]] && ! run grep -q wordpress_logged_in_ /tmp/jar || fail "a wrong password got $status and a session"
+status=$(login "$password")
+[[ $status == 302 ]] && run grep -q wordpress_logged_in_ /tmp/jar || fail "the login got $status and no session"
+
+post=$(jq -nc --arg m "$marker" '{title: "Smoke", content: $m, status: "publish"}' |
+  rest -H 'Content-Type: application/json' --data @- "$url/?rest_route=/wp/v2/posts")
+link=$(jq -r .link <<<"$post")
+run sh -c 'php -r "imagepng(imagecreatetruecolor(16, 16));" >/tmp/smoke.png'
+media=$(rest -H 'Content-Type: image/png' -H 'Content-Disposition: attachment; filename=smoke.png' \
+  --data-binary @/tmp/smoke.png "$url/?rest_route=/wp/v2/media")
+src=$(jq -r .source_url <<<"$media")
+sum=$(run sha256sum /tmp/smoke.png | cut -d' ' -f1)
+# Without the session: the post from MariaDB, the PNG from the claim.
+check() {
+  run curl -fsS "$link" | grep -F "$marker" >/dev/null || fail "$link $1 does not show the post"
+  [[ $(run curl -fsS "$src" | sha256sum | cut -d' ' -f1) == "$sum" ]] || fail "$src $1 differs from the upload"
+}
+check "after the upload"
+
+kubectl delete pod wordpress-0 --wait >/dev/null
+kubectl wait pod/wordpress-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/wordpress-0 --for=condition=Ready --timeout=300s >/dev/null
+reachable
+check "after the restart"
+# The new pod signs cookies with the same keys only when they come from the Secret.
+name=$(rest "$url/?rest_route=/wp/v2/users/me" | jq -r .slug) || fail "the session ended with the restart"
+[[ $name == "$user" ]] || fail "/wp/v2/users/me is $name"
+# check reports the last line.
+echo "WordPress $version installed through the Service wordpress, published $link and served $src, both again after wordpress-0 restarted, with the session of $user. The pods pass Pod Security restricted."
