@@ -223,6 +223,14 @@
       "minimumReleaseAge": "0 days"
     },
     {
+      "description": "RCP-163: mariadb stays on MariaDB's 12.3 LTS line. The image is close to 1000 tags on Docker Hub, past which Renovate gets no release timestamps, so the timestamp is optional",
+      "matchPackageNames": [
+        "docker.io/library/mariadb"
+      ],
+      "allowedVersions": "/^12\\.3\\./",
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "RCP-16: Docker Hub gives no release timestamps for the rabbitmq image, which has more than 1000 tags, so the timestamp is optional; the weekly window bundles its rebuilds",
       "matchPackageNames": [
         "docker.io/library/rabbitmq"

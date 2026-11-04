@@ -1,0 +1,62 @@
+parameters:
+  components:
+    mariadb:
+      application: mariadb
+      type: statefulset
+      # renovate: Source
+      image: docker.io/library/mariadb:12.3.3@sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9
+      security_profile: restricted
+      # The image runs as the user mysql, UID 999 in its /etc/passwd.
+      workload_security_context:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      env:
+        MARIADB_DATABASE: ${applications.mariadb.database}
+        MARIADB_USER: ${applications.mariadb.user}
+        MARIADB_PASSWORD:
+          secretKeyRef:
+            key: password
+        MARIADB_ROOT_PASSWORD:
+          secretKeyRef:
+            key: root-password
+      secrets:
+        auth:
+          string_data:
+            password:
+              value: ${applications.mariadb.password}
+            root-password:
+              value: ${applications.mariadb.root_password}
+      ports:
+        mariadb:
+          service_port: 3306
+      # The check of the image's documentation, at the generator's default
+      # period, timeout and threshold, which are the documented ones.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - healthcheck.sh
+            - --connect
+            - --innodb_initialized
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+      # MariaDB lists a lost+found at the volume's root as a database.
+      volume_mounts:
+        data:
+          mount_path: /var/lib/mysql
+          sub_path: mariadb
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 8Gi
+      service:
+        type: ClusterIP

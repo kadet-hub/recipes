@@ -1,0 +1,11 @@
+classes:
+  - recipes.mariadb
+parameters:
+  namespace: mariadb
+  kapitan:
+    vars:
+      target: mariadb
+  applications:
+    mariadb:
+      password: aaaaaaaaaaaaaaaa
+      root_password: bbbbbbbbbbbbbbbb

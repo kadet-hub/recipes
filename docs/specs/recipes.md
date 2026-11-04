@@ -3959,6 +3959,146 @@ are off by default and not part of the recipe. The ServiceAccount
   and `valkey` as included, and its smoke test gets a completion from
   `smollm:135m` and from the stub.
 
+## MariaDB
+
+MariaDB Server is a relational database that speaks the MySQL protocol.
+Bitnami's `mariadb` chart was a common way to run it on Kubernetes. The
+MariaDB Foundation publishes no chart and no Kustomize base. It maintains
+the Docker Official Image `mariadb` in MariaDB/mariadb-docker, GPL-2.0,
+whose README names the MariaDB Foundation and Community as maintainers.
+docker-library builds the image from that repository, as `library/mariadb`
+in docker-library/official-images records. The packaging is therefore the
+project's own. The `mongo` image, which mongodb left aside (Designed
+recipes), is packaged by docker-library itself in docker-library/mongo.
+
+The repository's compose files are examples below `examples/`.
+`compose-debug.yml` runs a debug build of 11.2 under gdb.
+`replication-async/compose-replication.yml` and its semi-synchronous
+variant start a primary and two replicas from `mariadb:lts` without a
+volume. The files below `migration-5.7/` and `migration-8/` move a MySQL
+database into MariaDB.
+
+DEC-95: `mariadb` is a designed recipe on `docker.io/library/mariadb`
+(DEC-11). The compose examples were considered as sources (DEC-10). None
+runs a single server that keeps its data: the replication examples run
+three servers whose data lives in the containers, and the others debug a
+server or migrate from MySQL. mariadb-operator/mariadb-operator, MIT, was
+considered as well. It is a project outside the MariaDB Foundation, and no
+kadet-hub generator renders its resources (RCP-7). Bitnami's chart is a
+third-party chart, which DEC-11 rules out.
+
+The recipe follows the 12.3 LTS release line. The downloads REST API of
+mariadb.org listed 12.3 on 2026-11-04 as the newest series with support
+type "Long Term Support", GA on 2026-05-28 and supported until 2029-06-12.
+13.0 is a rolling release. 12.3.3 of 2026-08-22 was the newest 12.3
+release. Docker Hub's tag `12.3.3` is the index
+`sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9`
+for amd64, arm64/v8, ppc64le and s390x, built from mariadb-docker at
+`bdfe641466a5312bb97d06a1a4e1fb411c49e6b6`, and on 2026-11-04 it was also
+the tag `lts`.
+
+The image runs `mariadbd` as the user `mysql`, UID 999 in its
+`/etc/passwd`, and its entrypoint skips the switch from root when the
+container starts as that user. The entrypoint initializes an empty data
+directory with networking off. It creates the database `MARIADB_DATABASE`,
+the user `MARIADB_USER` with `ALL` on that database, and `root` for
+`localhost` and `%` (`12.3/docker-entrypoint.sh`). It also creates the
+user `healthcheck` and its client file `.my-healthcheck.cnf` in the data
+directory, which the image's `healthcheck.sh` reads.
+
+With a `lost+found` directory at the root of the data directory, as an
+ext4 volume has, MariaDB 12.3.3 listed the database `#mysql50#lost+found`,
+and `mariadb-dump --all-databases` stopped on it with errno 13 while the
+directory belonged to root. This was a local run of the pinned image with
+Docker. The claim therefore holds the data in its subdirectory `mariadb`,
+as `mysql` keeps its data below the subdirectory `mysql`.
+
+DEC-96: `mariadb` has one probe, the readiness probe
+`healthcheck.sh --connect --innodb_initialized` every 10 seconds with a
+timeout of 5 seconds and 3 failures. These are the test and the values of
+the compose example on the image's documentation page "Using
+Healthcheck.sh" at mariadb.com, and the generator's defaults. The image
+has no `HEALTHCHECK`. `--connect` fails while the server has networking
+off, so the pod is not ready during the initialization. The TCP probes of
+`mysql` were considered. They test only that the port is open, where the
+documentation gives a check of InnoDB. A liveness probe was considered.
+MariaDB opens its port only after its storage engines started, InnoDB's
+crash recovery included (`mysqld_main` in `sql/mysqld.cc` of 12.3.3). A
+liveness probe would restart a recovery that outlasts its threshold, and
+the next start would recover again. Without a liveness probe no startup
+probe is needed either.
+
+Pod Security is as for `mysql`: `security_profile: restricted` with
+`runAsUser`, `runAsGroup` and `fsGroup` 999. `tests/smoke` also checks
+that the running pod passes the level `restricted`.
+
+DEC-97: `mariadb` configures no TLS and leaves the server's zero
+configuration TLS in place. MariaDB from 11.4 on generates a self-signed
+certificate when none is configured, and its clients verify the
+certificate by default through the account's password with
+`mysql_native_password`, `ed25519` or `parsec` (MariaDB documentation
+"Zero-Configuration SSL"). The entrypoint creates `app` with
+`mysql_native_password`. `tests/smoke` connects with
+`--ssl-verify-server-cert` and requires TLS on the session. `mysql`
+neither sets nor checks TLS. A certificate from cert-manager was
+considered. It would add cert-manager as a prerequisite (DEC-13) for a
+verification that clients of 11.4 and later get without a CA.
+`--require-secure-transport=ON` was considered. It refuses a client that
+does not ask for TLS, which the image's default accepts, so the README
+names the option as a setting.
+
+Renovate moves the `Source` line and the class line marked
+`# renovate: Source` together (RCP-16). A package rule keeps both on the
+12.3 line. Docker Hub listed 957 tags of `library/mariadb` on 2026-11-04.
+It serves the tag list 100 tags a page and refused the eleventh page of
+`library/rabbitmq` to an anonymous request on the same day, so past 1000
+tags Renovate gets no release timestamps, as for `rabbitmq`. The same rule
+therefore makes the timestamp optional for the image.
+
+- RCP-160: `mariadb` MUST run `docker.io/library/mariadb` of the 12.3 LTS
+  line, pinned to its index, as the StatefulSet `mariadb` with the user
+  `mysql`, UID 999, and `security_profile: restricted`. It MUST mount the
+  claim `data` at `/var/lib/mysql` from the claim's subdirectory
+  `mariadb`, and MUST create `applications.mariadb.database` and
+  `applications.mariadb.user` with the passwords of the Secret `mariadb`.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
+  - Since: #86
+
+- RCP-161: `mariadb` MUST have the readiness probe of DEC-96 and no
+  liveness or startup probe.
+
+  - Test: manual: review; CI `check` job, which waits for the rollout
+  - Since: #86
+
+- RCP-162: The `tests/smoke` of `mariadb` MUST connect as the user `app`
+  to its database through the Service `mariadb` on port 3306 with
+  `--ssl-verify-server-cert`, require TLS on the session, create a table,
+  write a row and read it back, and require a server version that starts
+  with the image's tag. It MUST require no Pod Security warning from a
+  server-side dry run of the label `pod-security.kubernetes.io/enforce:
+  restricted` on its namespace. Once the pod `mariadb-0` was deleted and
+  its successor is ready, it MUST read the row again through the Service.
+
+  The admission plugin PodSecurity answers a change of a namespace's
+  `enforce` label with a warning that names each running pod that would
+  violate the new level, also on a dry run, so the label is never set.
+  The tag is read from the StatefulSet, so the test follows a new image.
+  The row after the restart shows that the data lives on the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #86
+
+- RCP-163: Renovate MUST keep the image of `mariadb` on the 12.3 line and
+  MUST NOT need a release timestamp for it.
+
+  - Test: manual: Renovate dry run
+  - Since: #86
+
+- AC-95 (RCP-160 to RCP-162): `check mariadb --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test reads the row after the
+  restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -4850,3 +4990,4 @@ feature's design (OQ-6).
 | ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.14.0, level `deploys` (RCP-130, RCP-131) |
 | uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.14.0, level `deploys` (RCP-120 to RCP-122) |
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
+| mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
