@@ -2,6 +2,7 @@ parameters:
   components:
     immich-machine-learning:
       application: immich
+      # renovate: upstream
       image: ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56
       # In the chart's order, sorted by name. The chart gives both components
       # the server's IMMICH_MACHINE_LEARNING_URL and REDIS_HOSTNAME.

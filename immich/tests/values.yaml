@@ -5,6 +5,7 @@ controllers:
       main:
         image:
           # The chart's default v3.2.0 has GHSA-q89f-h332-8q2h.
+          # renovate: upstream ghcr.io/immich-app/immich-server
           tag: v3.3.5
         env:
           # The Service of the included recipe valkey.

@@ -10,6 +10,19 @@
   "minimumReleaseAge": "3 days",
   "minimumReleaseAgeBehaviour": "timestamp-required",
   "internalChecksFilter": "strict",
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "check/tests/**",
+    "**/__fixtures__/**"
+  ],
+  "helm-values": {
+    "enabled": false
+  },
   "lockFileMaintenance": {
     "enabled": true
   },
@@ -63,6 +76,52 @@
       "datasourceTemplate": "github-release-attachments"
     },
     {
+      "description": "RCP-16: a compose source by the release tag its comment names; the tag and the commit of the Source line move together, the SHA-256 is the maintainer's",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/README\\.md$/"
+      ],
+      "matchStrings": [
+        "<!-- renovate: tag=(?<currentValue>\\S+) -->\\nSource: `https://github\\.com/(?<depName>[^/`\\s]+/[^/`\\s]+)/blob/(?<currentDigest>[0-9a-f]{40})/"
+      ],
+      "datasourceTemplate": "github-tags"
+    },
+    {
+      "description": "RCP-16: a compose source without releases by the newest commit of the branch its comment names",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/README\\.md$/"
+      ],
+      "matchStrings": [
+        "<!-- renovate: branch=(?<currentValue>\\S+) -->\\nSource: `https://github\\.com/(?<depName>[^/`\\s]+/[^/`\\s]+)/blob/(?<currentDigest>[0-9a-f]{40})/"
+      ],
+      "packageNameTemplate": "https://github.com/{{{depName}}}",
+      "datasourceTemplate": "git-refs"
+    },
+    {
+      "description": "RCP-16: an image line marked # renovate: upstream moves to the image's newest release: the main image of a compose recipe, or an image a recipe runs ahead of its chart",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/[^/]+\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: upstream\\n\\s*[\\w-]+: (?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})\\n"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "RCP-16: a tag or version label marked # renovate: upstream <image> moves with that image",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^[^/]+/[^/]+\\.yml$/",
+        "/^[^/]+/tests/values\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: upstream (?<depName>[a-z0-9.-]+\\.[a-z]+/\\S+)\\n\\s*[\\w-]+: (?<currentValue>[^@\\s]+)\\n"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
       "description": "RCP-16: the class line that runs a designed recipe's Source image, marked # renovate: Source, moves with the Source line",
       "customType": "regex",
       "managerFilePatterns": [
@@ -114,7 +173,8 @@
       "description": "RCP-16: Source lines of recipe READMEs and image lines of class files move once a week",
       "matchFileNames": [
         "*/README.md",
-        "*/*.yml"
+        "*/*.yml",
+        "*/tests/values.yaml"
       ],
       "matchPackageNames": [
         "!ghcr.io/kadet-hub/**"
@@ -186,6 +246,76 @@
       "groupName": "strimzi"
     },
     {
+      "description": "RCP-16: miniflux's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "miniflux/v2",
+        "miniflux/miniflux"
+      ],
+      "groupName": "miniflux"
+    },
+    {
+      "description": "RCP-16: paperless-ngx's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "paperless-ngx/paperless-ngx",
+        "ghcr.io/paperless-ngx/paperless-ngx"
+      ],
+      "groupName": "paperless-ngx"
+    },
+    {
+      "description": "RCP-16: pihole's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "pi-hole/docker-pi-hole",
+        "docker.io/pihole/pihole"
+      ],
+      "groupName": "pihole"
+    },
+    {
+      "description": "RCP-16: searxng's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "https://github.com/searxng/searxng",
+        "docker.io/searxng/searxng"
+      ],
+      "groupName": "searxng"
+    },
+    {
+      "description": "RCP-16: uptime-kuma's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "louislam/uptime-kuma",
+        "docker.io/louislam/uptime-kuma"
+      ],
+      "groupName": "uptime-kuma"
+    },
+    {
+      "description": "RCP-16: vaultwarden's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "dani-garcia/vaultwarden",
+        "docker.io/vaultwarden/server"
+      ],
+      "groupName": "vaultwarden"
+    },
+    {
+      "description": "RCP-16: immich's server and machine learning images move in one pull request",
+      "matchPackageNames": [
+        "ghcr.io/immich-app/immich-server",
+        "ghcr.io/immich-app/immich-machine-learning"
+      ],
+      "groupName": "immich"
+    },
+    {
+      "description": "RCP-16: SearXNG's commits come from git-refs, which gives no release timestamps",
+      "matchPackageNames": [
+        "https://github.com/searxng/searxng"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": "RCP-16: SearXNG tags each commit's image <date>-<commit>, so the versioning reads the date",
+      "matchPackageNames": [
+        "docker.io/searxng/searxng"
+      ],
+      "versioning": "regex:^(?<major>\\d{4})\\.(?<minor>\\d{1,2})\\.(?<patch>\\d{1,2})-[0-9a-f]{9}$"
+    },
+    {
       "description": "Runners stay on ubuntu-24.04: actionlint 1.7.12 does not know newer labels",
       "matchDatasources": [
         "github-runners"
@@ -245,7 +375,8 @@
       "description": "RCP-30a: a Source line or its class image line (RCP-16, RCP-21) waits for a reviewer",
       "matchFileNames": [
         "*/README.md",
-        "*/*.yml"
+        "*/*.yml",
+        "*/tests/values.yaml"
       ],
       "matchPackageNames": [
         "!ghcr.io/kadet-hub/**"

@@ -5,6 +5,7 @@
 # sets.
 image:
   repository: docker.io/semaphoreui/semaphore
+  # renovate: upstream docker.io/semaphoreui/semaphore
   tag: v2.19.17
 # The generator renders a securityContext on every container. The image runs
 # as UID 1001, so this changes nothing for it.

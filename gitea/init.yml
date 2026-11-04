@@ -22,6 +22,7 @@ parameters:
         email: gitea@local.domain
       # The chart's version label, the tag of the image in gitea.yml.
       labels:
+        # renovate: upstream docker.gitea.com/gitea
         version: 28.3.0
       # The chart's initContainersScriptsVolumeMountPath.
       scripts: /usr/sbinx
