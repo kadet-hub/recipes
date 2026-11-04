@@ -28,11 +28,13 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.14.1"
+VERSION = "0.15.0"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
-KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:fca6da0da9f5caebc285740cebe1720e6d8c66dc0f25f1f9fd3367703946aef4"
+KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:3a693ac10912804309065f6635eddde1d035a774a922e60327b9497b94c745c3"
+# The workflow that builds and attests the next image (RCP-29a).
+NEXT_IDENTITY = "https://github.com/kadet-hub/kapitan/.github/workflows/next.yml@refs/heads/next"
 INDEX = "ghcr.io/kadet-hub/index"
 RELEASE_IDENTITY = "https://github.com/kadet-hub/registry/.github/workflows/release.yml@refs/heads/main"
 BUILTIN_ROLES = ("view", "edit", "admin")
@@ -223,8 +225,12 @@ def compile_recipe(project, out):
 
 
 def compile_next(project, out):
-    """The kadet-hub/kapitan next image: reported, never decides (RCP-24)."""
+    """The kadet-hub/kapitan next image: reported, never decides (RCP-24). It runs only after its
+    attestation verified; a failed verification fails the check (RCP-29a)."""
     out.mkdir()
+    image, _, digest = KAPITAN_NEXT.partition("@")
+    run(["gh", "attestation", "verify", f"oci://{image.rpartition(':')[0]}@{digest}",
+         "--owner", "kadet-hub", "--cert-identity", NEXT_IDENTITY])
     try:
         run(["docker", "run", "--rm", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
              "-v", f"{project}:/src:ro,z", "-v", f"{out}:/out:z", KAPITAN_NEXT,

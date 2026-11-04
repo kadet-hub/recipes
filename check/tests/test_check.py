@@ -342,5 +342,28 @@ class GivenCompile(unittest.TestCase):
                     self.assertNotIn("--image", cmd)
 
 
+class NextAttestation(unittest.TestCase):
+    """RCP-29a: the next image runs only after gh attestation verify accepted it."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_verified_before_it_runs(self):
+        with mock.patch("check.run") as run:
+            self.assertIsNone(check.compile_next(self.tmp, self.tmp / "next"))
+        verify, docker = (c.args[0] for c in run.call_args_list)
+        digest = check.KAPITAN_NEXT.partition("@")[2]
+        self.assertEqual(verify, ["gh", "attestation", "verify", f"oci://ghcr.io/kadet-hub/kapitan@{digest}",
+                                  "--owner", "kadet-hub", "--cert-identity", check.NEXT_IDENTITY])
+        self.assertEqual(docker[:2], ["docker", "run"])
+
+    def test_unverified_image_does_not_run(self):
+        with mock.patch("check.run", side_effect=check.Failed("no attestation")) as run, \
+                self.assertRaises(check.Failed):
+            check.compile_next(self.tmp, self.tmp / "next")
+        self.assertEqual(run.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
