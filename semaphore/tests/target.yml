@@ -14,8 +14,8 @@ parameters:
         password: smoke-password
       cookie_hash: c21va2UtY29va2llLWhhc2gtMzItYnl0ZXMtMDAwMDE=
       cookie_encryption: c21va2UtY29va2llLWVuY3J5cHRpb24tMzJieXRlczE=
-      access_key_encryption: c21va2UtYWNjZXNzLWtleS1lbmNyeXB0aW9uLTAwMDE=
-      runner_token: smoke-runner-token
+      access_key_encryption: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      runner_token: aaaaaaaaaaaaaaaaaaaaaaaa
     # One instance is enough for the proof.
     postgresql:
       instances: 1

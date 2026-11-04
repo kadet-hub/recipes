@@ -12,7 +12,7 @@ parameters:
       secret_key: smoke-secret-key
       ai:
         user: admin
-        token: 0123456789abcdef0123456789abcdef01234567
+        token: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         url: http://paperless-ngx-llm:8080/cgi-bin/v1
         model: stub
         api_key: smoke-api-key

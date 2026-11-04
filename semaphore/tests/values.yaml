@@ -26,6 +26,6 @@ admin:
 secrets:
   cookieHash: YzIxdmEyVXRZMjl2YTJsbExXaGhjMmd0TXpJdFlubDBaWE10TURBd01ERT0=
   cookieEncryption: YzIxdmEyVXRZMjl2YTJsbExXVnVZM0o1Y0hScGIyNHRNekppZVhSbGN6RT0=
-  accesskeyEncryption: YzIxdmEyVXRZV05qWlhOekxXdGxlUzFsYm1OeWVYQjBhVzl1TFRBd01ERT0=
+  accesskeyEncryption: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQT0=
 runner:
-  token: c21va2UtcnVubmVyLXRva2Vu
+  token: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFh

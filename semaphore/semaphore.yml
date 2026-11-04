@@ -84,8 +84,8 @@ parameters:
       pod_annotations:
         checksum/config: 6db2d80fdda45e7be278174345179b6ece77d6ca957902f08bb3ba861921e4a8
         checksum/secret-admin: 42ff9d09842cef6ace449a25a7540abfdf25581330cd0e3f3fc3e55d13724dfc
-        checksum/secret-general: 338804326f75578833191c813c0de9ac708d5cc1e91e515a39841a5a44967865
-        checksum/secret-runner: 14f457bdc195d526f990d7c0aedee5121801c3642bb44d80fd64f181ae31d4fd
+        checksum/secret-general: 5fe77ffd3daf5c706b12f21c7f24602e3e290a0e8d83f7d2caea5bed44742bcc
+        checksum/secret-runner: 0a14cb29e62f631aad1d513f71ad1a692e32bf39ba186244997dbdc96de46991
       volumes:
         config:
           configMap:
