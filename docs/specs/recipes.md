@@ -4063,13 +4063,13 @@ therefore makes the timestamp optional for the image.
   `applications.mariadb.user` with the passwords of the Secret `mariadb`.
 
   - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
-  - Since: this change
+  - Since: #86
 
 - RCP-161: `mariadb` MUST have the readiness probe of DEC-96 and no
   liveness or startup probe.
 
   - Test: manual: review; CI `check` job, which waits for the rollout
-  - Since: this change
+  - Since: #86
 
 - RCP-162: The `tests/smoke` of `mariadb` MUST connect as the user `app`
   to its database through the Service `mariadb` on port 3306 with
@@ -4087,13 +4087,13 @@ therefore makes the timestamp optional for the image.
   The row after the restart shows that the data lives on the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #86
 
 - RCP-163: Renovate MUST keep the image of `mariadb` on the 12.3 line and
   MUST NOT need a release timestamp for it.
 
   - Test: manual: Renovate dry run
-  - Since: this change
+  - Since: #86
 
 - AC-95 (RCP-160 to RCP-162): `check mariadb --level deploys` passes in CI
   on each Kubernetes minor, and its smoke test reads the row after the
