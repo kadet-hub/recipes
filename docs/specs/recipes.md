@@ -4169,7 +4169,7 @@ first command.
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
     keycloak: #26; release manifests: #22, #25; kafka: #34; HTTP
     repository: #23; rabbitmq: #36; digests of rebuilt tags: #55;
-    compose sources and images ahead of the chart: #PR
+    compose sources and images ahead of the chart: #82
 
 ### Releasing
 
