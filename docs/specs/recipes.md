@@ -4165,8 +4165,8 @@ first command.
 
   Until a recipe's first release (Releasing), the fetch inventory pins this
   repository by commit SHA as a `git` dependency, and the consumer verifies
-  the generators the recipe pins. The steps are in the README's
-  "Using a recipe".
+  the generators the recipe pins. The README's "Using a recipe" shows the
+  digest path and names the commit path.
 
   Once it is published, the fetch inventory pins
   `ghcr.io/kadet-hub/recipes/<name>` by digest instead. The registry's
@@ -4176,8 +4176,12 @@ first command.
   dependencies of the main inventory, like any generator.
 
   - Test: manual: the README's "Using a recipe" steps on a fresh clone;
-    the digest path: the registry's `consumer-selftest` (not written)
-  - Since: #5 (commit SHA); not implemented (digest)
+    the digest path: the registry's `consumer/test_consumer.py`
+    (`FetchInventory`, `Includes`) and kadet-hub/examples
+    `open-webui-searxng/check` (EX-17 there), which verifies and pulls four
+    published recipes by digest and deploys them on kind
+  - Since: #5 (commit SHA); digest: registry #397, README on the digest
+    path: #89
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at
