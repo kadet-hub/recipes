@@ -2497,7 +2497,7 @@ rendered, because `valkey` keeps its own configuration (DEC-12).
     the key
   - Since: #66
 
-- RCP-180: `searxng` MUST have a readiness probe on `/healthz` of the
+- RCP-185: `searxng` MUST have a readiness probe on `/healthz` of the
   port `http`, and no liveness probe.
 
   The compose file and the image define no health check. Without a
