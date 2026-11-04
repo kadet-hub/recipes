@@ -8,6 +8,12 @@ parameters:
       ports:
         http:
           service_port: 8080
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /healthz
+          timeout_seconds: 3
       service:
         type: ClusterIP
       env:

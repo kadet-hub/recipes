@@ -2497,6 +2497,19 @@ rendered, because `valkey` keeps its own configuration (DEC-12).
     the key
   - Since: #66
 
+- RCP-180: `searxng` MUST have a readiness probe on `/healthz` of the
+  port `http`, and no liveness probe.
+
+  The compose file and the image define no health check. Without a
+  readiness probe `rollout status` returned before SearXNG answered, which
+  the open-webui-searxng example in kadet-hub/examples ran into. `/healthz`
+  answers `OK` once the web app serves requests and does not depend on
+  Valkey or on the search engines. A liveness probe on it would restart a
+  pod that is only slow, which nothing upstream asks for.
+
+  - Test: `check searxng` (`rollout status`, then RCP-75)
+  - Since: this change
+
 ### Proof
 
 `searxng` is at level `deploys`. `tests/target.yml` sets the secret key and
