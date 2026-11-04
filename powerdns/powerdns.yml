@@ -73,7 +73,8 @@ parameters:
       healthcheck:
         readiness:
           type: tcp
-          port: dns-tcp
+          # pdns_server opens the API after port 53, so this covers both.
+          port: api
       resources:
         requests:
           cpu: 100m
