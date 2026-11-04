@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.14.1 implements renders and deploys, for charts
+Status: Draft. check 0.15.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -637,6 +637,23 @@ helm, kubectl, kind, oras and gh come from `PATH`; CI installs them pinned
 
   - Test: manual: Renovate dry run
   - Since: #3; release age exempted: this change
+
+- RCP-29a: Before it runs the `next` image, `check` MUST verify the image's
+  attestation with `gh attestation verify`, issued to the workflow
+  `.github/workflows/next.yml` of kadet-hub/kapitan on `refs/heads/next`,
+  and MUST fail when the verification fails.
+
+  The digest pins what the image contains. The attestation shows where it
+  was built: by that workflow, from the commit its provenance names. The
+  image runs Kapitan on the recipe, so an image of unknown origin does not
+  run, although its compile never decides (RCP-24). The workflow attests
+  each build since kapicorp/kapitan#1637 added the step, and earlier
+  builds have no attestation, so the pin moved to an attested build in
+  this change. With the outputs given (RCP-34), `check` compiles nothing
+  with `next` and verifies nothing.
+
+  - Test: `check/tests/test_check.py` (`NextAttestation`); CI `check` job, report line `kapitan next`
+  - Since: #84
 
 - RCP-25: `check` MUST leave out every chart object with the annotation
   `helm.sh/hook`, and MUST fail unless the README names each of them as
