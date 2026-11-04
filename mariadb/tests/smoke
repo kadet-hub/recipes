@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# RCP-45 through the Service mariadb on port 3306, as the user app in its
+# database app: a row written and read back over TLS with the server's
+# certificate verified, the server version against the image tag, the pod
+# under Pod Security restricted, and the row again after the pod restarted.
+set -euo pipefail
+password=$(kubectl get secret mariadb -o jsonpath='{.data.password}' | base64 -d)
+sql() {
+  # --password= keeps a password that starts with "-" from being read as an option.
+  kubectl exec statefulset/mariadb -c mariadb -- mariadb -h mariadb -P 3306 --ssl-verify-server-cert \
+    -u app --password="$password" app -Nse "$1"
+}
+
+mapfile -t out < <(sql "create table if not exists smoke (id int primary key, v varchar(16));
+  replace into smoke values (1, 'kept');
+  select v from smoke where id = 1;
+  select version();
+  select variable_value from information_schema.session_status where variable_name = 'Ssl_version'")
+image=$(kubectl get statefulset mariadb -o jsonpath='{.spec.template.spec.containers[?(@.name=="mariadb")].image}')
+tag=${image#*:}
+tag=${tag%@*}
+[[ ${out[0]} == kept ]]
+[[ ${out[1]} == "$tag"-MariaDB* ]]
+[[ ${out[2]} == TLSv1.* ]]
+
+# PodSecurity admission warns on a dry run of the label when a running pod violates the level.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+uid=$(kubectl get pod mariadb-0 -o jsonpath='{.metadata.uid}')
+kubectl delete pod mariadb-0 --wait=true >/dev/null
+for _ in $(seq 150); do
+  state=$(kubectl get pod mariadb-0 -o jsonpath='{.metadata.uid} {.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+  [[ $state != "$uid "* && $state == *' True' ]] && break
+  sleep 2
+done
+[[ $state != "$uid "* && $state == *' True' ]]
+# The Service may lag behind the pod's readiness for a moment.
+for _ in $(seq 15); do
+  kept=$(sql "select v from smoke where id = 1" 2>/dev/null || true)
+  [[ $kept == kept ]] && break
+  sleep 2
+done
+[[ $kept == kept ]]
+# check reports the last line.
+echo "app wrote a row in app and read it through the Service mariadb over ${out[2]} from ${out[1]} and again after mariadb-0 restarted. The pod passes Pod Security restricted."
