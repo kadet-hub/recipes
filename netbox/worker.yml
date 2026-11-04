@@ -1,0 +1,80 @@
+parameters:
+  components:
+    # NetBox's RQ worker, which runs background jobs from the Valkey queue.
+    netbox-worker:
+      application: netbox
+      image: ${components.netbox.image}
+      # The chart's hashes of its ConfigMap and Secrets as tests/values.yaml
+      # renders them. They do not follow a change of the recipe or the target.
+      pod_annotations:
+        checksum/config: 70706f499edaac4cd1da3dac7aa26c8632217362eadd7fa39b203e117cba96dd
+        checksum/secret: e4e9c1cc0efbff2e9453e4c6b88bf7b6e9ae2ba71dffcb88d9725c799d4f7c3d
+      service_account:
+        enabled: true
+        name: netbox
+      # wait-for-backend reads the Deployment netbox through the API.
+      automount_service_account_token: true
+      workload_security_context: ${components.netbox.workload_security_context}
+      security_context: ${components.netbox.security_context}
+      command:
+        - /opt/netbox/venv/bin/python
+        - /opt/netbox/netbox/manage.py
+        - rqworker
+      volumes:
+        config: ${components.netbox.volumes.config}
+        secrets: ${components.netbox.volumes.secrets}
+        netbox-tmp: ${components.netbox.volumes.netbox-tmp}
+        media: ${components.netbox.volumes.media}
+      volume_mounts:
+        configuration: ${components.netbox.volume_mounts.configuration}
+        config: ${components.netbox.volume_mounts.config}
+        secrets: ${components.netbox.volume_mounts.secrets}
+        netbox-tmp: ${components.netbox.volume_mounts.netbox-tmp}
+        media: ${components.netbox.volume_mounts.media}
+      init_containers:
+        # Starts the worker once NetBox has migrated the database.
+        wait-for-backend:
+          image: docker.io/rancher/kubectl:v1.36.2@sha256:06c7a7a9772737494ae1e0c3af90f1b5385630c147e47c1c7cea92f4bed55fbe
+          command:
+            - /bin/kubectl
+          args:
+            rollout:
+              - rollout
+              - status
+            deployment:
+              - deployment
+              - $(DEPLOYMENT_NAME)
+          env:
+            DEPLOYMENT_NAME: netbox
+          resources: ${components.netbox.init_containers.init-dirs.resources}
+          security_context:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+  generators:
+    kubernetes:
+      rbac:
+        netbox:
+          namespace: ${namespace}
+          rules:
+            - apiGroups:
+                - apps
+              resources:
+                - statefulsets
+                - deployments
+                - replicasets
+              verbs:
+                - get
+                - list
+                - watch
+          service_accounts:
+            - netbox

@@ -1,0 +1,37 @@
+# NetBox v4.7.4 on the PostgreSQL of the included recipe postgresql and the
+# Valkey of the included recipe valkey, with the superuser and the keys of
+# tests/target.yml. The chart's Bitnami subcharts are off.
+superuser:
+  name: admin
+  email: admin@example.com
+  password: smoke-password
+  # The chart generates a value without it, and checksum/secret would change
+  # with every render. netbox-docker does not read it alone.
+  apiToken: unused
+secretKey: smoke-secret-key-smoke-secret-key-smoke-secret-key-smoke
+apiTokenPeppers:
+  1: smoke-pepper-smoke-pepper-smoke-pepper-smoke-pepper-smoke
+postgresql:
+  enabled: false
+valkey:
+  enabled: false
+externalDatabase:
+  host: postgresql-cluster-rw
+  database: app
+  username: app
+  existingSecretName: postgresql-cluster-app
+  existingSecretKey: password
+  # CloudNativePG serves TLS. require encrypts without verifying the
+  # server's certificate.
+  options:
+    sslmode: require
+# Tasks in database 0 and the cache in database 1 of the same Valkey, as the
+# user default with the password of valkey-auth.
+tasksDatabase:
+  host: valkey
+  existingSecretName: valkey-auth
+  existingSecretKey: default-password
+cachingDatabase:
+  host: valkey
+  existingSecretName: valkey-auth
+  existingSecretKey: default-password

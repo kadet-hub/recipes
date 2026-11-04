@@ -28,7 +28,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.14.0"
+VERSION = "0.14.1"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
@@ -262,8 +262,8 @@ class Cluster:
         self.kubeconfig = work / f"{name}.kubeconfig"
         self.image = image
 
-    def kubectl(self, *args, input=None):
-        return run(["kubectl", "--kubeconfig", str(self.kubeconfig), *args], input=input)
+    def kubectl(self, *args, input=None, timeout=900):
+        return run(["kubectl", "--kubeconfig", str(self.kubeconfig), *args], input=input, timeout=timeout)
 
     def create(self):
         run(["kind", "create", "cluster", "--name", self.name, *(["--image", self.image] if self.image else []),
@@ -426,11 +426,12 @@ class GatewayProvider:
 
 
 def wait_rollouts(cluster, objs):
+    # NetBox migrates its database on its first start, which took up to 570s on kind (DEC-88).
     for o in objs:
         if o["kind"] in WORKLOADS:
             meta = o["metadata"]
             cluster.kubectl("rollout", "status", f"{o['kind'].lower()}/{meta['name']}",
-                            "-n", meta.get("namespace", "default"), "--timeout", "300s")
+                            "-n", meta.get("namespace", "default"), "--timeout", "900s", timeout=960)
 
 
 def owned(recipe, objs, work, compiled=None):

@@ -1,0 +1,436 @@
+parameters:
+  components:
+    netbox:
+      application: netbox
+      image: ghcr.io/netbox-community/netbox:v4.7.4@sha256:69cd72d0b0e4928a90940a7011954aaa7060c75fddd8dc6cea2f19407bae45b1
+      # The chart's hashes of its ConfigMap and Secrets as tests/values.yaml
+      # renders them. They do not follow a change of the recipe or the target.
+      pod_annotations:
+        checksum/config: 0dc285550f186f831fb34cfad919028173063d07baf6ce09583481f2c76409f8
+        checksum/secret: 23372504bb283f74669210ea6998226d6be5f82d3444c8ef8ed94b83c86d317e
+      service_account:
+        create: true
+      workload_security_context:
+        fsGroup: 1000
+        fsGroupChangePolicy: Always
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seLinuxOptions: {}
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        SUPERUSER_NAME:
+          secretKeyRef:
+            name: netbox-superuser
+            key: username
+        SUPERUSER_EMAIL:
+          secretKeyRef:
+            name: netbox-superuser
+            key: email
+        # configuration.py adds it to ALLOWED_HOSTS.
+        POD_IP:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: status.podIP
+      ports:
+        http:
+          service_port: 80
+          container_port: 8080
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /login/
+          initial_delay_seconds: 5
+          timeout_seconds: 1
+          failure_threshold: 100
+        liveness:
+          type: tcp
+          port: http
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /login/
+          timeout_seconds: 1
+      # The chart's resourcesPreset medium.
+      resources:
+        requests:
+          cpu: 500m
+          ephemeral-storage: 50Mi
+          memory: 1024Mi
+        limits:
+          cpu: 750m
+          ephemeral-storage: 2Gi
+          memory: 1536Mi
+      volumes:
+        config:
+          configMap:
+            name: netbox
+        # configuration.py reads every secret from a file below /run/secrets/netbox.
+        secrets:
+          projected:
+            sources:
+              - secret:
+                  name: netbox-config
+                  items:
+                    - {key: secret_key, path: secret_key}
+              - secret:
+                  name: netbox-config
+                  optional: true
+                  items:
+                    - {key: api_token_peppers, path: api_token_peppers}
+              - secret:
+                  name: netbox-config
+                  items:
+                    - {key: email_password, path: email_password}
+              - secret:
+                  name: netbox-superuser
+                  items:
+                    - {key: password, path: superuser_password}
+                    - {key: api_token, path: superuser_api_token}
+              - secret:
+                  name: ${applications.postgresql.cluster}-app
+                  items:
+                    - {key: password, path: db_password}
+              - secret:
+                  name: valkey-auth
+                  items:
+                    - {key: default-password, path: tasks_password}
+              - secret:
+                  name: valkey-auth
+                  items:
+                    - {key: default-password, path: cache_password}
+        netbox-tmp:
+          emptyDir:
+            medium: Memory
+        optunit:
+          emptyDir:
+            medium: Memory
+        media:
+          persistentVolumeClaim:
+            claimName: netbox-media
+      volume_mounts:
+        configuration:
+          volume: config
+          mount_path: /etc/netbox/config/configuration.py
+          sub_path: configuration.py
+          read_only: true
+        config:
+          mount_path: /run/config/netbox
+          read_only: true
+        secrets:
+          mount_path: /run/secrets/netbox
+          read_only: true
+        netbox-tmp:
+          mount_path: /tmp
+        media:
+          mount_path: /opt/netbox/netbox/media
+        optunit:
+          mount_path: /opt/unit
+        # netbox-docker's super_user.py reads these two.
+        superuser-password:
+          volume: secrets
+          mount_path: /run/secrets/superuser_password
+          sub_path: superuser_password
+          read_only: true
+        superuser-api-token:
+          volume: secrets
+          mount_path: /run/secrets/superuser_api_token
+          sub_path: superuser_api_token
+          read_only: true
+      persistent_volume_claims:
+        netbox-media:
+          storage: 1Gi
+      init_containers:
+        init-dirs:
+          image: docker.io/busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+          command:
+            - /bin/sh
+            - -c
+            - mkdir -p /opt/unit/state /opt/unit/tmp
+          # The chart's init.resourcesPreset nano.
+          resources:
+            requests:
+              cpu: 100m
+              ephemeral-storage: 50Mi
+              memory: 128Mi
+            limits:
+              cpu: 150m
+              ephemeral-storage: 2Gi
+              memory: 192Mi
+          security_context:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volume_mounts:
+            optunit: ${components.netbox.volume_mounts.optunit}
+  generators:
+    kubernetes:
+      # From files/configuration.py and templates/configmap.yaml of the netbox
+      # chart 8.3.99, Apache-2.0 (netbox.yml.LICENSE), rendered without LDAP
+      # and extraConfig.
+      configs:
+        netbox:
+          data:
+            configuration.py:
+              value: |-
+
+                """
+                This file serves as a base configuration for Netbox
+                https://netboxlabs.com/docs/netbox/en/stable/configuration/
+                """
+
+                import json
+                import os
+                import re
+                from pathlib import Path
+
+                import yaml
+
+
+                def _deep_merge(source, destination):
+                    """Inspired by https://stackoverflow.com/a/20666342"""
+                    for key, value in source.items():
+                        dst_value = destination.get(key)
+
+                        if isinstance(value, dict) and isinstance(dst_value, dict):
+                            _deep_merge(value, dst_value)
+                        else:
+                            destination[key] = value
+
+                    return destination
+
+
+                def _load_yaml() -> None:
+                    """Load YAML from files"""
+                    extra_config_base = Path("/run/config/extra")
+                    config_files = [Path("/run/config/netbox/netbox.yaml")]
+
+                    config_files.extend(sorted(extra_config_base.glob("*/*.yaml")))
+
+                    for config_file in config_files:
+                        with open(config_file, "r", encoding="utf-8") as f:
+                            config = yaml.safe_load(f)
+                        _deep_merge(config, globals())
+
+
+                def _read_secret(secret_name: str, secret_key: str, default: str | None = None) -> str | None:
+                    """Read secret from file"""
+                    try:
+                        secret = open(
+                            f"/run/secrets/{secret_name}/{secret_key}",
+                            "r",
+                            encoding="utf-8",
+                        )
+                    except EnvironmentError:
+                        return default
+                    with secret:
+                        return secret.read().strip()
+
+
+                CORS_ORIGIN_REGEX_WHITELIST = []
+                DATABASES = {}
+                EMAIL = {}
+                REDIS = {}
+
+                _load_yaml()
+
+                provided_secret_name = os.getenv("SECRET_NAME", "netbox")
+
+                DATABASES["default"]["PASSWORD"] = _read_secret(provided_secret_name, "db_password")
+                EMAIL["PASSWORD"] = _read_secret(provided_secret_name, "email_password")
+                REDIS["tasks"]["PASSWORD"] = _read_secret(provided_secret_name, "tasks_password")
+                REDIS["caching"]["PASSWORD"] = _read_secret(provided_secret_name, "cache_password")
+                SECRET_KEY = _read_secret(provided_secret_name, "secret_key")
+
+                # Read API token peppers from secret (JSON with integer or string keys)
+                _peppers_raw = _read_secret(provided_secret_name, "api_token_peppers")
+                if _peppers_raw:
+                    try:
+                        API_TOKEN_PEPPERS = {int(k): v for k, v in json.loads(_peppers_raw).items()}
+                    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                        raise ValueError(
+                            f"Invalid api_token_peppers secret: expected a JSON object mapping numeric "
+                            f'string keys to string values, e.g. {{"1": "random-string..."}}. '
+                            f"Keys are converted to integers at load time. Error: {exc}"
+                        ) from exc
+
+                # Post-process certain values
+                CORS_ORIGIN_REGEX_WHITELIST = [re.compile(r) for r in CORS_ORIGIN_REGEX_WHITELIST]
+                if "SENTINELS" in REDIS["tasks"]:
+                    REDIS["tasks"]["SENTINELS"] = [tuple(x.split(r":")) for x in REDIS["tasks"]["SENTINELS"]]
+                if "SENTINELS" in REDIS["caching"]:
+                    REDIS["caching"]["SENTINELS"] = [tuple(x.split(r":")) for x in REDIS["caching"]["SENTINELS"]]
+                if ALLOWED_HOSTS_INCLUDES_POD_ID:
+                    ALLOWED_HOSTS.append(os.getenv("POD_IP"))
+            netbox.yaml:
+              value: |-
+                ALLOWED_HOSTS: ["*"]
+                ALLOWED_HOSTS_INCLUDES_POD_ID: true
+
+                DATABASES:
+                  default:
+                    HOST: "${applications.postgresql.cluster}-rw"
+                    USER: "${applications.postgresql.owner}"
+                    NAME: "${applications.postgresql.database}"
+                    PORT: 5432
+                    ENGINE: "django.db.backends.postgresql"
+                    OPTIONS:
+                      sslmode: require
+                      target_session_attrs: read-write
+                    CONN_MAX_AGE: 300
+                    DISABLE_SERVER_SIDE_CURSORS: false
+
+                ADMINS: []
+                ALLOW_TOKEN_RETRIEVAL: false
+                AUTH_PASSWORD_VALIDATORS: []
+                ALLOWED_URL_SCHEMES: ["file","ftp","ftps","http","https","irc","mailto","sftp","ssh","tel","telnet","tftp","vnc","xmpp"]
+                BANNER_BOTTOM: ""
+                BANNER_LOGIN: ""
+                BANNER_TOP: ""
+                BASE_PATH: ""
+                CHANGELOG_RETENTION: 90
+                CUSTOM_VALIDATORS: {}
+                DEFAULT_USER_PREFERENCES: {}
+                CORS_ORIGIN_ALLOW_ALL: false
+                CORS_ORIGIN_WHITELIST: []
+                CORS_ORIGIN_REGEX_WHITELIST: []
+                CSRF_TRUSTED_ORIGINS: []
+                DATA_UPLOAD_MAX_MEMORY_SIZE: 2621440
+                DEBUG: false
+                DEFAULT_LANGUAGE: "en-us"
+
+                EMAIL:
+                  SERVER: "localhost"
+                  PORT: 25
+                  USERNAME: ""
+                  USE_SSL: false
+                  USE_TLS: false
+                  SSL_CERTFILE: ""
+                  SSL_KEYFILE: ""
+                  TIMEOUT: 10
+                  FROM_EMAIL: ""
+
+                ENFORCE_GLOBAL_UNIQUE: true
+                EXEMPT_VIEW_PERMISSIONS: []
+                FIELD_CHOICES: {}
+                FILE_UPLOAD_MAX_MEMORY_SIZE: 2621440
+                GRAPHQL_ENABLED: true
+                HTTP_PROXIES: {}
+                INTERNAL_IPS: ["127.0.0.1","::1"]
+                JOB_RETENTION: 90
+                LOGGING: {}
+                LOGIN_PERSISTENCE: false
+                LOGIN_REQUIRED: false
+                LOGIN_TIMEOUT: 1209600
+                LOGOUT_REDIRECT_URL: "home"
+                MAINTENANCE_MODE: false
+                MAPS_URL: "https://maps.google.com/?q="
+                MAX_PAGE_SIZE: 1000
+                MEDIA_ROOT: /opt/netbox/netbox/media
+                STORAGES: {}
+                METRICS_ENABLED: false
+                PAGINATE_COUNT: 50
+                PLUGINS: []
+                PLUGINS_CONFIG: {}
+                POWERFEED_DEFAULT_AMPERAGE: 15
+                POWERFEED_DEFAULT_MAX_UTILIZATION: 80
+                POWERFEED_DEFAULT_VOLTAGE: 120
+                PREFER_IPV4: false
+                RACK_ELEVATION_DEFAULT_UNIT_HEIGHT: 22
+                RACK_ELEVATION_DEFAULT_UNIT_WIDTH: 220
+                REMOTE_AUTH_ENABLED: false
+                REMOTE_AUTH_BACKEND: ["netbox.authentication.RemoteUserBackend"]
+                REMOTE_AUTH_HEADER: "HTTP_REMOTE_USER"
+                REMOTE_AUTH_USER_FIRST_NAME: "HTTP_REMOTE_USER_FIRST_NAME"
+                REMOTE_AUTH_USER_LAST_NAME: "HTTP_REMOTE_USER_LAST_NAME"
+                REMOTE_AUTH_USER_EMAIL: "HTTP_REMOTE_USER_EMAIL"
+                REMOTE_AUTH_AUTO_CREATE_USER: false
+                REMOTE_AUTH_AUTO_CREATE_GROUPS: false
+                REMOTE_AUTH_DEFAULT_GROUPS: []
+                REMOTE_AUTH_DEFAULT_PERMISSIONS: {}
+                REMOTE_AUTH_GROUP_SYNC_ENABLED: false
+                REMOTE_AUTH_GROUP_HEADER: "HTTP_REMOTE_USER_GROUP"
+                REMOTE_AUTH_SUPERUSER_GROUPS: []
+                REMOTE_AUTH_SUPERUSERS: []
+                REMOTE_AUTH_STAFF_GROUPS: []
+                REMOTE_AUTH_STAFF_USERS: []
+                REMOTE_AUTH_GROUP_SEPARATOR: "|"
+                RELEASE_CHECK_URL: ""
+
+                REDIS:
+                  tasks:
+                    HOST: "valkey"
+                    PORT: 6379
+                    USERNAME: ""
+                    DATABASE: 0
+                    SSL: false
+                    INSECURE_SKIP_TLS_VERIFY: false
+                    CA_CERT_PATH: ""
+                  caching:
+                    HOST: "valkey"
+                    PORT: 6379
+                    USERNAME: ""
+                    DATABASE: 1
+                    SSL: false
+                    INSECURE_SKIP_TLS_VERIFY: false
+                    CA_CERT_PATH: ""
+
+                REPORTS_ROOT: /opt/netbox/netbox/reports
+                RQ_DEFAULT_TIMEOUT: 300
+                SCRIPTS_ROOT: /opt/netbox/netbox/scripts
+                CSRF_COOKIE_NAME: "csrftoken"
+                SESSION_COOKIE_NAME: sessionid
+                TRANSLATION_ENABLED: true
+                TIME_ZONE: "UTC"
+                DATE_FORMAT: "N j, Y"
+                SHORT_DATE_FORMAT: "Y-m-d"
+                TIME_FORMAT: "g:i a"
+                SHORT_TIME_FORMAT: "H:i:s"
+                DATETIME_FORMAT: "N j, Y g:i a"
+                SHORT_DATETIME_FORMAT: "Y-m-d H:i"
+      # Component Secrets would also be mounted as volumes.
+      secrets:
+        netbox-config:
+          string_data:
+            # The chart's email.password.
+            email_password:
+              value: ""
+            secret_key:
+              value: ${applications.netbox.secret_key}
+            # The chart's apiTokenPeppers, a JSON object of pepper IDs.
+            api_token_peppers:
+              value: '{"1": "${applications.netbox.api_token_pepper}"}'
+        netbox-superuser:
+          type: kubernetes.io/basic-auth
+          string_data:
+            username:
+              value: ${applications.netbox.superuser.name}
+            password:
+              value: ${applications.netbox.superuser.password}
+            email:
+              value: ${applications.netbox.superuser.email}
+            # netbox-docker 5.1.1 creates a token from it only together with
+            # superuser_api_key, which the chart does not mount.
+            api_token:
+              value: ""
