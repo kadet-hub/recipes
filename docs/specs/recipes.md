@@ -4283,20 +4283,20 @@ and the README asks for it before the exposure.
   the Secret `wordpress`.
 
   - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
-  - Since: this change
+  - Since: #88
 
 - RCP-181: `wordpress` MUST include `recipes.mariadb` and connect to the
   Service `mariadb` with the database and user of `applications.mariadb`
   and the key `password` of the Secret `mariadb`.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #88
 
 - RCP-182: `wordpress` MUST have the readiness probe of DEC-114 and no
   liveness or startup probe.
 
   - Test: manual: review; CI `check` job, which waits for the rollout
-  - Since: this change
+  - Since: #88
 
 - RCP-183: The `tests/smoke` of `wordpress` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -4325,7 +4325,7 @@ and the README asks for it before the exposure.
   the entrypoint had written new random keys.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #88
 
 - RCP-184: Renovate MUST NOT need a release timestamp for the image of
   `wordpress`.
@@ -4334,7 +4334,7 @@ and the README asks for it before the exposure.
   Renovate gets no release timestamps for it, as for `rabbitmq` (RCP-16).
 
   - Test: manual: Renovate dry run
-  - Since: this change
+  - Since: #88
 
 - AC-110 (RCP-180 to RCP-183): `check wordpress --level deploys` passes in
   CI on each Kubernetes minor, its report lists the objects of `mariadb`
