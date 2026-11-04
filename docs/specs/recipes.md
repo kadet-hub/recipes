@@ -4181,7 +4181,7 @@ first command.
     `open-webui-searxng/check` (EX-17 there), which verifies and pulls four
     published recipes by digest and deploys them on kind
   - Since: #5 (commit SHA); digest: registry #397, README on the digest
-    path: this change
+    path: #89
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at
