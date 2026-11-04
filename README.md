@@ -27,22 +27,26 @@ global:
 ```
 
 Recipes are fetched by a separate fetch inventory, `fetch/targets/recipes.yml`,
-with one `git` dependency per recipe. Pin `ref` to a full commit SHA of this
-repository. `git ls-remote https://github.com/kadet-hub/recipes.git refs/heads/main`
-prints the current one.
+with one `oci` dependency per published recipe, pinned by version and digest.
+The recipe's page on [kadet-hub.org](https://kadet-hub.org/recipes/) shows
+the entry for its latest version, with the recipes it includes:
 
 ```yaml
 parameters:
   kapitan:
-    vars:
-      target: recipes
     dependencies:
-      - type: git
-        source: https://github.com/kadet-hub/recipes.git
-        ref: <commit sha>
-        subdir: cert-manager
+      - type: oci
+        source: ghcr.io/kadet-hub/recipes/cert-manager:1.0.3@sha256:99d27b9b0ed0afa330d48e1b12cc0bee25f37c5a4b5129ba07a68dfe5063bbef
         output_path: inventory/classes/recipes/cert-manager
 ```
+
+A recipe that includes another needs that one in the fetch inventory too,
+at the digest its index record lists. The
+[consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
+section "Recipes", has the verification steps and the consumer workflow
+that runs them in CI. A commit of `main` that is not released yet can be
+fetched as a `git` dependency with `ref` set to its full SHA, `subdir` to
+the recipe and the same `output_path`.
 
 Your target, for example `inventory/targets/cert-manager.yml`, includes the
 recipe as `recipes.<name>` and its options as `recipes.<name>.<option>`, and
@@ -65,23 +69,23 @@ parameters:
         verbosity: --v=4
 ```
 
-Fetch the recipes, then compile:
+Pull each recipe by digest as the consumers guide shows under "Verifying a
+recipe by hand", or fetch them with Kapitan, then compile:
 
 ```sh
-kapitan compile --inventory-path fetch --fetch --output-path .
+kapitan compile --inventory-path fetch --force-fetch --output-path .
 kapitan compile --fetch
 ```
 
 The first command fetches the recipes into `inventory/classes/recipes/` and
 then exits with status 1 and `No such file or directory: .../compiled`,
-because the fetch target compiles nothing. The second fetches the generator
-the recipe pins into `lib/` and writes the manifests to
-`compiled/<target>/manifests/`.
+because the fetch target compiles nothing. It verifies nothing. The second
+fetches the generator the recipe pins into `lib/` and writes the manifests
+to `compiled/<target>/manifests/`.
 
 Two commands are needed because Kapitan loads the inventory before it
 fetches, so a class cannot be fetched by the inventory that uses it
-(kapicorp/kapitan#1638). Publishing recipes through kadet-hub.org, like the
-generators, is planned (OQ-3 in the spec).
+(kapicorp/kapitan#1638).
 
 ### Verifying the generator
 
@@ -100,30 +104,16 @@ these checks in CI, but has not been tested with a fetch inventory yet.
 
 ### Updating
 
-Raise `ref` to a newer commit, delete `inventory/classes/recipes/<name>`
-and run both commands again. Without the delete, `--fetch` keeps the old
-recipe, and `--force-fetch` copies the new one over it but leaves the files
-it removed.
+Change version and digest of the recipe, and of each recipe it includes to
+the digests its new record lists, delete `inventory/classes/recipes/<name>`
+and run both commands again. `--force-fetch` copies the new version over the
+old one but leaves the files it removed.
 
-This Renovate custom manager proposes the current commit of `main` for
-every recipe in the fetch inventory:
-
-```json
-{
-  "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^fetch/targets/[^/]+\\.yml$/"],
-      "matchStrings": [
-        "source: (?<packageName>https://github\\.com/kadet-hub/recipes\\.git)\\n\\s+ref: (?<currentDigest>[0-9a-f]{40})"
-      ],
-      "depNameTemplate": "kadet-hub/recipes",
-      "currentValueTemplate": "main",
-      "datasourceTemplate": "git-refs"
-    }
-  ]
-}
-```
+The kadet-hub Renovate preset does not match recipe pins yet. The
+[open-webui-searxng](https://github.com/kadet-hub/examples/tree/main/open-webui-searxng)
+example in kadet-hub/examples has a custom manager for its fetch inventory.
+It bumps each recipe on its own, so an included recipe can move past the
+digest its parent lists, which the consumer workflow then refuses.
 
 ## Adding a recipe
 
