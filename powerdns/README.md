@@ -72,7 +72,8 @@ it. Changing the zone later adds the new zone and keeps the old one.
 
 The image runs as the user `pdns`, UID 953, and binds port 53 through the
 sysctl `net.ipv4.ip_unprivileged_port_start`, which Pod Security's
-`restricted` level allows. The readiness probe tests DNS over TCP.
+`restricted` level allows. The readiness probe connects to the API's
+port, which PowerDNS opens after port 53.
 
 The image's entrypoint serves the API on port 8081 to every address
 (`webserver-allow-from=0.0.0.0/0` in `dockerdata/startup.py` of
