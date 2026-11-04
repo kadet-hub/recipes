@@ -1058,7 +1058,7 @@ after port 53: in five starts of the pinned image, 53 accepted connections
 after 0.08 to 0.13 seconds and 8081 about 0.03 seconds later. With the
 probe on port 53, the CI run on main of 2026-11-04 marked the pod ready on
 Kubernetes 1.37 before the API listened, and `tests/smoke` got `Connection
-refused` from it. Changed in #PR.
+refused` from it. Changed in #83.
 
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
