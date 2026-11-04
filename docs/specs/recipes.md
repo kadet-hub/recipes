@@ -2508,7 +2508,7 @@ rendered, because `valkey` keeps its own configuration (DEC-12).
   pod that is only slow, which nothing upstream asks for.
 
   - Test: `check searxng` (`rollout status`, then RCP-75)
-  - Since: this change
+  - Since: #87
 
 ### Proof
 
