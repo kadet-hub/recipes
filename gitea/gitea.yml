@@ -2,6 +2,7 @@ parameters:
   components:
     gitea:
       application: gitea
+      # renovate: upstream
       image: docker.gitea.com/gitea:28.3.0-rootless@sha256:40c5a68a0463c0940e1ae32626c8300dd0572f3558e390073ad8379ca67c0e1d
       update_strategy:
         type: RollingUpdate

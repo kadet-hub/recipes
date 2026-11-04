@@ -3,6 +3,7 @@ parameters:
     pihole:
       application: pihole
       type: statefulset
+      # renovate: upstream
       image: docker.io/pihole/pihole:2026.10.1@sha256:30f803ad5dd60ff96cc0a63008a2e9271af481c1b0399a182192b2e91152c1f9
       # One Service with DNS over TCP and UDP on port 53 (DEC-30).
       ports:

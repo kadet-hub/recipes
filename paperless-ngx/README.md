@@ -5,6 +5,7 @@ kadet-hub `kubernetes` generator 1.14.0 from its Docker Compose file for
 PostgreSQL. The database is the included recipe `postgresql`, the task
 queue `valkey`. The option `ai` adds paperless-ai.
 
+<!-- renovate: tag=v3.4.1 -->
 Source: `https://github.com/paperless-ngx/paperless-ngx/blob/b67cfdf3fdfcde4883c4ac136c8545835f679d21/docker/compose/docker-compose.postgres.yml@sha256:85206b8ae6cd74db70998de6479b4c1f7b50c077772a1af2c026c9ecb35b689c`
 
 Level: `deploys`

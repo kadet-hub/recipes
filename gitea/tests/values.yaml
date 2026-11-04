@@ -2,6 +2,7 @@
 # Valkey of the included recipe valkey, with the admin account and the
 # security keys of tests/target.yml. The chart's Bitnami subcharts are off.
 image:
+  # renovate: upstream docker.gitea.com/gitea
   tag: 28.3.0
 # The generator renders a securityContext on every container. The rootless
 # image runs as UID 1000, so this changes nothing for it.

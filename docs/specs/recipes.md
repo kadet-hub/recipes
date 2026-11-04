@@ -1724,9 +1724,8 @@ on 2026-11-03, and v3.4.0-rc.1 is a release candidate. The chart's README
 asks its users to set the image tag, because the chart does not follow
 every Immich release. `tests/values.yaml` sets `v3.3.5` for the server and
 machine learning, and the recipe pins both images to their indexes for
-amd64 and arm64. The images do not follow the chart's version, so a
-maintainer moves them and the tag in `tests/values.yaml` together
-(RCP-16). The chart's v3.2.0 was considered. It would run a version with a
+amd64 and arm64. The images do not follow the chart's version, so
+Renovate moves them and the tag in `tests/values.yaml` together (RCP-16). The chart's v3.2.0 was considered. It would run a version with a
 known path to code execution.
 
 ### Database and queue
@@ -2622,7 +2621,7 @@ image `docker.io/semaphoreui/semaphore:v2.19.17`, which the project builds
 for amd64 and arm64 under the MIT license. It was the newest release with
 an image on 2026-11-03. 2.19.18 was released on GitHub the day before, and
 Docker Hub had no image for it. The image does not follow the chart's
-version, so a maintainer moves it by hand (RCP-16).
+version, so Renovate moves it on its own (RCP-16).
 
 Semaphore 2.19 has no BoltDB, the chart's default `database.type`. Its
 configuration rejects the dialect with `BoltDB not supported`
@@ -2946,8 +2945,8 @@ no release carries yet.
 The chart's `appVersion` is Gitea 1.27.0. `tests/values.yaml` sets the
 image tag `28.3.0`, so the chart renders
 `docker.gitea.com/gitea:28.3.0-rootless`, built for amd64, arm64 and
-riscv64 (DEC-37). The image does not follow the chart's version, so a
-maintainer moves it by hand (RCP-16), together with the chart's label
+riscv64 (DEC-37). The image does not follow the chart's version, so
+Renovate moves it on its own (RCP-16), together with the chart's label
 `version: "28.3.0"`. That label is not one of the identifying labels of
 RCP-9, so the recipe renders it on every object the chart puts it on, from
 `applications.gitea.labels`. On the pod template it becomes part of the
@@ -3614,8 +3613,7 @@ DEC-76: `ollama` runs Ollama 0.33.2, the chart's `appVersion`. No advisory
 in the GitHub Advisory Database for `github.com/ollama/ollama` on
 2026-11-03 names 0.33.2 or a release after 0.20.2 as affected. Ollama
 0.40.14, the newest release on 2026-11-03, was considered. It would move
-the image ahead of the chart without a fix that an advisory names, and a
-maintainer would have to move it by hand (RCP-16).
+the image ahead of the chart without a fix that an advisory names.
 
 `tests/values.yaml` keeps the chart's defaults and sets
 `image.repository: docker.io/ollama/ollama`, the chart's image with its
@@ -4026,6 +4024,7 @@ first command.
   version, so `check` fails and its report is the diff a maintainer
   works from. The images follow the chart, so Renovate moves none of them
   to a new tag; the maintainer moves each one in its single line (RCP-66).
+  Images a recipe runs ahead of the chart are the exception below.
 
   When upstream rebuilds a pinned image tag, Renovate proposes the tag's
   new digest for every image line of a class file. A package rule keeps
@@ -4116,7 +4115,45 @@ first command.
   external-dns chart at 1.22.0, a dry run proposed 1.23.0 with the digest
   of its archive.
 
-  Compose sources are not covered yet (OQ-10).
+  For a compose source Renovate moves the `Source` line to the project's
+  next release (formerly OQ-10). An HTML comment directly above the line
+  names the release tag of the pinned commit, such as
+  `<!-- renovate: tag=2.5.9 -->` for uptime-kuma. Renovate's `github-tags`
+  datasource then moves the tag and the commit of the URL together. The
+  SHA-256 stays, so `check` fails on it when the release changed the file,
+  and the maintainer maps the change from the new file. An unchanged file
+  passes with the new commit.
+
+  The image of the compose file's main service comes from the same
+  release, such as `louislam/uptime-kuma:2.5.9`. Its class line carries the
+  comment `# renovate: upstream` above it, and Renovate moves its tag and
+  digest with the `docker` datasource. A package rule per compose recipe
+  groups that image with the `Source` line into one pull request. The
+  images of the other services stay on their tags, as the compose file
+  pins them.
+
+  SearXNG publishes no releases (SearXNG). Its comment names the branch,
+  `<!-- renovate: branch=master -->`, and the `git-refs` datasource moves
+  the commit to the branch's newest. `git-refs` gives no release
+  timestamps, so a package rule makes the timestamp optional for it. A
+  regex versioning reads the image tags `<date>-<commit>` by their date
+  alone, so of several images of one day Renovate may propose any. A dry
+  run with the image at `2026.11.1-10db664f1` proposed `2026.11.2-d138f443b`
+  and the commit of `2026.11.2-cccbc9e15`. Before merging, the maintainer
+  sets the image and the `Source` commit to the same commit, the image's
+  `org.opencontainers.image.revision`.
+
+  gitea, semaphore and immich run an image ahead of the chart's
+  `appVersion`, because the chart's version is affected by an advisory
+  (Gitea, Semaphore, Immich). Every line that names that version carries
+  `# renovate: upstream`. Above the class image line the marker stands
+  alone. Above the tag in `tests/values.yaml` and gitea's `version` label
+  it names the image, as in `# renovate: upstream docker.gitea.com/gitea`.
+  Renovate moves them all to the newest image in one pull request, which
+  waits for a reviewer like a `Source` line. The README's prose keeps the
+  old version until the maintainer updates it in that pull request. A
+  package rule groups immich's server and machine learning images, which
+  run the same release.
 
   For a release manifest Renovate moves the tag and the SHA-256 of the
   `Source` line with the datasource `github-release-attachments`, as it
@@ -4131,7 +4168,8 @@ first command.
   - Test: manual: Renovate dry run
   - Since: #3; designed recipes: #14; mongodb: #17, #20; powerdns: #19;
     keycloak: #26; release manifests: #22, #25; kafka: #34; HTTP
-    repository: #23; rabbitmq: #36; digests of rebuilt tags: #55
+    repository: #23; rabbitmq: #36; digests of rebuilt tags: #55;
+    compose sources and images ahead of the chart: #PR
 
 ### Releasing
 
@@ -4723,9 +4761,6 @@ feature's design (OQ-6).
   can be attacked by a chart while `check` renders it. `template` has no
   cluster access, which limits functions like `lookup`, but that is not
   verified.
-- OQ-10: Should Renovate propose the newest commit of a compose source's
-  repository, so the SHA-256 check of RCP-23 shows when the file changed?
-  RCP-16 covers charts only.
 - OQ-12: Do notify_push, an office server and imaginary become recipes
   that `nextcloud` includes, options of `nextcloud`, or recipes of their
   own that the target combines with it?
