@@ -5521,7 +5521,7 @@ OpenID login creates a user only while the server has none
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     `gh api repos/actualbudget/actual/git/ref/tags/<tag>`
-  - Since: this change
+  - Since: #111
 
 - RCP-301: `actual` MUST mount the claim `actual-data` at `/data` and MUST
   have the readiness probe `sh -c 'node scripts/health-check.js'` every 60
@@ -5530,7 +5530,7 @@ OpenID login creates a user only while the server has none
 
   - Test: RCP-302; CI `check` job, which waits for the rollout before
     `tests/smoke`
-  - Since: this change
+  - Since: #111
 
 - RCP-302: The `tests/smoke` of `actual` MUST, from a pod of its own and
   through the Service `actual` on port 5006, require `UP` from `/health`
@@ -5553,7 +5553,7 @@ OpenID login creates a user only while the server has none
   download the file in `user-files`, both on the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #111
 
 ## Migration
 
