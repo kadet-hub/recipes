@@ -29,5 +29,5 @@ required:
     description: S3 secret access key of Langfuse's bucket, also the one the option s3 accepts.
     secret: true
   - path: applications.valkey.password
-    description: Password of Valkey's user default, with which Langfuse connects to its queue and cache.
+    description: Password of the included recipe valkey, written into REDIS_CONNECTION_STRING as it is, so without characters a URL reserves.
     secret: true

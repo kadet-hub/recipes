@@ -5327,7 +5327,15 @@ switches the chart's subcharts off and points it at
 `postgresql-cluster-rw`, the database and user `app` and the key `password`
 of `postgresql-cluster-app`, and at the Service `valkey` with the key
 `default-password` of `valkey-auth`, with which Langfuse authenticates as
-Valkey's user `default`. `postgresql.args: sslmode=require` makes Prisma,
+Valkey's user `default`. The chart puts that password into
+`REDIS_CONNECTION_STRING` without encoding it, in every mode without Redis
+Cluster or Sentinel, so it must not contain characters a URL reserves, as
+for searxng and paperless-ngx. Langfuse 4.75.0 also reads `REDIS_HOST`,
+`REDIS_PORT` and `REDIS_AUTH`, but only when `REDIS_CONNECTION_STRING` is
+unset (`createNewRedisInstance` in
+`packages/shared/src/server/redis/redis.ts`). The chart has no value that
+leaves the connection string out, so passing the password separately would
+make the recipe differ from the chart. `postgresql.args: sslmode=require` makes Prisma,
 Langfuse's database client, connect with TLS without verifying
 CloudNativePG's certificate, as `semaphore` does. On kind every connection
 of `app` used TLS by `pg_stat_ssl`.

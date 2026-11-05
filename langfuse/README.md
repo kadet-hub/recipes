@@ -85,7 +85,10 @@ its user. `applications.langfuse.s3.secret_access_key` is the S3 secret key
 with which Langfuse reaches its bucket, and the one the option `s3`
 accepts. `applications.valkey.password`, which the included recipe `valkey`
 requires, is the password of Valkey's user `default`, with which Langfuse
-connects to its queue and cache.
+connects to its queue and cache. It is written into
+`REDIS_CONNECTION_STRING` as it is, so it must not contain characters a URL
+reserves, such as `@`, `/`, `:`, `?` or `%`. `openssl rand -hex 32` prints
+one that fits.
 
 Set the email as a plain value and all others as refs with the backend of
 your choice. Without one of them the compile stops with
@@ -167,8 +170,8 @@ which the recipe puts on its pod. The pods and the ServiceAccount
 `langfuse` set `automountServiceAccountToken: true`, the API default.
 Containers carry an empty `securityContext` and are named after their
 component. The Secrets `langfuse` and `langfuse-clickhouse-auth` exist only
-in the recipe, and the chart's pods read exactly their keys. `tests/target.yml` runs one PostgreSQL
-instance.
+in the recipe, and the chart's pods read exactly their keys.
+`tests/target.yml` runs one PostgreSQL instance.
 
 `tests/smoke` requires `OK` from `/api/public/health` and
 `/api/public/ready` of the web server through its Service and `ok` from
