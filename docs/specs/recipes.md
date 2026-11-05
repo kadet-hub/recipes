@@ -5536,7 +5536,7 @@ natural key, would then be written again in shell.
   `ClusterIP` with the ports 25, 465, 993 and 443 only.
 
   - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
-  - Since: this change
+  - Since: #125
 
 - RCP-341: The Job `stalwart-apply` MUST create the domain
   `applications.stalwart.domain`, the first mailbox
@@ -5551,7 +5551,7 @@ natural key, would then be written again in shell.
   passwords are phrases.
 
   - Test: `tests/smoke`; CI `check` job
-  - Since: this change
+  - Since: #125
 
 ### TLS and authentication
 
@@ -5581,7 +5581,7 @@ named cert-manager or a provided Secret.
   `Http.allowedEndpoints`, which the plan sets.
 
   - Test: `tests/smoke`; CI `check` job
-  - Since: this change
+  - Since: #125
 
 - RCP-343: A sender without authentication MUST NOT relay through port 25
   to a domain the server does not host.
@@ -5591,7 +5591,7 @@ named cert-manager or a provided Secret.
   `RCPT TO:<y@example.net>` after `MAIL FROM:<x@example.org>`.
 
   - Test: `tests/smoke`; CI `check` job
-  - Since: this change
+  - Since: #125
 
 - RCP-346: Stalwart's rate limits and bans after failed logins MUST stay at
   their defaults or stricter.
@@ -5604,7 +5604,7 @@ named cert-manager or a provided Secret.
   was closed while another pod still connected.
 
   - Test: `tests/smoke`; CI `check` job
-  - Since: this change
+  - Since: #125
 
 - RCP-349: A certificate that `stalwart-tls` receives anew MUST be served
   without a restart, and mailboxes, mail and settings MUST outlive the pod.
@@ -5612,7 +5612,7 @@ named cert-manager or a provided Secret.
   - Test: `tests/smoke` deletes `stalwart-tls`, waits for the new serial on
     port 465, then deletes `stalwart-0` and reads the first message again;
     CI `check` job
-  - Since: this change
+  - Since: #125
 
 ### DKIM and DNS records
 
@@ -5657,7 +5657,7 @@ mail when the certificate is not publicly valid.
   the record and the signing key are checked together and not by Stalwart.
 
   - Test: `tests/smoke`; CI `check` job
-  - Since: this change
+  - Since: #125
 
 - RCP-345: The zone of `stalwart-dns` MUST hold an MX record for the host
   name, SPF `v=spf1 mx -all`, the DKIM record of RCP-344, DMARC with
@@ -5670,7 +5670,7 @@ mail when the certificate is not publicly valid.
 
   - Test: `tests/smoke` resolves each record through the Service `powerdns`
     and reads the policy over HTTPS; CI `check` job
-  - Since: this change
+  - Since: #125
 
 ### Exposure, relay and encryption at rest
 
@@ -5703,7 +5703,7 @@ self-hosted, what encryption at rest protects and what it does not.
 
   - Test: `tests/smoke` reads the route and the outbound strategy through
     the API; CI `check` job
-  - Since: this change
+  - Since: #125
 
 - RCP-348: A mailbox that registered an S/MIME certificate and enabled
   encryption at rest MUST receive mail stored as an S/MIME enveloped message
@@ -5714,7 +5714,7 @@ self-hosted, what encryption at rest protects and what it does not.
   `application/pkcs7-mime; smime-type=enveloped-data`.
 
   - Test: `tests/smoke`; CI `check` job
-  - Since: this change
+  - Since: #125
 
 DEC-269: Every address of the proof is in `example.test`, `example.org` or
 `example.net` (RFC 2606). The relay route points to `relay.example.test`,
