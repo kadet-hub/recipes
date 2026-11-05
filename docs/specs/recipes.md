@@ -4648,7 +4648,7 @@ in UTC, and the README names `TZ` as a setting.
   `# renovate: Source` in one pull request (RCP-16).
 
   - Test: `check lint`; CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #96
 
 - RCP-211: `home-assistant` MUST run the image as its root user in the
   StatefulSet `home-assistant`, with the claim `config` at `/config`, a
@@ -4659,7 +4659,7 @@ in UTC, and the README names `TZ` as a setting.
 
   - Test: `check lint`; CI `check` job, report line `smoke`; manual:
     review
-  - Since: this change
+  - Since: #96
 
 - RCP-212: The option `host-network` MUST set `hostNetwork: true` and
   `dnsPolicy: ClusterFirstWithHostNet` on the StatefulSet
@@ -4672,7 +4672,7 @@ in UTC, and the README names `TZ` as a setting.
 
   - Test: manual: compile and `check --level renders` with
     `recipes.home-assistant.host-network` in `tests/target.yml`
-  - Since: this change
+  - Since: #96
 
 - RCP-213: The `tests/smoke` of `home-assistant` MUST require no Pod
   Security warning from a server-side dry run of the label
@@ -4693,7 +4693,7 @@ in UTC, and the README names `TZ` as a setting.
   the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #96
 
 - AC-130 (RCP-210, RCP-211, RCP-213): `check home-assistant --level
   deploys` passes in CI on each Kubernetes minor, and its smoke test gets
