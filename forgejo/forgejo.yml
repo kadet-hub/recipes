@@ -1,0 +1,502 @@
+parameters:
+  components:
+    forgejo:
+      application: forgejo
+      image: code.forgejo.org/forgejo/forgejo:15.0.11-rootless@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c
+      update_strategy:
+        type: Recreate
+      grace_period: 60
+      labels: ${applications.forgejo.labels}
+      pod_labels: ${applications.forgejo.labels}
+      # The chart's hash of its templates/gitea/config.yaml as tests/values.yaml
+      # renders it. It does not follow a change of the recipe or the target.
+      pod_annotations:
+        checksum/config: 1d7077f6c119b95b60996b507cb2b87c41d8daf90a14f2ea52172db5c5285d26
+      # The chart leaves the token to the default ServiceAccount, which mounts it.
+      automount_service_account_token: true
+      workload_security_context:
+        fsGroup: 1000
+      env:
+        SSH_LISTEN_PORT: ${components.forgejo.ports.ssh.container_port}
+        SSH_PORT: ${components.forgejo.ports.ssh.service_port}
+        GITEA_APP_INI: /data/gitea/conf/app.ini
+        GITEA_CUSTOM: /data/gitea
+        GITEA_WORK_DIR: /data
+        GITEA_TEMP: /tmp/gitea
+        TMPDIR: ${components.forgejo.env.GITEA_TEMP}
+        HOME: /data/gitea/git
+      ports:
+        http:
+          service_port: 3000
+          # The chart sets no appProtocol.
+          app_protocol: ""
+        ssh:
+          service_port: 22
+          container_port: 2222
+      service:
+        service_name: forgejo-http
+        expose_ports:
+          - http
+      additional_services:
+        forgejo-ssh:
+          expose_ports:
+            - ssh
+      healthcheck:
+        liveness:
+          type: tcp
+          port: http
+          initial_delay_seconds: 200
+          timeout_seconds: 1
+          failure_threshold: 10
+        readiness:
+          type: http
+          port: http
+          path: /api/healthz
+          initial_delay_seconds: 5
+          timeout_seconds: 1
+      volumes:
+        init:
+          secret:
+            secretName: forgejo-init
+            defaultMode: 110
+        config:
+          secret:
+            secretName: forgejo
+            defaultMode: 110
+        inline-config-sources:
+          secret:
+            secretName: forgejo-inline-config
+        temp:
+          emptyDir: {}
+        data:
+          persistentVolumeClaim:
+            claimName: gitea-shared-storage
+      volume_mounts:
+        temp:
+          mount_path: /tmp
+        data:
+          mount_path: /data
+      persistent_volume_claims:
+        gitea-shared-storage:
+          storage: 10Gi
+      init_containers:
+        init-directories:
+          image: ${components.forgejo.image}
+          command:
+            - ${applications.forgejo.scripts}/init_directory_structure.sh
+          env:
+            GITEA_APP_INI: ${components.forgejo.env.GITEA_APP_INI}
+            GITEA_CUSTOM: ${components.forgejo.env.GITEA_CUSTOM}
+            GITEA_WORK_DIR: ${components.forgejo.env.GITEA_WORK_DIR}
+            GITEA_TEMP: ${components.forgejo.env.GITEA_TEMP}
+          volume_mounts:
+            init:
+              mount_path: ${applications.forgejo.scripts}
+            temp: ${components.forgejo.volume_mounts.temp}
+            data: ${components.forgejo.volume_mounts.data}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        # Writes app.ini from forgejo-inline-config, then from the FORGEJO__*
+        # variables, which win.
+        init-app-ini:
+          image: ${components.forgejo.image}
+          command:
+            - ${applications.forgejo.scripts}/config_environment.sh
+          env:
+            GITEA_APP_INI: ${components.forgejo.env.GITEA_APP_INI}
+            GITEA_CUSTOM: ${components.forgejo.env.GITEA_CUSTOM}
+            GITEA_WORK_DIR: ${components.forgejo.env.GITEA_WORK_DIR}
+            GITEA_TEMP: ${components.forgejo.env.GITEA_TEMP}
+            FORGEJO__DATABASE__USER:
+              secretKeyRef:
+                name: ${applications.postgresql.cluster}-app
+                key: username
+            FORGEJO__DATABASE__PASSWD:
+              secretKeyRef:
+                name: ${applications.postgresql.cluster}-app
+                key: password
+          volume_mounts:
+            config:
+              mount_path: ${applications.forgejo.scripts}
+            temp: ${components.forgejo.volume_mounts.temp}
+            data: ${components.forgejo.volume_mounts.data}
+            inline-config-sources:
+              mount_path: /env-to-ini-mounts/inlines/
+          resources: ${components.forgejo.init_containers.init-directories.resources}
+        # Migrates the database and creates the admin account, or sets its
+        # password (gitea.admin.passwordMode keepUpdated).
+        configure-gitea:
+          image: ${components.forgejo.image}
+          command:
+            - ${applications.forgejo.scripts}/configure_gitea.sh
+          security_context:
+            runAsUser: 1000
+          env:
+            GITEA_APP_INI: ${components.forgejo.env.GITEA_APP_INI}
+            GITEA_CUSTOM: ${components.forgejo.env.GITEA_CUSTOM}
+            GITEA_WORK_DIR: ${components.forgejo.env.GITEA_WORK_DIR}
+            GITEA_TEMP: ${components.forgejo.env.GITEA_TEMP}
+            HOME: ${components.forgejo.env.HOME}
+            GITEA_ADMIN_USERNAME:
+              secretKeyRef:
+                name: forgejo-admin
+                key: username
+            GITEA_ADMIN_PASSWORD:
+              secretKeyRef:
+                name: forgejo-admin
+                key: password
+            GITEA_ADMIN_PASSWORD_MODE: keepUpdated
+          volume_mounts:
+            init:
+              mount_path: ${applications.forgejo.scripts}
+            temp: ${components.forgejo.volume_mounts.temp}
+            data: ${components.forgejo.volume_mounts.data}
+          resources: ${components.forgejo.init_containers.init-directories.resources}
+  generators:
+    kubernetes:
+      # Component Secrets would also be mounted as volumes.
+      secrets:
+        forgejo-admin:
+          labels: ${applications.forgejo.labels}
+          string_data:
+            username:
+              value: ${applications.forgejo.admin.username}
+            password:
+              value: ${applications.forgejo.admin.password}
+        # The chart's gitea.config, which init-app-ini writes into app.ini.
+        forgejo-inline-config:
+          labels: ${applications.forgejo.labels}
+          string_data:
+            _generals_:
+              value: |-
+                APP_NAME=Forgejo: Beyond coding. We forge.
+                RUN_MODE=prod
+            cache:
+              value: |-
+                ADAPTER=memory
+                HOST=
+            database:
+              value: |-
+                DB_TYPE=postgres
+                HOST=${applications.postgresql.cluster}-rw:5432
+                NAME=${applications.postgresql.database}
+                SSL_MODE=require
+            metrics:
+              value: ENABLED=false
+            queue:
+              value: |-
+                CONN_STR=
+                TYPE=level
+            repository:
+              value: ROOT=/data/git/gitea-repositories
+            security:
+              value: |-
+                INSTALL_LOCK=true
+                SECRET_KEY=${applications.forgejo.secret_key}
+            server:
+              value: |-
+                APP_DATA_PATH=/data
+                DOMAIN=git.example.com
+                ENABLE_PPROF=false
+                HTTP_PORT=${components.forgejo.ports.http.service_port}
+                PROTOCOL=http
+                ROOT_URL=http://git.example.com
+                SSH_DOMAIN=git.example.com
+                SSH_LISTEN_PORT=${components.forgejo.ports.ssh.container_port}
+                SSH_PORT=${components.forgejo.ports.ssh.service_port}
+                START_SSH_SERVER=true
+            session:
+              value: |-
+                PROVIDER=memory
+                PROVIDER_CONFIG=
+        # From scripts/config_environment.sh and templates/gitea/config.yaml of
+        # the forgejo chart 17.3.2, MIT (forgejo.yml.LICENSE). The shell's
+        # ${...} are written as ${escape:...}.
+        forgejo:
+          labels: ${applications.forgejo.labels}
+          string_data:
+            assertions:
+              value: ""
+            config_environment.sh:
+              value: |-
+                #!/usr/bin/env bash
+                set -euo pipefail
+
+                function env2ini::log() {
+                  printf '%b\n' "$1"
+                }
+
+                function env2ini::read_config_to_env() {
+                  local section="${escape:1}"
+                  local line="${escape:2}"
+
+                  if [[ -z "${escape:line}" ]]; then
+                    # skip empty line
+                    return
+                  fi
+
+                  # 'xargs echo -n' trims all leading/trailing whitespaces and a trailing new line
+                  local setting
+                  setting="$(awk -F '=' '{print $1}' <<< "${escape:line}" | xargs echo -n)"
+
+                  if [[ -z "${escape:setting}" ]]; then
+                    env2ini::log '  ! invalid setting'
+                    exit 1
+                  fi
+
+                  local value=''
+                  local regex="^${escape:setting}(\s*)=(\s*)(.*)"
+                  if [[ $line =~ $regex ]]; then
+                    value="${escape:'BASH_REMATCH[3]'}"
+                  else
+                    env2ini::log '  ! invalid setting'
+                    exit 1
+                  fi
+
+                  env2ini::log "    + '${escape:setting}'"
+
+                  local masked_setting="${escape:'setting//./_0X2E_'}"                           # '//' instructs to replace all matches
+                  masked_setting="${escape:'masked_setting//-/_0X2D_'}"
+
+                  if [[ -z "${escape:section}" ]]; then
+                    export "FORGEJO____${escape:'masked_setting^^'}=${escape:value}"                           # '^^' makes the variable content uppercase
+                    return
+                  fi
+
+                  local masked_section="${escape:'section//./_0X2E_'}"                           # '//' instructs to replace all matches
+                  masked_section="${escape:'masked_section//-/_0X2D_'}"
+
+                  export "FORGEJO__${escape:'masked_section^^'}__${escape:'masked_setting^^'}=${escape:value}"          # '^^' makes the variable content uppercase
+                }
+
+                function env2ini::reload_preset_envs() {
+                  env2ini::log "Reloading preset envs..."
+
+                  while read -r line; do
+                    if [[ -z "${escape:line}" ]]; then
+                      # skip empty line
+                      return
+                    fi
+
+                    # 'xargs echo -n' trims all leading/trailing whitespaces and a trailing new line
+                    local setting
+                    setting="$(awk -F '=' '{print $1}' <<< "${escape:line}" | xargs echo -n)"
+
+                    if [[ -z "${escape:setting}" ]]; then
+                      env2ini::log '  ! invalid setting'
+                      exit 1
+                    fi
+
+                    local value=''
+                    local regex="^${escape:setting}(\s*)=(\s*)(.*)"
+                    if [[ $line =~ $regex ]]; then
+                      value="${escape:'BASH_REMATCH[3]'}"
+                    else
+                      env2ini::log '  ! invalid setting'
+                      exit 1
+                    fi
+
+                    env2ini::log "  + '${escape:setting}'"
+
+                    export "${escape:'setting^^'}=${escape:value}"                           # '^^' makes the variable content uppercase
+                  done < "/tmp/existing-envs"
+
+                  rm /tmp/existing-envs
+                }
+
+
+                function env2ini::process_config_file() {
+                  local config_file="${escape:1}"
+                  local section
+                  section="$(basename "${escape:config_file}")"
+
+                  if [[ $section == '_generals_' ]]; then
+                    env2ini::log "  [ini root]"
+                    section=''
+                  else
+                    env2ini::log "  ${escape:section}"
+                  fi
+
+                  while read -r line; do
+                    env2ini::read_config_to_env "${escape:section}" "${escape:line}"
+                  done < <(awk 1 "${escape:config_file}")                             # Helm .toYaml trims the trailing new line which breaks line processing; awk 1 ... adds it back while reading
+                }
+
+                function env2ini::load_config_sources() {
+                  local path="${escape:1}"
+
+                  if [[ -d "${escape:path}" ]]; then
+                    env2ini::log "Processing $(basename "${escape:path}")..."
+
+                    while read -r -d '' configFile; do
+                      env2ini::process_config_file "${escape:configFile}"
+                    done < <(find "${escape:path}" -type l -not -name '..data' -print0)
+
+                    env2ini::log "\n"
+                  fi
+                }
+
+                function env2ini::generate_initial_secrets() {
+                  # These environment variables will either be
+                  #   - overwritten with user defined values,
+                  #   - initially used to set up Forgejo
+                  # Anyway, they won't harm existing app.ini files
+
+                  # Forgejo >= 18 uses a UNIX socket for internal communication and no longer
+                  # has an INTERNAL_TOKEN (https://codeberg.org/forgejo/forgejo/pulls/14148)
+                  if gitea generate secret --help 2>/dev/null | grep -q 'INTERNAL_TOKEN'; then
+                    FORGEJO__SECURITY__INTERNAL_TOKEN=$(gitea generate secret INTERNAL_TOKEN)
+                    export FORGEJO__SECURITY__INTERNAL_TOKEN
+                  fi
+                  FORGEJO__SECURITY__SECRET_KEY=$(gitea generate secret SECRET_KEY)
+                  export FORGEJO__SECURITY__SECRET_KEY
+                  FORGEJO__OAUTH2__JWT_SECRET=$(gitea generate secret JWT_SECRET)
+                  export FORGEJO__OAUTH2__JWT_SECRET
+                  FORGEJO__SERVER__LFS_JWT_SECRET=$(gitea generate secret LFS_JWT_SECRET)
+                  export FORGEJO__SERVER__LFS_JWT_SECRET
+
+                  env2ini::log "...Initial secrets generated\n"
+                }
+
+                # save existing envs prior to script execution. Necessary to keep order of
+                # preexisting and custom envs
+                env | (grep -e '^FORGEJO__' || [[ $? == 1 ]]) > /tmp/existing-envs
+
+                # MUST BE CALLED BEFORE OTHER CONFIGURATION
+                env2ini::generate_initial_secrets
+
+                env2ini::load_config_sources '/env-to-ini-mounts/inlines/'
+                env2ini::load_config_sources '/env-to-ini-mounts/additionals/'
+
+                # load existing envs to override auto generated envs
+                env2ini::reload_preset_envs
+
+                env2ini::log "=== All configuration sources loaded ===\n"
+
+                # safety to prevent rewrite of secret keys if an app.ini already exists
+                if [ -f "${escape:GITEA_APP_INI}" ]; then
+                  env2ini::log 'An app.ini file already exists. To prevent overwriting secret keys, these settings are dropped and remain unchanged:'
+                  env2ini::log '  - security.INTERNAL_TOKEN'
+                  env2ini::log '  - security.SECRET_KEY'
+                  env2ini::log '  - oauth2.JWT_SECRET'
+                  env2ini::log '  - server.LFS_JWT_SECRET'
+
+                  unset FORGEJO__SECURITY__INTERNAL_TOKEN
+                  unset FORGEJO__SECURITY__SECRET_KEY
+                  unset FORGEJO__OAUTH2__JWT_SECRET
+                  unset FORGEJO__SERVER__LFS_JWT_SECRET
+                fi
+
+                environment-to-ini -o "${escape:GITEA_APP_INI}"
+        # From scripts/ and templates/gitea/init.yaml of the forgejo chart
+        # 17.3.2, MIT (forgejo.yml.LICENSE), rendered without signing, LDAP and
+        # OAuth. The shell's ${...} are written as ${escape:...}.
+        forgejo-init:
+          labels: ${applications.forgejo.labels}
+          string_data:
+            configure_gpg_environment.sh:
+              value: |-
+                #!/usr/bin/env bash
+                set -eu
+
+                gpg --batch --import /raw/private.asc
+            configure_ssh_signing.sh:
+              value: |-
+                #!/usr/bin/env bash
+                set -eu
+
+                install -m 600 /raw/ssh-signing-key /data/git/.ssh-signing/key
+                ssh-keygen -y -f /data/git/.ssh-signing/key > /data/git/.ssh-signing/key.pub
+                chmod 644 /data/git/.ssh-signing/key.pub
+            init_directory_structure.sh:
+              value: |-
+                #!/usr/bin/env bash
+
+                set -euo pipefail
+
+                set -x
+                mkdir -p /data/git/.ssh
+                chmod -R 700 /data/git/.ssh
+                [ ! -d /data/gitea/conf ] && mkdir -p /data/gitea/conf
+
+                # prepare temp directory structure
+                mkdir -p "${escape:GITEA_TEMP}"
+                chmod ug+rwx "${escape:GITEA_TEMP}"
+            configure_gitea.sh:
+              value: |-
+                #!/usr/bin/env bash
+
+                set -euo pipefail
+
+                echo '==== BEGIN GITEA CONFIGURATION ===='
+
+                { # try
+                  gitea migrate
+                } || { # catch
+                  echo "Forgejo migrate might fail due to database connection...This init-container will try again in a few seconds"
+                  exit 1
+                }
+                function configure_admin_user() {
+                  local full_admin_list=$(gitea admin user list --admin)
+                  local actual_user_table=''
+
+                  # We might have distorted output due to warning logs, so we have to detect the actual user table by its headline and trim output above that line
+                  local regex="(.*)(ID\s+Username\s+Email\s+IsActive.*)"
+                  if [[ "${escape:full_admin_list}" =~ $regex ]]; then
+                    actual_user_table=$(echo "${escape:'BASH_REMATCH[2]'}" | tail -n+2) # tail'ing to drop the table headline
+                  else
+                    # This code block should never be reached, as long as the output table header remains the same.
+                    # If this code block is reached, the regex doesn't match anymore and we probably have to adjust this script.
+
+                    echo "ERROR: 'configure_admin_user' was not able to determine the current list of admin users."
+                    echo "       Please review the output of 'gitea admin user list --admin' shown below."
+                    echo "       If you think it is an issue with the Helm Chart provisioning, file an issue at https://gitea.com/gitea/helm-chart/issues."
+                    echo "DEBUG: Output of 'gitea admin user list --admin'"
+                    echo "--"
+                    echo "${escape:full_admin_list}"
+                    echo "--"
+                    exit 1
+                  fi
+
+                  local ACCOUNT_ID=$(echo "${escape:actual_user_table}" | grep -E "\s+${escape:GITEA_ADMIN_USERNAME}\s+" | awk -F " " "{printf \$1}")
+                  if [[ -z "${escape:ACCOUNT_ID}" ]]; then
+                    local -a create_args
+                    create_args=(--admin --username "${escape:GITEA_ADMIN_USERNAME}" --password "${escape:GITEA_ADMIN_PASSWORD}" --email "${applications.forgejo.admin.email}")
+                    if [[ "${escape:GITEA_ADMIN_PASSWORD_MODE}" = initialOnlyRequireReset ]]; then
+                      create_args+=(--must-change-password=true)
+                    else
+                      create_args+=(--must-change-password=false)
+                    fi
+                    echo "No admin user '${escape:GITEA_ADMIN_USERNAME}' found. Creating now..."
+                    gitea admin user create "${escape:'create_args[@]'}"
+                    echo '...created.'
+                  else
+                    if [[ "${escape:GITEA_ADMIN_PASSWORD_MODE}" = keepUpdated ]]; then
+                      echo "Admin account '${escape:GITEA_ADMIN_USERNAME}' already exist. Running update to sync password..."
+                      local -a change_args
+                      change_args=(--username "${escape:GITEA_ADMIN_USERNAME}" --password "${escape:GITEA_ADMIN_PASSWORD}" --must-change-password=false)
+                      gitea admin user change-password "${escape:'change_args[@]'}"
+                      echo '...password sync done.'
+                    else
+                      echo "Admin account '${escape:GITEA_ADMIN_USERNAME}' already exist, but update mode is set to '${escape:GITEA_ADMIN_PASSWORD_MODE}'. Skipping."
+                    fi
+                  fi
+                }
+
+                configure_admin_user
+
+                function configure_ldap() {
+                    echo 'no ldap configuration... skipping.'
+                }
+
+                configure_ldap
+
+                function configure_oauth() {
+                    echo 'no oauth configuration... skipping.'
+                }
+
+                configure_oauth
+
+                echo '==== END GITEA CONFIGURATION ===='

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# RCP-221: the web UI and /api/healthz answer through the Service forgejo-http,
+# /api/v1/version reports the version of the image tag, and the account of
+# forgejo-admin is an admin. It creates a repository through the API, pushes
+# one commit over HTTP from a pod of its own, and reads the commit and the file
+# back through the API, again after the Forgejo pod was deleted.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+proxy=/api/v1/namespaces/$ns/services/forgejo-http:http/proxy
+health=$(kubectl get --raw "$proxy/api/healthz")
+jq -e '.status == "pass" and .checks["database:ping"][0].status == "pass"' <<<"$health" >/dev/null || {
+  echo "$health" >&2
+  exit 1
+}
+kubectl get --raw "$proxy/" | grep -q '<title>Forgejo: Beyond coding. We forge.</title>'
+image=$(kubectl get deployment forgejo -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image%@*}
+tag=${tag##*:}
+version=${tag%-rootless}
+
+url=http://127.0.0.1:13000/api/v1
+pf=
+# A port-forward ends with the pod it forwards to.
+forward() {
+  [[ -z $pf ]] || kill "$pf"
+  kubectl port-forward service/forgejo-http 13000:3000 >/dev/null &
+  pf=$!
+  for _ in $(seq 30); do
+    curl -fsS -o /dev/null "$url/version" 2>/dev/null && return
+    sleep 2
+  done
+  return 1
+}
+trap '[[ -z $pf ]] || kill "$pf"; kubectl delete pod forgejo-smoke --ignore-not-found --wait=false >/dev/null' EXIT
+forward
+user=$(kubectl get secret forgejo-admin -o jsonpath='{.data.username}' | base64 -d)
+password=$(kubectl get secret forgejo-admin -o jsonpath='{.data.password}' | base64 -d)
+api() { curl -fsS -u "$user:$password" -H 'Content-Type: application/json' "$@"; }
+# Forgejo reports its version with the Gitea version it is compatible with,
+# such as 15.0.11+gitea-1.22.0.
+api "$url/version" | jq -e --arg v "$version" '.version | startswith($v + "+")' >/dev/null
+api "$url/user" | jq -e --arg u "$user" '.login == $u and .is_admin' >/dev/null
+api -d '{"name":"smoke"}' "$url/user/repos" | jq -e '.name == "smoke" and .empty' >/dev/null
+
+auth=$(printf '%s:%s' "$user" "$password" | base64 -w0)
+kubectl run forgejo-smoke --image="$image" --restart=Never --env="AUTH=$auth" --env="REPO=http://forgejo-http:3000/$user/smoke.git" \
+  --command -- sh -euc '
+    export HOME=/tmp
+    cd /tmp
+    git() { command git -c "http.extraHeader=Authorization: Basic $AUTH" "$@"; }
+    git clone -q "$REPO" smoke
+    cd smoke
+    echo smoke >README.md
+    git add README.md
+    git -c user.name=smoke -c user.email=smoke@example.com commit -qm smoke
+    git push -q origin HEAD:main
+    git rev-parse HEAD' >/dev/null
+for _ in $(seq 90); do
+  phase=$(kubectl get pod forgejo-smoke -o jsonpath='{.status.phase}')
+  [[ $phase == Succeeded || $phase == Failed ]] && break
+  sleep 2
+done
+logs=$(kubectl logs forgejo-smoke)
+[[ $phase == Succeeded ]] || {
+  echo "$logs" >&2
+  exit 1
+}
+commit=$(tail -n1 <<<"$logs")
+read_back() {
+  api "$url/repos/$user/smoke/branches/main" | jq -e --arg c "$commit" '.commit.id == $c' >/dev/null
+  [[ $(api "$url/repos/$user/smoke/raw/README.md?ref=main") == smoke ]]
+}
+read_back
+
+# The repository lives on the claim and the database, so a new pod serves it.
+old=$(kubectl get pods -l name=forgejo -o jsonpath='{.items[0].metadata.name}')
+kubectl delete pod "$old" >/dev/null
+new=
+for _ in $(seq 150); do
+  new=$(kubectl get pods -l name=forgejo -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' |
+    awk -v old="$old" '$1 != old && $2 == "True" {print $1}')
+  [[ $new ]] && break
+  sleep 4
+done
+[[ $new ]] || {
+  echo "no ready pod after deleting $old" >&2
+  exit 1
+}
+forward
+read_back
+echo "/api/healthz pass, /api/v1/version $version, admin $user created repository smoke, pushed $commit over HTTP, read back from $old and after its deletion from $new"
