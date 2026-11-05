@@ -54,7 +54,7 @@ search() {
 search
 
 # The successor pod mounts the same claim.
-kill "$pf"
+kill "$pf" 2>/dev/null || true
 uid=$(kubectl get pod qdrant-0 -o jsonpath='{.metadata.uid}')
 kubectl delete pod qdrant-0 --wait=true >/dev/null
 for _ in $(seq 60); do
