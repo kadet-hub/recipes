@@ -4570,6 +4570,16 @@ README documents these steps and the `migrates` level runs them on kind.
   - Test: `check <name> --level migrates`
   - Since: not implemented
 
+## Recipe requests
+
+A recipe that nobody has written yet is requested with the issue form
+`.github/ISSUE_TEMPLATE/recipe-request.yml`. It asks for the application,
+the Helm chart or Docker Compose file a recipe would rebuild, and why the
+requester needs it, and labels the issue `recipe-request`. kadet-hub.org
+lists the open requests on `/wanted/`, most 👍 first (CAT-41 in
+kadet-hub/registry), so a second reader adds a 👍 instead of a duplicate.
+GitHub applies the label only when it exists in this repository.
+
 ## Distribution
 
 A recipe is published as `ghcr.io/kadet-hub/recipes/<name>`, one OCI
@@ -5394,6 +5404,7 @@ feature's design (OQ-6).
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68) |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
+| `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
 | `.github/actions/tools/` | Pinned helm, kubectl, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
