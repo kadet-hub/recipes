@@ -1,0 +1,190 @@
+# Option s3: SeaweedFS as one all-in-one server with the S3 API, as the
+# chart's subchart seaweedfs 4.23.0 renders it with s3.deploy, allInOne and
+# tests/values.yaml. The image runs ahead of the subchart's 4.23 (DEC-245).
+parameters:
+  components:
+    langfuse-s3-all-in-one:
+      application: langfuse
+      # renovate: upstream
+      image: docker.io/chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
+      update_strategy:
+        type: Recreate
+      grace_period: 60
+      enable_service_links: false
+      # The subchart sets no ServiceAccount, so the pod runs as default with
+      # the API default, true.
+      automount_service_account_token: true
+      # The subchart's labels, which its anti-affinity and Service select on.
+      pod_labels:
+        app.kubernetes.io/name: s3
+        app.kubernetes.io/instance: langfuse
+        app.kubernetes.io/component: seaweedfs-all-in-one
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: ${components.langfuse-s3-all-in-one.pod_labels}
+              topologyKey: kubernetes.io/hostname
+      env:
+        POD_IP:
+          fieldRef:
+            fieldPath: status.podIP
+        POD_NAME:
+          fieldRef:
+            fieldPath: metadata.name
+        NAMESPACE:
+          fieldRef:
+            fieldPath: metadata.namespace
+        SEAWEEDFS_FULLNAME: langfuse-s3
+        WEED_CLUSTER_DEFAULT: sw
+        WEED_CLUSTER_SW_MASTER: langfuse-s3-all-in-one.${namespace}:9333
+        WEED_CLUSTER_SW_FILER: langfuse-s3-all-in-one.${namespace}:8888
+      # templates/all-in-one/all-in-one-deployment.yaml of the chart seaweedfs
+      # 4.23.0, rendered with tests/values.yaml, Apache-2.0 (s3.yml.LICENSE).
+      # The shell's ${...} is written as ${escape:...}.
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          /usr/bin/weed \
+          -v=1 \
+          server \
+          -dir=/data \
+          -master \
+          -volume \
+          -ip=${escape:POD_IP} \
+          -ip.bind=0.0.0.0 \
+          -idleTimeout=30 \
+          -volume.max=0 \
+          -master.port=9333 \
+          -master.defaultReplication=000 \
+          -master.volumeSizeLimitMB=1000 \
+          -volume.port=8080 \
+          -volume.readMode=proxy \
+          -volume.minFreeSpacePercent=1 \
+          -volume.compactionMBps=50 \
+          -metricsPort=9324 \
+          -filer \
+          -filer.port=8888 \
+          -filer.dirListLimit=100000 \
+          -filer.defaultReplicaPlacement=000 \
+          -s3 \
+          -s3.port=8333 \
+          -s3.config=/etc/sw/s3/seaweedfs_s3_config \
+      ports:
+        swfs-mas:
+          container_port: 9333
+        swfs-mas-grpc:
+          container_port: 19333
+        swfs-vol:
+          container_port: 8080
+        swfs-vol-grpc:
+          container_port: 18080
+        swfs-fil:
+          container_port: 8888
+        swfs-fil-grpc:
+          container_port: 18888
+        swfs-s3:
+          container_port: 8333
+        server-metrics:
+          container_port: 9324
+      healthcheck:
+        readiness:
+          type: http
+          port: 9333
+          path: /cluster/status
+          initial_delay_seconds: 10
+          period_seconds: 15
+          timeout_seconds: 5
+          success_threshold: 1
+          failure_threshold: 3
+        liveness:
+          type: http
+          port: 9333
+          path: /cluster/status
+          initial_delay_seconds: 20
+          period_seconds: 30
+          timeout_seconds: 5
+          success_threshold: 1
+          failure_threshold: 5
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      volume_mounts:
+        data:
+          mount_path: /data
+        config-s3-users:
+          mount_path: /etc/sw/s3
+          read_only: true
+        master-config:
+          mount_path: /etc/seaweedfs/master.toml
+          sub_path: master.toml
+          read_only: true
+      volumes:
+        data:
+          persistentVolumeClaim:
+            claimName: langfuse-s3-all-in-one-data
+        config-s3-users:
+          secret:
+            secretName: langfuse-s3-auth
+        master-config:
+          configMap:
+            name: langfuse-s3-master-config
+      persistent_volume_claims:
+        langfuse-s3-all-in-one-data:
+          storage: 50Gi
+  generators:
+    kubernetes:
+      services:
+        langfuse-s3-all-in-one:
+          type: ClusterIP
+          selector: ${components.langfuse-s3-all-in-one.pod_labels}
+          ports:
+            swfs-master:
+              service_port: 9333
+              container_port: 9333
+            swfs-master-grpc:
+              service_port: 19333
+              container_port: 19333
+            swfs-volume:
+              service_port: 8080
+              container_port: 8080
+            swfs-volume-grpc:
+              service_port: 18080
+              container_port: 18080
+            swfs-filer:
+              service_port: 8888
+              container_port: 8888
+            swfs-filer-grpc:
+              service_port: 18888
+              container_port: 18888
+            swfs-s3:
+              service_port: 8333
+              container_port: 8333
+            server-metrics:
+              service_port: 9324
+              container_port: 9324
+      configs:
+        langfuse-s3-master-config:
+          data:
+            # templates/master/master-configmap.yaml of the chart seaweedfs
+            # 4.23.0, Apache-2.0 (s3.yml.LICENSE).
+            master.toml:
+              value: "\n# Enter any extra configuration for master.toml here.\n# It may be a multi-line string."
+      # The subchart's ServiceAccount, which no pod of the option uses.
+      service_accounts:
+        langfuse-s3:
+          name: seaweedfs
+          service_account:
+            automount_service_account_token: true
+      secrets:
+        langfuse-s3-auth:
+          string_data:
+            # SeaweedFS' S3 identities: the key of Langfuse as an admin, who
+            # may also create the bucket on its first upload.
+            seaweedfs_s3_config:
+              value: '{"identities":[{"actions":["Admin","Read","Write","List","Tagging"],"credentials":[{"accessKey":"${applications.langfuse.s3.access_key_id}","secretKey":"${applications.langfuse.s3.secret_access_key}"}],"name":"${applications.langfuse.s3.access_key_id}"}]}'

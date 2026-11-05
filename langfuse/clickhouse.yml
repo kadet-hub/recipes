@@ -1,0 +1,60 @@
+# Option clickhouse: one ClickHouse server for Langfuse in the namespace,
+# configured as the service clickhouse of Langfuse's docker-compose.yml, with
+# the image the chart's clickhouse.cluster.image.tag names.
+parameters:
+  components:
+    langfuse-clickhouse:
+      application: langfuse
+      type: statefulset
+      image: docker.io/clickhouse/clickhouse-server:26.8.36.3@sha256:d426d2f612e1e189c90f9a3f8dcd85a03c6851273833817a296bb327e63aa7a7
+      # The image's entrypoint creates this user with this password.
+      env:
+        CLICKHOUSE_DB: default
+        CLICKHOUSE_USER: ${applications.langfuse.clickhouse.user}
+        CLICKHOUSE_PASSWORD:
+          secretKeyRef:
+            name: langfuse-clickhouse-auth
+            key: password
+      ports:
+        http:
+          service_port: 8123
+          # Langfuse connects with plain HTTP and the native protocol.
+          app_protocol: ""
+        native:
+          service_port: 9000
+      service: {}
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /ping
+          period_seconds: 5
+          timeout_seconds: 5
+          failure_threshold: 10
+      resources:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          memory: 4Gi
+      # The user clickhouse of the image.
+      workload_security_context:
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+      volume_mounts:
+        data:
+          mount_path: /var/lib/clickhouse
+        logs:
+          mount_path: /var/log/clickhouse-server
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 100Gi
+      volumes:
+        logs:
+          emptyDir: {}

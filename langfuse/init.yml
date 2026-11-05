@@ -1,0 +1,67 @@
+classes:
+  - recipes.postgresql
+  - recipes.valkey
+  - .web
+  - .worker
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    langfuse:
+      # The target sets salt, encryption_key, nextauth_secret,
+      # init.user_email, init.user_password, init.public_key, init.secret_key,
+      # clickhouse.password and s3.secret_access_key.
+      # NEXTAUTH_URL, the address users open Langfuse at.
+      url: http://localhost:3000
+      init:
+        org_id: langfuse
+        project_id: langfuse
+      clickhouse:
+        # The option clickhouse renders this host.
+        host: langfuse-clickhouse
+        user: clickhouse
+      s3:
+        # The option s3 renders this endpoint.
+        endpoint: http://langfuse-s3-all-in-one:8333
+        bucket: langfuse
+        region: auto
+        access_key_id: langfuse
+  generators:
+    kubernetes:
+      secrets:
+        langfuse:
+          string_data:
+            salt:
+              value: ${applications.langfuse.salt}
+            encryption-key:
+              value: ${applications.langfuse.encryption_key}
+            nextauth-secret:
+              value: ${applications.langfuse.nextauth_secret}
+            init-project-public-key:
+              value: ${applications.langfuse.init.public_key}
+            init-project-secret-key:
+              value: ${applications.langfuse.init.secret_key}
+            init-user-password:
+              value: ${applications.langfuse.init.user_password}
+        # The chart's Secret for the keys it generates. Langfuse reads them
+        # from the Secret langfuse, so it stays empty.
+        langfuse-app: {}
+        langfuse-clickhouse-auth:
+          string_data:
+            password:
+              value: ${applications.langfuse.clickhouse.password}
+        langfuse-s3-auth:
+          string_data:
+            accessKey:
+              value: ${applications.langfuse.s3.access_key_id}
+            secretKey:
+              value: ${applications.langfuse.s3.secret_access_key}

@@ -1,0 +1,30 @@
+classes:
+  - recipes.langfuse
+  - recipes.langfuse.clickhouse
+  - recipes.langfuse.s3
+parameters:
+  namespace: langfuse
+  kapitan:
+    vars:
+      target: langfuse
+  # The values tests/values.yaml gives the chart.
+  applications:
+    langfuse:
+      salt: aaaaaaaaaaaaaaaa
+      # 64 hexadecimal digits, 256 bits.
+      encryption_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      nextauth_secret: aaaaaaaaaaaaaaaa
+      init:
+        user_email: admin@example.com
+        user_password: aaaaaaaaaaaaaaaa
+        public_key: pk-lf-aaaaaaaaaaaaaaaa
+        secret_key: sk-lf-aaaaaaaaaaaaaaaa
+      clickhouse:
+        password: aaaaaaaaaaaaaaaa
+      s3:
+        secret_access_key: aaaaaaaaaaaaaaaa
+    valkey:
+      password: aaaaaaaaaaaaaaaa
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# RCP-325: the web server answers /api/public/health and /api/public/ready
+# through its Service, the worker /api/health. With the API keys of the
+# headless initialization a span goes in through the OpenTelemetry endpoint:
+# the web server stores it in the S3 bucket and queues a job in Valkey, the
+# worker writes it to ClickHouse, and /api/public/v2/observations reads it
+# back. The bucket holds the stored span. Sign-up refuses a new account, the
+# first user logs in and a wrong password does not. After the pods of web,
+# worker, ClickHouse and SeaweedFS are deleted, the span, the stored file and
+# the login are still there, and a second span goes through.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+secret() { kubectl get secret langfuse -o jsonpath="{.data.$1}" | base64 -d; }
+pk=$(secret init-project-public-key)
+sk=$(secret init-project-secret-key)
+password=$(secret init-user-password)
+email=$(kubectl get deployment langfuse-web \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LANGFUSE_INIT_USER_EMAIL")].value}')
+
+proxy() { kubectl get --raw "/api/v1/namespaces/$ns/$1"; }
+health() {
+  proxy services/langfuse-web:http/proxy/api/public/health | jq -e '.status == "OK"' >/dev/null
+  proxy services/langfuse-web:http/proxy/api/public/ready | jq -e '.status == "OK"' >/dev/null
+  local pod
+  pod=$(kubectl get pods -l name=langfuse-worker -o jsonpath='{.items[0].metadata.name}')
+  proxy "pods/$pod:3030/proxy/api/health" | jq -e '.status == "ok"' >/dev/null
+}
+health
+
+work=$(mktemp -d)
+forward() {
+  kubectl port-forward service/langfuse-web 13000:3000 >/dev/null 2>&1 &
+  pf=$!
+  for _ in $(seq 30); do
+    curl -fsS -o /dev/null http://localhost:13000/api/public/health 2>/dev/null && return
+    sleep 2
+  done
+  return 1
+}
+forward
+trap 'kill $pf; rm -rf "$work"' EXIT
+url=http://localhost:13000
+
+# One span as OTLP JSON. Langfuse answers with the key of the file it
+# stored in the bucket.
+span() {
+  local trace=$1 now
+  now=$(date +%s%N)
+  jq -n --arg trace "$trace" --arg span "${trace:0:16}" --arg now "$now" '{resourceSpans: [{
+    resource: {attributes: [{key: "service.name", value: {stringValue: "smoke"}}]},
+    scopeSpans: [{scope: {name: "smoke"}, spans: [{
+      traceId: $trace, spanId: $span, name: "smoke", kind: 1,
+      startTimeUnixNano: $now, endTimeUnixNano: $now,
+      attributes: [{key: "langfuse.observation.input", value: {stringValue: $trace}}]
+    }]}]
+  }]}' | curl -fsS -u "$pk:$sk" -H 'Content-Type: application/json' -d @- "$url/api/public/otel/v1/traces" |
+    jq -er .data.payload.data.fileKey
+}
+# The span as the worker wrote it to ClickHouse.
+observation() {
+  local trace=$1 answer=
+  for _ in $(seq 60); do
+    answer=$(curl -fsS -u "$pk:$sk" "$url/api/public/v2/observations?traceId=$trace&fields=core,io" 2>/dev/null)
+    jq -e --arg trace "$trace" '.data[0].input == $trace' <<<"$answer" >/dev/null && return
+    sleep 2
+  done
+  return 1
+}
+# The stored file in SeaweedFS' bucket, read through the filer.
+stored() {
+  proxy "services/langfuse-s3-all-in-one:swfs-filer/proxy/buckets/langfuse/$2" |
+    jq -e --arg trace "$1" '.[0].scopeSpans[0].spans[0].traceId == $trace' >/dev/null
+}
+first=$(openssl rand -hex 16)
+file=$(span "$first")
+observation "$first"
+stored "$first" "$file"
+
+# Sign-up is off: the endpoint refuses a new account.
+code=$(jq -n '{name: "Smoke", email: "signup@example.com", password: "Smoke-Passw0rd-1"}' |
+  curl -sS -o "$work/signup" -w '%{http_code}' -H 'Content-Type: application/json' -d @- "$url/api/auth/signup")
+[[ $code == 422 ]] && jq -e '.message == "Sign up is disabled."' "$work/signup" >/dev/null
+
+# The first user logs in through NextAuth's credentials provider, as the
+# owner of the organization. A wrong password gets no session.
+login() {
+  rm -f "$work/cookies"
+  local csrf
+  csrf=$(curl -fsS -c "$work/cookies" "$url/api/auth/csrf" | jq -er .csrfToken)
+  curl -sS -b "$work/cookies" -c "$work/cookies" -o /dev/null \
+    --data-urlencode "csrfToken=$csrf" --data-urlencode "email=$email" \
+    --data-urlencode "password=$1" --data-urlencode json=true \
+    "$url/api/auth/callback/credentials"
+  curl -fsS -b "$work/cookies" "$url/api/auth/session" >"$work/session"
+}
+login "$password"
+jq -e --arg email "$email" '.user.email == $email and .user.organizations[0].role == "OWNER"' "$work/session" >/dev/null
+login "wrong-$password"
+jq -e '.user == null' "$work/session" >/dev/null
+
+# Every pod that keeps state or connects to it is replaced. What Langfuse
+# stored stays.
+for workload in langfuse-web langfuse-worker langfuse-clickhouse langfuse-s3-all-in-one; do
+  kubectl delete pods -l "name=$workload" --wait=true >/dev/null
+done
+for workload in langfuse-web langfuse-worker langfuse-clickhouse langfuse-s3-all-in-one; do
+  kubectl wait pods -l "name=$workload" --for=condition=Ready --timeout=600s >/dev/null
+done
+kill $pf
+forward
+health
+observation "$first"
+stored "$first" "$file"
+login "$password"
+jq -e --arg email "$email" '.user.email == $email' "$work/session" >/dev/null
+second=$(openssl rand -hex 16)
+file2=$(span "$second")
+observation "$second"
+stored "$second" "$file2"
+echo "health of web and worker, span $first through OpenTelemetry into ClickHouse and the bucket, sign-up refused, login of $email and not with a wrong password, after replacing the pods of web, worker, ClickHouse and SeaweedFS the same span, file and login and a second span"
