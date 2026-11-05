@@ -58,7 +58,7 @@ with the password `stirling`, and the web UI asks for a new password at the
 first login. Log in and change it before you expose the Service. To create
 the first account with other credentials, set
 `SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD` in
-`<c>.env` before the first start.
+`components.stirling-pdf-stirling-pdf-chart.env` before the first start.
 
 ## Settings
 
