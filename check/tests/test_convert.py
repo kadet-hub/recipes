@@ -1,9 +1,12 @@
 """AC-142: kadet-convert without helm and without a cluster (docs/specs/converter.md)."""
 
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -157,6 +160,35 @@ class ValueMap(unittest.TestCase):
         self.assertEqual(convert.classify(values, ("metrics", "port"), 9090, []), "no effect, below a switch that is off")
         self.assertEqual(convert.classify(values, ("replicas",), 2, []), "no effect")
         self.assertEqual(convert.classify(values, ("image", "tag"), "1.0", [other]), "derived")
+
+
+class Cli(unittest.TestCase):
+    ARGS = ("oauth2-proxy", "--repo", "https://charts.example.org", "--version", "1.0.0",
+            "--name", "oauth2-proxy", "--namespace", "ns", "--out")
+
+    def main(self, out, existing=False):
+        """convert.main in a new directory, with every command it runs failing; returns status, stderr, commands."""
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, contextlib.chdir(tmp), contextlib.redirect_stderr(err), \
+                unittest.mock.patch.object(convert.check, "run", side_effect=convert.check.Failed("stub")) as run:
+            if existing:
+                Path(out).mkdir()
+            try:
+                status = convert.main([*self.ARGS, out])
+            except SystemExit as e:
+                status = f"exit {e.code}"
+            created = Path(out).exists()
+        return status, err.getvalue(), [c.args[0] for c in run.call_args_list], created
+
+    def test_out_named_like_the_chart(self):
+        """CNV-20: an --out that names a repository chart is rejected before it is created or a command runs."""
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                status, err, commands, created = self.main("oauth2-proxy", existing)
+                self.assertEqual((status, commands, created), ("exit 2", [], existing))
+                self.assertIn("--out oauth2-proxy", err)
+        status, _, commands, created = self.main("converted")
+        self.assertEqual((status, commands[0][:3], created), (2, ["helm", "pull", "oauth2-proxy"], True))
 
 
 if __name__ == "__main__":
