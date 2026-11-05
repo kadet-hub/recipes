@@ -1134,6 +1134,7 @@ and the README lists the renames.
 | `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 | `init: true` where the image's start script runs the server as PID 1 and the server ends on `SIGTERM` | nothing | DEC-120 |
 | `depends_on` with `condition: service_healthy` on a service that becomes an included recipe, where the dependent exits while that service does not answer | an init container of the dependent's image that waits until the included recipe's Service accepts connections | DEC-121. It adds no image. |
+| bind mount of a file that the pinned repository does not contain, which the documentation copies from a file the image carries byte for byte at the mount target | nothing | DEC-301. The README names the file and its SHA-256. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -1162,12 +1163,14 @@ What the table does not map is a gap, and so is each of these:
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
-  (DEC-120, DEC-121).
+  (DEC-120, DEC-121). Revised in this change: the bind mount of a file
+  the image carries, for ejabberd (DEC-301).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
-    `cap_add`: #68; `init`, wait for the database: #91
+    `cap_add`: #68; `init`, wait for the database: #91; file the image
+    carries: this change
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -5453,6 +5456,148 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## ejabberd
+
+ejabberd is an XMPP server. Clients log in to accounts of its domain, chat
+directly and in group rooms, and the server archives their messages. It
+also federates with other XMPP servers. ProcessOne publishes no chart.
+processone/ejabberd, GPL-2.0, builds the image `ghcr.io/processone/ejabberd`
+for amd64 and arm64 and documents it in `CONTAINER.md`, which carries three
+compose examples as code blocks. `ejabberd` takes `CONTAINER.md` at commit
+`5ef8f25445204ebc0633242aecc1ba0473e3901d`, the tag of release 26.09 of
+2026-09-30, the newest on 2026-11-05, SHA-256
+`c13e76ebc376b36cd088ed91facd15ec3fe1d253cc5620bc93e4f7f023ce29f4`. The
+image `26.09.1`, which `latest` pointed to on 2026-11-05, is ProcessOne's
+rebuild of that tag of 2026-10-23, and its
+`org.opencontainers.image.revision` is `26.09`. The image
+`docker.io/ejabberd/ecs` comes from processone/docker-ejabberd, for amd64
+only, and does not read `REGISTER_ADMIN_PASSWORD` ("Images Comparison" in
+`CONTAINER.md`).
+
+DEC-300: `ejabberd` maps the compose example under "Customized Example" in
+`CONTAINER.md` (ejabberd), as `pihole` takes the code block of its README
+(DEC-28). It is the one example that registers an admin account from a
+variable, `REGISTER_ADMIN_PASSWORD`, and keeps the Mnesia database in a
+directory outside the container. "Minimal Example" stores nothing outside
+the container and registers no account, so nobody could log in and a new
+pod would start empty. "Clustering Example" runs two nodes without storage
+and with a fixed Erlang cookie. The repository's own compose file,
+`test/docker/docker-compose.yml`, runs the databases of ejabberd's test
+suite and no ejabberd. A designed recipe on the image was considered.
+DEC-10 puts the project's compose example first.
+
+The example's service `main` becomes the StatefulSet `ejabberd`. Its
+relative bind mount `./database`, which the repository does not contain,
+becomes the claim `database` at `/opt/ejabberd/database` (DEC-21). The
+published ports 5222 for clients, 5269 for other servers, 5280 for the web
+admin and 5443 for TLS become the Service `ejabberd`. On 5443 ejabberd
+serves BOSH, WebSocket, its HTTP API, the web admin and HTTP upload. The
+image's `HEALTHCHECK` runs `ejabberdctl status` every minute with a timeout
+of 5 seconds and 10 retries, which becomes the readiness probe. The image
+sets the Erlang node name to `ejabberd@localhost`, so Mnesia finds its
+tables on the claim in every new pod.
+
+DEC-301: A bind mount of a file that the pinned repository does not
+contain, which the documentation copies from a file that the image carries
+byte for byte at the mount target, renders nothing (Compose sources). The
+example mounts `./conf/ejabberd.yml` at `/opt/ejabberd/conf/ejabberd.yml`,
+and `CONTAINER.md` has the user copy it from `ejabberd.yml.example`. The
+image's build moves `.github/container/ejabberd.yml.example` into the
+release (`.github/container/Dockerfile`), and the image's file at the
+mount target has its SHA-256,
+`12e320cde9dcb0b8f73cab84a33a3abe90a8aaf4e9295f087346d354385ad8fa`. That
+file defines the macros `HOST` and `ADMIN` that the example's
+`EJABBERD_MACRO_HOST` and `EJABBERD_MACRO_ADMIN` set. The repository's root
+`ejabberd.yml.example` defines neither, so with it the two variables would
+change nothing. A ConfigMap with the file's text was considered. It would
+copy 289 lines of GPL-2.0 text into the recipe, which DEC-16 avoids, and
+mount the same bytes the container already has.
+
+DEC-302: `ejabberd` runs under the Pod Security level `restricted` and adds
+the capability `NET_BIND_SERVICE` to its container (ejabberd). The image
+gives `beam.smp` the file capability `cap_net_bind_service+ep`
+(`setcap` in `.github/container/Dockerfile`). With every capability
+dropped, the kernel refuses to execute a file whose capabilities it cannot
+grant, and the container exits with
+`erlexec: Error 1 executing '.../beam.smp'`. `restricted` allows adding
+`NET_BIND_SERVICE` and no other capability. The capability stays out of the
+running process, because `allowPrivilegeEscalation: false` keeps
+`beam.smp` from gaining it, and ejabberd binds only ports above 1024.
+Docker's default capabilities include `NET_BIND_SERVICE`, so the compose
+container has it too. The level `baseline` with the runtime's default
+capabilities was considered. It would keep a dozen more capabilities that
+ejabberd does not use.
+
+DEC-303: `ejabberd` requires the admin password as a parameter and keeps
+the registration rules of the image's `ejabberd.yml` (ejabberd). The
+example sets `REGISTER_ADMIN_PASSWORD=somePassw0rd`, a placeholder in
+documentation. The image registers `admin@<host>` with it when the
+database is empty, and the macro `ADMIN` makes that account the only one
+in the ACL `admin`. `mod_register` accepts in-band registration only from
+the access rule `trusted_network`, which allows the loopback network, and
+the HTTP API admits only the admin on the loopback network. A client that
+reaches the Service therefore cannot create an account, and the admin
+creates accounts in the pod or in the web admin. The example's password as
+the recipe's default was considered. Every target that kept it would run
+an admin account with a password published in `CONTAINER.md`.
+
+- RCP-380: The `Source` line of `ejabberd` MUST name `CONTAINER.md` of
+  processone/ejabberd at the commit of the release tag that the image's
+  `org.opencontainers.image.revision` names, with the file's SHA-256.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23).
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    the image's label
+  - Since: this change
+
+- RCP-381: `ejabberd` MUST set `REGISTER_ADMIN_PASSWORD` from the Secret
+  `ejabberd`, whose value is `applications.ejabberd.admin_password`, which
+  the recipe leaves unset. It MUST set `EJABBERD_MACRO_HOST` to
+  `applications.ejabberd.host` and `EJABBERD_MACRO_ADMIN` to
+  `admin@<host>`.
+
+  Without the password the compile stops with
+  `Interpolation key 'applications.ejabberd.admin_password' not found`
+  (RCP-19, RCP-40). The host defaults to the example's `example.com`.
+
+  - Test: CI `check` job; manual: a compile of `tests/target.yml` without
+    the parameter stops with `Interpolation key` and its name
+  - Since: this change
+
+- RCP-382: The container of `ejabberd` MUST run as UID and GID 9000 under
+  `restricted` and MUST add no capability other than `NET_BIND_SERVICE`.
+
+  - Test: CI `check` job, the rollout of `ejabberd`; manual: review
+  - Since: this change
+
+- RCP-383: The `tests/smoke` of `ejabberd` MUST, from a pod of its own and
+  through the Service `ejabberd`, get stream features on 5222 that require
+  STARTTLS and on 5269, get 401 from `/admin/` on 5280, and get `forbidden`
+  for an in-band registration in a BOSH session on 5443. As the admin
+  through the API in the pod it MUST create two accounts and a persistent
+  room with its archive. Over BOSH the two accounts MUST exchange a room
+  message and a direct message, which the admin MUST read through the
+  room's history. Once the pod `ejabberd-0` was deleted and its successor
+  is ready, the API MUST list both accounts, and the second account MUST
+  find both messages in its archives.
+
+  The test pod runs the ejabberd image, which carries `curl` and `nc`. It
+  connects from outside the loopback network, from which `ejabberd.yml`
+  would accept a registration. A room's history lives in memory and
+  starts empty in the new pod, so after the restart the archives prove that
+  the messages are on the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-380 (RCP-37, RCP-380 to RCP-383): `check ejabberd --level deploys`
+  passes in CI on each Kubernetes minor, and its smoke test finds both
+  messages in the archives after the restart. `tests/target.yml` without
+  `applications.ejabberd.admin_password` stops the compile with
+  `Interpolation key` and that key.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -6375,3 +6520,4 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-383) |
