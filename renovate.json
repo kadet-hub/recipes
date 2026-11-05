@@ -318,6 +318,14 @@
       "groupName": "umami"
     },
     {
+      "description": "RCP-16: actual's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "actualbudget/actual",
+        "docker.io/actualbudget/actual-server"
+      ],
+      "groupName": "actual"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",
