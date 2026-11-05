@@ -7,15 +7,19 @@
 # replaced.
 set -euo pipefail
 image=$(kubectl get deployment mlflow-mlflow -o jsonpath='{.spec.template.spec.containers[0].image}')
-password=$(kubectl get secret mlflow-mlflow -o jsonpath='{.data.admin-password}' | base64 -d)
 
-kubectl run mlflow-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+# The client logs in as admin with the password of the Secret, which the
+# pod reads itself, so the password appears on no command line.
+overrides=$(jq -nc --arg image "$image" '{spec: {containers: [{name: "mlflow-smoke", image: $image,
+  command: ["sleep", "900"], env: [{name: "MLFLOW_TRACKING_URI", value: "http://mlflow-mlflow:5000"},
+  {name: "MLFLOW_TRACKING_USERNAME", value: "admin"}, {name: "MLFLOW_TRACKING_PASSWORD",
+  valueFrom: {secretKeyRef: {name: "mlflow-mlflow", key: "admin-password"}}}]}]}}')
+kubectl run mlflow-smoke --image="$image" --restart=Never --overrides="$overrides" >/dev/null
 trap 'kubectl delete pod mlflow-smoke --wait=false >/dev/null' EXIT
 kubectl wait pod/mlflow-smoke --for=condition=Ready --timeout=300s >/dev/null
 
 client() {
-  kubectl exec -i mlflow-smoke -- env MLFLOW_TRACKING_URI=http://mlflow-mlflow:5000 \
-    MLFLOW_TRACKING_USERNAME=admin MLFLOW_TRACKING_PASSWORD="$password" python - "$@" <<'EOF'
+  kubectl exec -i mlflow-smoke -- python - "$@" <<'EOF'
 import base64, os, sys, tempfile, time, urllib.error, urllib.request
 from mlflow import MlflowClient
 
