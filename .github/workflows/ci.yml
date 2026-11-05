@@ -47,6 +47,7 @@ jobs:
       contents: read
     outputs:
       recipes: ${{ steps.select.outputs.recipes }}
+      all: ${{ steps.select.outputs.all }}
       kind: ${{ steps.kubernetes.outputs.kind }}
       kubernetes: ${{ steps.kubernetes.outputs.kubernetes }}
     steps:
@@ -72,6 +73,7 @@ jobs:
               jq -nc --arg name "$name" --arg level "$level" '{name: $name, level: $level}'
             fi
           done | jq -sc . | sed 's/^/recipes=/' >>"$GITHUB_OUTPUT"
+          echo "all=$all" >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
       # The Kubernetes minors check runs on, with their node images and kind (RCP-70).
       - id: kubernetes
@@ -151,6 +153,43 @@ jobs:
           { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+  # kadet-convert on podinfo, proven on kind on the newest minor, whenever every recipe is checked
+  # (converter.md CNV-19).
+  convert:
+    needs: select
+    if: needs.select.outputs.all == '1'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      attestations: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - uses: ./.github/actions/tools # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/; the workspace is the main checkout
+      - env:
+          KIND_VERSION: ${{ fromJSON(needs.select.outputs.kind).version }}
+          KIND_SHA256: ${{ fromJSON(needs.select.outputs.kind).sha256['linux-amd64'] }}
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/$KIND_VERSION/kind-linux-amd64"
+          echo "$KIND_SHA256  $RUNNER_TEMP/bin/kind" | sha256sum -c --quiet
+          chmod +x "$RUNNER_TEMP/bin/kind"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_IMAGE: ${{ fromJSON(needs.select.outputs.kubernetes)[0].node_image }}
+          CHART: oci://ghcr.io/stefanprodan/charts/podinfo@sha256:258d0da545724b4eea8de5d5e724cd9a75aab3de79a87ba8d82ec402745cea58
+        run: |
+          status=0
+          uv run --locked --project check check/convert.py "$CHART" --name podinfo --namespace podinfo \
+            -f check/tests/fixtures/convert/podinfo-values.yaml --out "$RUNNER_TEMP/podinfo" --node-image "$NODE_IMAGE" >/dev/null || status=$?
+          cat "$RUNNER_TEMP/podinfo/report.md" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no report, exit $status" >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
   # Advisories in check's lock and findings in the workflows (RCP-68).
   deps:
     runs-on: ubuntu-24.04
@@ -166,7 +205,7 @@ jobs:
           enable-cache: false
       - name: pip-audit
         run: |
-          uv export --locked --project check --all-groups --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uv export --locked --project check --all-groups --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
           uv run --locked --project check --only-group audit pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
       - name: zizmor
         # Runs after a pip-audit failure too: the two gates are independent.
@@ -181,7 +220,7 @@ jobs:
 
   # The one required check of the main ruleset (RCP-65).
   ci:
-    needs: [test, select, lint, check, deps]
+    needs: [test, select, lint, check, convert, deps]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
