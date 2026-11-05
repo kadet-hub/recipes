@@ -1081,6 +1081,47 @@ probe on port 53, the CI run on main of 2026-11-04 marked the pod ready on
 Kubernetes 1.37 before the API listened, and `tests/smoke` got `Connection
 refused` from it. Changed in #83.
 
+`pdnsutil zone create` writes the SOA from the setting
+`default-soa-content`. Its default,
+`a.misconfigured.dns.server.invalid hostmaster.@ 0 10800 3600 604800 3600`,
+names a placeholder primary in the reserved top-level domain `.invalid`.
+powerdns 1.0.0 and 1.0.1 and the kadet-hub/examples recipe created their
+zones with that primary. The init container `zone` replaces it with
+`ns1.<zone>.` through `pdnsutil rrset replace`, on the zone it has just
+created and on a zone an earlier version created. TTL, hostmaster, serial
+and timers stay. The serial does not rise, because the recipe sets up no
+secondary that would need it to transfer the change. An SOA with another
+primary was set by the operator and stays as it is. Changed in #92.
+
+Setting `default-soa-content` to `ns1.@ hostmaster.@ ...` was considered.
+pdnsutil 5.1 reads settings only from its configuration file, so the init
+container would have to write one, and the setting does not change a zone
+that exists.
+
+The zone has no address record for `ns1.<zone>`. Clients reach PowerDNS at
+an address the target decides, such as the cluster IP of the Service
+`powerdns` or a load balancer, and a Service created anew gets another
+cluster IP. The recipe has no address it could write, and its README names
+this as a constraint.
+
+- RCP-194: The init container `zone` of `powerdns` MUST create the zone
+  `applications.powerdns.zone` with an SOA record whose primary is
+  `ns1.<zone>.` and whose hostmaster is `hostmaster.<zone>.`.
+
+  - Test: `powerdns/tests/smoke` reads the SOA through the Service
+    `powerdns`; CI `check` job of `powerdns` and `external-dns-powerdns`
+  - Since: #92
+
+- RCP-195: When the SOA of the zone `applications.powerdns.zone` names the
+  primary `a.misconfigured.dns.server.invalid.`, the init container `zone`
+  MUST replace that primary with `ns1.<zone>.` and keep the rest of the
+  record. It MUST NOT change an SOA with another primary.
+
+  - Test: manual: on kind, the claim of powerdns 1.0.1 started with this
+    version, then an SOA with another primary set through the API and the
+    pod restarted (#92)
+  - Since: #92
+
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
   object, every selector selecting pods, then one fresh kind cluster, with
@@ -3134,6 +3175,162 @@ instance and sets the values `tests/values.yaml` gives the chart.
   `applications.gitea.secret_key` stops the compile with
   `Interpolation key 'applications.gitea.secret_key' not found`.
 
+## Forgejo
+
+Forgejo is a self-hosted Git forge with a web UI and an API, a fork of
+Gitea. `forgejo` deploys it from the chart `forgejo` 17.3.2 of
+forgejo-helm/forgejo-helm, MIT, which the project publishes at
+`oci://code.forgejo.org/forgejo-helm/forgejo`. 17.3.2 was the newest
+release on 2026-11-05. The chart started as a fork of Gitea's chart and
+keeps its names: the values below `gitea`, the claim
+`gitea-shared-storage`, the init container `configure-gitea` and the
+`GITEA_*` variables of the containers. Settings of `app.ini` in the
+environment take the prefix `FORGEJO__`.
+
+The chart runs its `appVersion`, Forgejo 15.0.11, as
+`code.forgejo.org/forgejo/forgejo:15.0.11-rootless`, built for amd64,
+arm64 and arm/v6 (DEC-140). Forgejo is GPL-3.0-or-later. The image follows
+the chart, so Renovate moves neither the image's tag nor the chart's label
+`version: "15.0.11"`. The recipe renders that label from
+`applications.forgejo.labels` on every object the chart puts it on, and on
+the pod template it becomes part of the Services' selectors, as for gitea.
+
+The chart has no subchart besides Bitnami's library chart `common`, which
+renders nothing. Without a database setting Forgejo runs SQLite on the
+claim. `tests/values.yaml` points `gitea.config.database` at the included
+recipe `postgresql` (DEC-141): `postgresql-cluster-rw`, the database `app`
+and `SSL_MODE=require`, which encrypts the connection without verifying
+the server's certificate. `gitea.additionalConfigFromEnvs` takes the user
+and the password from the Secret `postgresql-cluster-app` as
+`FORGEJO__DATABASE__USER` and `FORGEJO__DATABASE__PASSWD`. The recipe reads
+these names from `applications.postgresql` (RCP-60). Cache, sessions and
+queues stay on the chart's defaults (DEC-142).
+
+The chart configures Forgejo as Gitea's chart configures Gitea. The init
+container `init-app-ini` writes `app.ini` on the claim on every start,
+from the Secret `forgejo-inline-config` and then from the
+`FORGEJO__<SECTION>__<KEY>` variables of its environment, which win.
+`configure-gitea` then migrates the database and creates the admin
+account, or sets its password (`gitea.admin.passwordMode: keepUpdated`).
+The scripts both run come from the Secrets `forgejo` and `forgejo-init`,
+which the recipe renders with the chart's text (RCP-42). The pod template
+carries the chart's `checksum/config` of these Secrets, written as
+`tests/values.yaml` renders it.
+
+The chart renders the admin account's Secret `forgejo-admin` itself from
+`gitea.admin.username` and `.password`. Without a password it generates
+one and keeps it through a `lookup` of the existing Secret, which a
+compile cannot do. The recipe renders the same Secret from parameters
+(RCP-220), so `tests/values.yaml` sets both values and, unlike gitea's
+(DEC-38), needs no `extraDeploy`. `init-app-ini` generates `SECRET_KEY`,
+`INTERNAL_TOKEN`, `JWT_SECRET` and `LFS_JWT_SECRET` into a new `app.ini`
+and keeps what an existing one holds. The recipe takes only `SECRET_KEY`
+from a parameter (DEC-143).
+
+The Services `forgejo-http` on port 3000 and `forgejo-ssh` on port 22 are
+of type `ClusterIP` with a cluster IP, where Gitea's chart renders them
+headless. Forgejo's built-in SSH server listens on 2222 in the rootless
+image. The chart's `ROOT_URL` is `http://git.example.com`, from the default
+host of its Ingress, also with the Ingress off. A target sets the address
+users reach Forgejo at as `FORGEJO__SERVER__ROOT_URL` and its neighbours in
+the environment of `init-app-ini`. The Deployment has the chart's strategy
+`Recreate`, its readiness probe `GET /api/healthz` and its liveness probe
+on the TCP port. The chart renders `securityContext: {}` on every container
+without one, as the generator does, and `runAsUser: 1000` on
+`configure-gitea`.
+
+The chart's Ingress, Gateway API routes, OpenShift Route, ServiceAccount,
+PodDisruptionBudget, ServiceMonitor, LDAP and OAuth sources and commit
+signing are off by default and not part of the recipe. The chart renders
+no Forgejo Actions runner. Its Helm test `forgejo-test-connection` is left
+out (RCP-25).
+
+DEC-140: `forgejo` runs Forgejo 15.0.11 of the 15.0 LTS line, the chart's
+`appVersion`, and not 17.0.1, the newest release on 2026-11-05. Forgejo's
+release schedule ends 15.0 on 15 July 2027 and 17.0 on 28 January 2027
+(https://forgejo.org/docs/latest/admin/release-schedule/). 15.0.11, 16.0.7
+and 17.0.1 were released on the same day, 2026-10-26. The chart's
+maintainers closed Renovate's pull requests to Forgejo 16 and 17 without
+merging them (forgejo-helm/forgejo-helm#1638, #1800), so its templates are
+released for 15.0. Running 17.0.1 by `image.tag`, as gitea runs ahead of
+its chart (DEC-37), was considered. Its line ends six months earlier, and
+the chart was not released for it.
+
+DEC-141: `forgejo` runs Forgejo on the included recipe `postgresql` and
+not on the chart's default SQLite. The chart's README recommends PostgreSQL
+or MySQL for long-term use with five or more active users and names
+CloudNativePG first among the operators for it. SQLite was considered. It
+needs no second service, but the database would then live on the claim
+with the repositories, without the backup path that `postgresql` has
+(DEC-18).
+
+DEC-142: `forgejo` keeps the chart's defaults for cache, sessions and
+queues: memory for the first two and a LevelDB queue on the claim. The
+chart has no Redis subchart and no value for one. Its README calls
+external Valkey a choice for medium to large instances that needs no data
+migration later, and advises against the defaults in production because
+one pod holds cache and sessions in its memory. Including `valkey`, as
+gitea does (DEC-36), was considered. Sessions would then outlive a
+restart of the pod, but the recipe would run a service that the chart
+does not deploy and its maintainers recommend only for larger instances. A
+target that wants Valkey includes `recipes.valkey` and sets the
+`FORGEJO__CACHE__*`, `FORGEJO__SESSION__*` and `FORGEJO__QUEUE__*`
+variables of `init-app-ini`.
+
+DEC-143: `forgejo` takes `SECRET_KEY` from `applications.forgejo.secret_key`
+and leaves `INTERNAL_TOKEN` to `init-app-ini`. Forgejo encrypts stored
+secrets, such as two-factor keys, with `SECRET_KEY`, and the database
+lives apart from the claim, so a new claim with a new key could not
+decrypt them. `INTERNAL_TOKEN` authenticates Forgejo's own commands, such
+as its Git hooks, against its internal API, and they read it from the same
+`app.ini`, so a new one breaks nothing. Forgejo 18 removes it
+(codeberg.org/forgejo/forgejo#14148, named in the chart's
+`scripts/config_environment.sh`). Taking both, as gitea does
+(RCP-90), was considered. It would add a required parameter that the next
+LTS line drops.
+
+- RCP-220: `forgejo` MUST take the admin account's login and password and
+  `SECRET_KEY` from `applications.forgejo.admin.username`,
+  `.admin.password` and `.secret_key`, and MUST leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs for all but the login (RCP-19).
+  `configure-gitea` sets the admin password on every start. `init-app-ini`
+  writes the key only into a new `app.ini`, so a later change in the target
+  does not reach Forgejo.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the three parameters stops with `Interpolation key` and its
+    name
+  - Since: #93
+
+- RCP-221: The `tests/smoke` of `forgejo` MUST require that `/api/healthz`
+  reports `pass` for `database:ping` and that the web UI answers, both
+  through the endpoints of the Service `forgejo-http`, and that
+  `/api/v1/version` reports the version of the image tag the Deployment
+  runs. The login of `forgejo-admin` MUST be an admin. As that account it
+  MUST create a repository through `POST /api/v1/user/repos`, push one
+  commit over HTTP through `forgejo-http` from a pod of its own, and read
+  the commit and the file back through the API. It MUST delete the Forgejo
+  pod and read both back again from the pod that replaces it.
+
+  The push runs Forgejo's hooks, which call its internal API. The test pod
+  runs Forgejo's image, which carries `git`. Forgejo reports its version
+  with the Gitea version it is compatible with, such as
+  `15.0.11+gitea-1.22.0`, so the test compares the part before `+`. The
+  repository lives on the claim and its metadata in PostgreSQL, so the
+  read after the deletion shows that both outlive the pod.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #93
+
+- AC-135 (RCP-220, RCP-221): `check forgejo --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `postgresql` as
+  included and `cnpg` as installed, and its smoke test reads back the
+  commit it pushed after the pod's deletion. `tests/target.yml` without
+  `applications.forgejo.secret_key` stops the compile with
+  `Interpolation key 'applications.forgejo.secret_key' not found`.
+
 ## authentik
 
 authentik is an identity provider. Applications sign their users in
@@ -4708,6 +4905,163 @@ in UTC, and the README names `TZ` as a setting.
   (hostNetwork=true)` in a namespace at `enforce: baseline` and nothing at
   `privileged`.
 
+## Memcached
+
+memcached is an in-memory key-value cache. Clients store and read values
+over TCP port 11211 in its text or binary protocol, and a value lives only
+as long as the server's memory holds it. Bitnami's `memcached` chart was a
+common way to run it on Kubernetes.
+
+Bitnami's chart 8.8.7, the newest in
+`oci://registry-1.docker.io/bitnamicharts/memcached` on 2026-11-05, runs
+memcached 1.6.45 in Bitnami's image `bitnami/memcached:latest`. `helm
+pull` printed the chart's digest
+`sha256:a5b77e13f77f5aefba1e3a18951a55ec3fda68f8f70676edd26cf4a83d7a6be8`.
+With its defaults, `architecture: standalone`, it renders five objects. The
+Deployment `memcached` runs one replica as UID 1001 with a read-only root
+filesystem. Its readiness probe connects to port 11211 every 5 seconds,
+and its liveness probe runs `pgrep memcached` every 10 seconds. Its
+resources are the preset `nano`: requests of 100m CPU, 128Mi memory and
+50Mi ephemeral storage, and limits of 150m CPU, 192Mi memory and 2Gi
+ephemeral storage. The Service `memcached` of type `ClusterIP` exposes
+the port `memcache`, 11211, with `publishNotReadyAddresses: true`. The
+ServiceAccount `memcached` mounts no token. The NetworkPolicy `memcached`
+admits port 11211 from every source and allows all egress. The
+PodDisruptionBudget `memcached` sets `maxUnavailable: 1`. Authentication,
+TLS, persistence and the metrics exporter are off. The architecture
+`high-availability` renders a StatefulSet in place of the Deployment.
+
+The memcached project publishes no chart, no Kustomize base and no image.
+memcached/memcached, BSD-3-Clause, carries `docker-compose.yml`. Its five
+services build test images from the Dockerfiles in `devtools/`, one per
+Linux distribution, which run `make test`. Docker Hub's namespace
+`memcached` held no repository on 2026-11-05. The Docker Official Image
+`memcached` downloads each release from memcached.org, checks the SHA-1
+that its Dockerfile pins, and runs the test suite during the build.
+docker-library/memcached, BSD-3-Clause, holds the Dockerfiles, and
+`library/memcached` in docker-library/official-images names Tianon Gravi
+and Joseph Ferguson of docker-library as maintainers, as for `wordpress`
+(WordPress).
+
+DEC-150: `memcached` is a designed recipe on `docker.io/library/memcached`
+(DEC-11). DEC-11 names the project's image, and memcached publishes none,
+so the Docker Official Image takes its place, as for `wordpress`
+(DEC-110). The compose file was considered as the source (DEC-10). Its
+services run the test suite and no server, and Compose sources stop on a
+`build` without a published `image`. Bitnami's chart is a third-party
+chart, which DEC-11 rules out.
+
+memcached 1.6.45, tagged on 2026-07-10, was the newest release of
+memcached/memcached on 2026-11-05. Docker Hub's tag `1.6.45`, also `1.6`,
+`1` and `latest`, is the index
+`sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
+for amd64, arm/v5, arm/v7, arm64/v8, 386, ppc64le, riscv64 and s390x,
+built on 2026-10-28 from docker-library/memcached at
+`53ac0ecb0bf88b471a0110f8996ce791baf1a667` on Debian 13. The recipe runs
+this default variant. The variant `1.6.45-alpine` builds the same release
+on Alpine Linux, and the recipe has no reason to leave the default.
+Docker Hub listed 306 tags of `library/memcached` on 2026-11-05, so
+Renovate gets release timestamps for the image, and RCP-16 applies
+without a package rule.
+
+DEC-151: `memcached` renders the chart's default architecture as two
+objects, the Deployment `memcached` with one replica and the Service
+`memcached` of type `ClusterIP` with the port `memcache`, 11211. The
+chart's other three objects change nothing about how memcached is
+reached, so the recipe leaves them out. The NetworkPolicy admits from
+every source the only port memcached listens on. The PodDisruptionBudget
+allows every eviction, since `maxUnavailable: 1` of one replica is the
+whole Deployment. The ServiceAccount is bound to no role. The generator
+sets `automountServiceAccountToken: false` on the pod, so the pod runs as
+`default` without a token, as the chart's pod runs without one. The
+Deployment also leaves out the chart's preferred pod anti-affinity, which
+has no second replica to spread. The Service leaves out
+`publishNotReadyAddresses`, so the readiness probe of DEC-152 decides when
+clients reach the pod. Rendering the three objects was considered. A
+target that restricts its clients with a NetworkPolicy has to name them,
+which the chart's policy does not. The architecture `high-availability` is
+not the chart's default.
+
+The recipe takes the requests and the memory limit of the preset `nano`.
+memcached keeps at most 64 megabytes of items by default
+(`--memory-limit`). On kind, 300 values of 500 kB filled that cache with
+174 evictions, and memcached's resident memory was 70 MiB, below the
+limit of 192Mi. The CPU limit is left out, as `mariadb` and `valkey` set
+none. The ephemeral-storage request and limit are left out, because
+memcached writes no file.
+
+The image's `USER` is the name `memcache`, UID and GID 11211 in its
+`/etc/passwd`. The kubelet verifies `runAsNonRoot` only for a numeric
+user, so the recipe names the numbers under `security_profile:
+restricted`, as `umami` does (DEC-122). `read_only_root_filesystem: true`
+keeps the chart's read-only root filesystem. memcached writes no file
+without extstore or a PID file, and on kind a write to `/` in the pod
+failed with `Read-only file system` while memcached served.
+
+DEC-152: `memcached` has one probe, a TCP readiness probe on the port
+`memcache` at the generator's period of 10 seconds, timeout of 5 seconds
+and 3 failures. The image has no `HEALTHCHECK`, and its documentation
+names no check. A connection to port 11211 succeeds once memcached
+listens, which is what the chart's readiness probe tests as well. The
+chart's liveness probe cannot run in the pinned image, which has no
+`pgrep`. The entrypoint `exec`s memcached, so memcached is the
+container's PID 1, and the kubelet restarts the container when memcached
+exits, without a probe. A TCP
+liveness probe was considered. Every restart empties the cache, and a
+probe that times out under load would restart a memcached that still
+serves.
+
+DEC-153: `memcached` configures no authentication and no TLS, the chart's
+defaults. Every client that reaches the Service reads and writes every
+key, and the Service is `ClusterIP`. Clients of a release of the chart
+with its defaults connect the same way. SASL, which the image is built
+with, was considered. memcached 1.6.45 refuses the text protocol with
+`-S` (`ERROR: You cannot allow the ASCII protocol while using SASL.`),
+so clients of the text protocol would stop working, and SASL needs a
+password database in the pod. `memcached -h` marks the authentication of
+the text protocol, `--auth-file`, as experimental. TLS (`--enable-ssl`)
+was considered too. It needs a certificate, which would add cert-manager
+as a prerequisite (DEC-13).
+
+- RCP-230: `memcached` MUST run `docker.io/library/memcached` pinned to
+  its index as the Deployment `memcached` with one replica, as UID and GID
+  11211 under `security_profile: restricted` with a read-only root
+  filesystem, behind the Service `memcached` of type `ClusterIP` with the
+  port `memcache`, 11211. It MUST render no other object.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`;
+    manual: the compile of `tests/target.yml` writes
+    `memcached-deploy.yml` and `memcached-svc.yml` only
+  - Since: #94
+
+- RCP-231: `memcached` MUST have the readiness probe of DEC-152 and no
+  liveness or startup probe.
+
+  - Test: manual: review; CI `check` job, which waits for the rollout
+  - Since: #94
+
+- RCP-232: The `tests/smoke` of `memcached` MUST, through the Service
+  `memcached` on port 11211 in the text protocol, store a value on one
+  connection and read it on a second, and require that `stats` reports the
+  version of the image tag as `STAT version`. It MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace.
+
+  The image has no `nc`, so bash's `/dev/tcp` in the memcached pod is the
+  client, as `mariadb` connects from its own pod. `quit` makes memcached
+  close the connection. The value read on the second connection comes
+  from the server. The tag is read from the Deployment, so the test
+  follows a new image. On kind the test failed with the Service's
+  selector on no pod, with the tag `1.6.44` on the digest of `1.6.45`, and
+  with a pod running as root in the namespace.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #94
+
+- AC-140 (RCP-230 to RCP-232): `check memcached --level deploys` passes in
+  CI on each Kubernetes minor, and its smoke test reads the value on a
+  second connection through the Service.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -5578,6 +5932,7 @@ feature's design (OQ-6).
 | Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e` (`kubernetes-versions-2026-11-02`): 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
+| powerdns | `docker.io/powerdns/pdns-auth-51` 5.1.5, SQLite on the claim `data`, zone `applications.powerdns.zone` with the SOA primary `ns1.<zone>.` set by the init container `zone` (RCP-194, RCP-195), `kubernetes` generator 1.14.0, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.14.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
@@ -5597,6 +5952,7 @@ feature's design (OQ-6).
 | n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-85, RCP-86) |
 | jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.14.0, level `deploys` (RCP-76) |
 | gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-90, RCP-91) |
+| forgejo | chart `forgejo` 17.3.2 of forgejo-helm/forgejo-helm, Forgejo 15.0.11 LTS, the chart's `appVersion` (DEC-140), includes postgresql (DEC-141), cache, sessions and queue on the chart's defaults (DEC-142), `SECRET_KEY` required (DEC-143), `kubernetes` generator 1.14.0, level `deploys` (RCP-220, RCP-221) |
 | immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-103, RCP-104) |
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.14.0, level `deploys` (RCP-95, RCP-96) |
 | vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.14.0, level `deploys` (RCP-110 to RCP-112) |
@@ -5608,3 +5964,4 @@ feature's design (OQ-6).
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213) |
+| memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |

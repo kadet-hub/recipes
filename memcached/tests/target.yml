@@ -1,0 +1,7 @@
+classes:
+  - recipes.memcached
+parameters:
+  namespace: memcached
+  kapitan:
+    vars:
+      target: memcached

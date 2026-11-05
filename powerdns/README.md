@@ -27,6 +27,7 @@ includes this one. Moving from it changes these objects:
 | ref `powerdns/api-key` with the `base64` backend in the class | `applications.powerdns.api_key`, set by the target with the ref backend of your choice |
 | Namespace `dns`, rendered by the recipe | no Namespace. The target sets `namespace` and creates it. |
 | zone `example.internal` in the init container `zone` | `applications.powerdns.zone`, `example.internal` by default |
+| SOA primary `a.misconfigured.dns.server.invalid.` | `ns1.<zone>.`, set on the existing claim at the first start |
 | PowerDNS 5.1.4 | PowerDNS 5.1.5 |
 
 The StatefulSet `powerdns` with its claim template `data`, the Service
@@ -67,8 +68,20 @@ ref with the backend of your choice. Without it the compile stops with
 
 The init container `seed` copies the image's empty database onto an empty
 claim, which hides it in `/var/lib/powerdns`. The init container `zone`
-creates the zone with the name server `ns1.<zone>` when the database lacks
-it. Changing the zone later adds the new zone and keeps the old one.
+creates the zone when the database lacks it, with an NS record for
+`ns1.<zone>` and an SOA record with the primary `ns1.<zone>.` and the
+hostmaster `hostmaster.<zone>.`. Changing the zone later adds the new zone
+and keeps the old one.
+
+Earlier versions left PowerDNS's placeholder primary
+`a.misconfigured.dns.server.invalid.` in the SOA. At every start the init
+container `zone` replaces that primary with `ns1.<zone>.` and keeps the
+rest of the SOA, serial included. An SOA with another primary stays as it
+is.
+
+The zone has no address record for `ns1.<zone>`, because the address
+clients reach PowerDNS at depends on the target. Add the A record through
+the API when a client has to resolve the name server.
 
 The image runs as the user `pdns`, UID 953, and binds port 53 through the
 sysctl `net.ipv4.ip_unprivileged_port_start`, which Pod Security's
@@ -87,5 +100,7 @@ Kubernetes minor CI tests. The image has no Kubernetes objects to compare
 with, so the recipe is proven by deploying it (RCP-44). `tests/smoke` writes
 an A record into `example.internal` through the API on the Service
 `powerdns`, with the key from the Secret, and reads it back through the
-Service over UDP and TCP on port 53. The kadet-hub/examples recipe checked a
+Service over UDP and TCP on port 53. It also reads the zone's SOA and
+requires the primary `ns1.example.internal.` and the hostmaster
+`hostmaster.example.internal.`. The kadet-hub/examples recipe checked a
 record that external-dns wrote.
