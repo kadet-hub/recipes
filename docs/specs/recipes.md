@@ -5691,7 +5691,7 @@ the same file.
   `security_profile: restricted`.
 
   - Test: `check lint`; CI `check` job
-  - Since: this change
+  - Since: #124
 
 - RCP-361: `matrix-synapse` MUST take the server name, the shared secret
   and the first admin's localpart and password from
@@ -5700,7 +5700,7 @@ the same file.
   `public_baseurl` MUST default to `https://<server_name>/`.
 
   - Test: `check lint` (RCP-262)
-  - Since: this change
+  - Since: #124
 
 - RCP-362: Without the option `federation`, Synapse MUST serve neither
   the federation API nor the server keys and MUST deny federation with
@@ -5710,7 +5710,7 @@ the same file.
   - Test: CI `check` job, report line `smoke`, for the default; manual:
     on kind with Kubernetes 1.37 and the option, `/_matrix/federation/v1/version`,
     `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered
-  - Since: this change
+  - Since: #124
 
 - RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
   Security warning from a server-side dry run of the label
@@ -5729,7 +5729,7 @@ the same file.
   from the claim, so the reads after the restart need both.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #124
 
 - RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
   with `register_new_matrix_user --exists-ok --admin` and the shared
@@ -5737,7 +5737,7 @@ the same file.
   and go 600 seconds after it finished.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #124
 
 - RCP-365: The option `element-web` MUST run
   `ghcr.io/element-hq/element-web:v1.12.33`, pinned to its index, as the
@@ -5745,7 +5745,7 @@ the same file.
   `config.json` that names `public_baseurl` and `server_name`.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #124
 
 - RCP-366: The option `oidc` MUST add the provider `oidc` of DEC-287 from
   `applications.matrix-synapse.oidc.issuer`, `.oidc.client_id` and
@@ -5753,7 +5753,7 @@ the same file.
   MUST name it.
 
   - Test: `check lint` (RCP-262); CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #124
 
 - AC-360 (RCP-360 to RCP-366): `check matrix-synapse --level deploys`
   passes in CI on each Kubernetes minor with the options `element-web` and
