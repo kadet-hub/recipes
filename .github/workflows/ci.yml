@@ -140,6 +140,14 @@ jobs:
           curl -fsSLo "$RUNNER_TEMP/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/$KIND_VERSION/kind-linux-amd64"
           echo "$KIND_SHA256  $RUNNER_TEMP/bin/kind" | sha256sum -c --quiet
           chmod +x "$RUNNER_TEMP/bin/kind"
+      # Runners on AWS start with 17 GB free, too little for paperless-ai's
+      # image in kind (RCP-271, DEC-195).
+      - run: |
+          df -h /
+          if (( $(df -B1G --output=avail / | tail -1) < 30 )); then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+            df -h /
+          fi
       - env:
           GH_TOKEN: ${{ github.token }}
           RECIPE: ${{ matrix.recipe.name }}
