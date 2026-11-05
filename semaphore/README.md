@@ -58,8 +58,9 @@ admin account. The init container `admin` creates the account on the first
 start and leaves it alone afterwards, so a later change of the password in
 the target does not reach it. Change it in Semaphore.
 
-`applications.semaphore.cookie_hash`, `cookie_encryption` and
-`access_key_encryption` each hold 32 random bytes in base64, as
+`applications.semaphore.cookie_hash`,
+`applications.semaphore.cookie_encryption` and
+`applications.semaphore.access_key_encryption` each hold 32 random bytes in base64, as
 `openssl rand -base64 32` prints them. Semaphore signs and encrypts its
 session cookies with the first two. It encrypts the keys and secrets that
 projects store with the third, so keep that one for the life of the

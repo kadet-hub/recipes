@@ -1,0 +1,12 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.authentik.secret_key
+    description: AUTHENTIK_SECRET_KEY, which signs authentik's cookies, so a new key ends every session.
+    secret: true
+  - path: applications.authentik.bootstrap_password
+    description: Password of the admin account akadmin, set only when the worker creates the account.
+    secret: true
+  - path: applications.authentik.bootstrap_token
+    description: API token authentik-bootstrap-token of akadmin, which does not expire, set only when the worker creates the token.
+    secret: true

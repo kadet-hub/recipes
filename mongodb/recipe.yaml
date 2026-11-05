@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.mongodb.password
+    description: Password of the user root.
+    secret: true

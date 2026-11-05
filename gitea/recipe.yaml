@@ -1,0 +1,18 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.gitea.admin.username
+    description: Login of the admin account, which the init container configure-gitea creates.
+    secret: false
+  - path: applications.gitea.admin.password
+    description: Password of the admin account, at least 8 characters, set again on every start.
+    secret: true
+  - path: applications.gitea.secret_key
+    description: SECRET_KEY of app.ini, which encrypts stored secrets such as two-factor keys, written only while the claim holds no app.ini.
+    secret: true
+  - path: applications.gitea.internal_token
+    description: INTERNAL_TOKEN of app.ini, written only while the claim holds no app.ini.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, in a redis:// URL without encoding, so letters and digits only.
+    secret: true

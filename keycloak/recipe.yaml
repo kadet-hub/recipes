@@ -1,0 +1,17 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.keycloak.host
+    description: Host name Keycloak serves and its certificate names.
+    secret: false
+  - path: applications.keycloak.issuer
+    description: name and kind of the cert-manager Issuer or ClusterIssuer that issues the certificate.
+    secret: false
+  - path: applications.keycloak.gateway.name
+    description: Name of the Gateway the route attaches to.
+    secret: false
+    option: route
+  - path: applications.keycloak.gateway.namespace
+    description: Namespace of that Gateway, whose listener must admit routes from the target's namespace.
+    secret: false
+    option: route
