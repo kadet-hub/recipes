@@ -30,6 +30,14 @@ parameters:
           # The chart's Service port has no appProtocol.
           app_protocol: ""
       service: {}
+      # Open WebUI's /ready: startup done, database and Redis answer
+      # (RCP-287). The chart renders no probe unless its values set one.
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /ready
+          timeout_seconds: 3
       # In the chart's order. ENABLE_OLLAMA_API and ENABLE_OPENAI_API keep
       # their place when the options ollama and openai set them, which add
       # their other variables after them.

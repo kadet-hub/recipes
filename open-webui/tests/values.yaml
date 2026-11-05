@@ -13,6 +13,13 @@ websocket:
     enabled: false
   existingSecret: open-webui
   existingSecretKey: redis-url
+# The recipe's readiness probe (RCP-287), which the chart renders from
+# its value readinessProbe.
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  timeoutSeconds: 3
 # The generator renders a securityContext on every container, an empty one
 # on an init container where the chart has none (RCP-12).
 containerSecurityContext:

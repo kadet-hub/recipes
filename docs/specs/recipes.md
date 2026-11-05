@@ -4466,8 +4466,8 @@ are off by default and not part of the recipe. The ServiceAccount
   work after the pod `open-webui-0` restarted. It MUST print how long the
   pull and the completion took.
 
-  The chart sets no probes, so the rollout ends before Open WebUI
-  listens, and the test waits up to five minutes for `/health`. The
+  The test waits up to five minutes for `/health`, which with the
+  readiness probe of RCP-287 answers at once after the rollout. The
   completion from `smollm:135m` runs through Open WebUI and Ollama on
   the CPU. The stub is busybox's `httpd` with a script that lists one
   model and gives every completion the same reply, so the reply shows
@@ -4478,6 +4478,26 @@ are off by default and not part of the recipe. The ServiceAccount
 
   - Test: CI `check` job, report line `smoke`
   - Since: #80
+
+- RCP-287: `open-webui` MUST have a readiness probe on `/ready` of the
+  port `http`, and no liveness or startup probe. `tests/values.yaml` MUST
+  set the same probe as the chart's `readinessProbe`.
+
+  The chart renders a probe only from its values `readinessProbe`,
+  `livenessProbe` and `startupProbe`, which default to `{}`. Without a
+  probe `rollout status` returned before Open WebUI listened, and a
+  port-forward started then ended at the first refused connection, which
+  the open-webui-searxng example in kadet-hub/examples ran into. Open
+  WebUI 0.12.5 answers `/ready` once its startup is complete and its
+  database and Redis answer a ping (`readiness_check` in
+  `backend/open_webui/main.py`). The chart's commented example uses
+  `/health/db`, which pings the database only. A liveness probe would
+  restart a pod that is only slow, as in RCP-185. The timeout is 3
+  seconds, as for searxng.
+
+  - Test: `check open-webui` (renders: the probe compared with the
+    chart's; deploys: `rollout status`, then RCP-134)
+  - Since: tbd
 
 - AC-81 (RCP-132 to RCP-134): `check open-webui --level deploys` passes in
   CI on each Kubernetes minor, its report lists the objects of `ollama`
