@@ -1,0 +1,15 @@
+classes:
+  - recipes.umami
+parameters:
+  namespace: umami
+  kapitan:
+    vars:
+      target: umami
+  applications:
+    umami:
+      app_secret: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      # 64 hexadecimal digits, as umami checks.
+      two_factor_encryption_key: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

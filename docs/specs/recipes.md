@@ -904,6 +904,8 @@ and the README lists the renames.
 | the SELinux option `z` or `Z` of a bind mount | nothing | It relabels the host directory for the container. On an SELinux node the container runtime labels a pod's volumes. |
 | relative bind mount of a settings directory that the pinned repository does not contain and the image's entrypoint fills from its own template | `config_maps` with the template's settings, `mount` at the target | DEC-23. The README names the template with its SHA-256. |
 | `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
+| `init: true` where the image's start script runs the server as PID 1 and the server ends on `SIGTERM` | nothing | DEC-120 |
+| `depends_on` with `condition: service_healthy` on a service that becomes an included recipe, where the dependent exits while that service does not answer | an init container of the dependent's image that waits until the included recipe's Service accepts connections | DEC-121. It adds no image. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -930,12 +932,14 @@ What the table does not map is a gap, and so is each of these:
   project `name`, an `env_file` the repository does not contain, the
   SELinux option and the settings directory, all for searxng.
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
-  for pihole (DEC-29).
+  for pihole (DEC-29). Revised in #91: `init`, which was a gap,
+  and the wait for an included recipe's database, both for umami
+  (DEC-120, DEC-121).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
-    `cap_add`: #68
+    `cap_add`: #68; `init`, wait for the database: #91
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -4354,6 +4358,192 @@ and the README asks for it before the exposure.
   as included, and its smoke test reads the post and the PNG after the
   restart.
 
+## Umami
+
+Umami is web analytics without cookies. A tracker script on each website
+sends page views and events to Umami's public endpoint `/api/send`, and
+Umami keeps them in PostgreSQL, from where its web UI and API report
+visitors and page views per website. The project publishes no chart.
+umami-software/umami, MIT, carries `docker-compose.yml` with Umami and
+PostgreSQL at the root of the repository and builds the image
+`ghcr.io/umami-software/umami`. `umami` takes the file at commit
+`559e3c607c23d2c72d9bd4f6481bda428255323c`, the tag of release v3.4.1 of
+2026-10-23, the newest on 2026-11-05, SHA-256
+`fb542a641c14fc2b1ff0d59558a197ed4f607b6608bf812afd20dad662ae0e8c`. The
+file runs `ghcr.io/umami-software/umami:latest`, which on 2026-11-05 was
+the same index as `3.4.1`, for amd64 and arm64. The image carries no
+`org.opencontainers.image.revision` label. Its SLSA provenance names the
+commit as `vcs:revision`.
+
+umami-software/umami lists two advisories on 2026-11-05.
+GHSA-8www-cffh-4q98 is fixed in 2.3.1. GHSA-3xx8-742v-m4mq, rated high,
+names no fixed release: `/api/send` returned a token that the share
+check accepted, which gave read access to a website's analytics. Commit
+`8bc49a2` of 2026-06-02, before v3.2.0, made `parseShareToken` accept only
+tokens of the type `share`, and v3.4.1 has that check (`src/lib/auth.ts`).
+
+| Service | Recipe |
+|---|---|
+| `umami` | Deployment `umami`, Service `umami` on port 3000, Secret `umami` |
+| `db`, `postgres:15-alpine` with the volume `umami-db-data` | the included recipe `postgresql` (DEC-20) |
+
+The compose service `umami` mounts no volume, so it becomes a Deployment.
+Its healthcheck runs `curl http://localhost:3000/api/heartbeat` in shell
+form every 5 seconds with a timeout of 5 seconds and 5 retries, and
+becomes the readiness probe with these values. Without `-f`, curl fails
+only when nothing answers. Umami reaches the database through
+`DATABASE_URL`, which the compose file sets to
+`postgresql://umami:umami@db:5432/umami`. The recipe takes the key `uri`
+of the Secret `<cluster>-app`, which the operator writes with the user,
+the generated password, the read-write Service and the database of
+`postgresql` (`pkg/specs/secrets.go` of CloudNativePG v1.30.1). The
+database and its owner are `app`, the defaults of `postgresql`.
+
+At every start the image runs `scripts/start-docker.sh`. It checks the
+connection and the server version, applies the Prisma migrations, and
+then replaces itself with `node server.js`. The first migration creates
+the user `admin` with the password `umami`.
+
+DEC-120: `umami` renders nothing for the compose key `init: true`
+(Umami). The key makes Docker start an init process as PID 1 that passes
+signals on and reaps orphaned processes. umami-software/umami added it in
+2024 against zombie processes of the start script of the time, which ran
+`npm-run-all` (commit `995458d`). Since commit `d13085f` of 2026-06-20 the
+script ends with `exec node server.js`, so the server is PID 1 without the
+key. On kind the pod ran one process, `next-server` as PID 1, and its
+deletion took 2 seconds, so the server ends on `SIGTERM` before the grace
+period of 30 seconds. `shareProcessNamespace`, which makes the pod's pause
+process PID 1, was considered. The `kubernetes` generator 1.14.0 has no
+key for it, so it would be a gap of Compose sources and no recipe.
+
+DEC-121: `umami` has the init container `wait-for-database`, which runs
+the umami image and waits until the Service `<cluster>-rw` of
+`postgresql` accepts connections on port 5432 (Umami). The compose file
+starts Umami once `db` is healthy (`depends_on` with
+`condition: service_healthy`). CloudNativePG puts the primary into the
+Service's endpoints once it is ready, and until then a connection is
+refused. The start script exits with status 1 when the database does not
+answer. On kind without the init container, Umami exited four times while
+the Cluster bootstrapped, and the kubelet's back-off held the fifth start
+until Umami was ready 65 seconds after the Cluster. The back-off doubles up
+to five minutes. The image's busybox carries `nc`. Leaving the restarts to the
+kubelet, as the `depends_on` row of Compose sources does, was considered.
+It would delay Umami by up to five minutes after the database is ready,
+on every start that finds the database down. A startup probe was
+considered too. It cannot hold a container that exits on its own. An
+image of its own for the wait, which that row rejects, is not needed.
+
+DEC-122: `umami` runs as the image's user `nextjs`, UID 1001 and GID 65533
+in its `/etc/passwd`, under `security_profile: restricted` (Umami). The
+compose file sets no `user`, and the image's `USER` is the name `nextjs`.
+The kubelet verifies `runAsNonRoot` only for a numeric user, so the recipe
+names the numbers. `tests/smoke` checks that the pods pass the level
+`restricted`.
+`baseline` was considered. It would leave the capabilities and privilege
+escalation that the server does not use.
+
+DEC-123: `umami` requires `TWO_FACTOR_ENCRYPTION_KEY` as a parameter, like
+`APP_SECRET` (Umami). The compose file sets both to placeholders. Umami
+takes the key only as 64 hexadecimal digits and offers no two-factor
+authentication without a valid one (`src/lib/two-factor/crypto.ts`), so
+the placeholder leaves it off. The `environment` row of Compose sources
+makes a credential a parameter that the recipe leaves unset. The key
+encrypts each user's TOTP secret, so it has to stay the same once a user
+enabled two-factor authentication. Leaving the key out was considered.
+Two-factor authentication would then be unavailable until a target added
+the variable itself.
+
+DEC-124: `umami` renders no admin account and does not change the default
+password (Umami). The first migration creates `admin` with the password
+`umami`, as with the compose file, and the README asks the target to
+change it before exposing the Service, in the web UI's profile or through
+`POST /api/me/password`. A Job that changes the password from a parameter
+was considered. It would need the old password, so it works only once,
+and it adds a workload that the compose file does not have. The Service
+is `ClusterIP`, so until the target exposes it only the cluster reaches
+the login.
+
+DEC-125: Umami connects to PostgreSQL without TLS, as the compose file's
+URL does (Umami). The key `uri` sets no `sslmode`. CloudNativePG serves
+TLS and accepts a connection without it, and on kind the server's
+connections showed `ssl` false in `pg_stat_ssl`. `sslmode=require` was
+considered. pg-connection-string 2.14, which node-postgres reads the URL
+with in the image, treats `require` as `verify-full` unless the URL also
+sets `uselibpqcompat=true`, and verifying needs the Cluster's CA from the
+Secret `<cluster>-ca` in the pod.
+
+- RCP-190: The `Source` line of `umami` MUST name `docker-compose.yml` of
+  umami-software/umami at the commit of the release tag that the image's
+  tag names, with the file's SHA-256.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23). The commit is the image's `vcs:revision`. Renovate moves the
+  tag, the commit and the image in one pull request (RCP-16).
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    `gh api repos/umami-software/umami/git/ref/tags/<tag>`
+  - Since: #91
+
+- RCP-191: `umami` MUST include `recipes.postgresql` and set
+  `DATABASE_URL` from the key `uri` of the Secret `<cluster>-app`. It MUST
+  set `APP_SECRET` and `TWO_FACTOR_ENCRYPTION_KEY` from the Secret
+  `umami`, whose values are `applications.umami.app_secret` and
+  `.two_factor_encryption_key`, and MUST leave both parameters unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them (RCP-19, RCP-40). `APP_SECRET` signs the login
+  sessions and the tokens of `/api/send`. Without it Umami derives the
+  secret from `DATABASE_URL` (`secret` in `src/lib/crypto.ts`).
+
+  - Test: CI `check` job, report line `smoke`; manual: a compile of
+    `tests/target.yml` without each of the two parameters stops with
+    `Interpolation key` and its name
+  - Since: #91
+
+- RCP-192: `umami` MUST run as UID 1001 and GID 65533 under
+  `security_profile: restricted` (DEC-122), with the init container of
+  DEC-121, the readiness probe of the compose healthcheck and no liveness
+  or startup probe.
+
+  - Test: `check lint`; CI `check` job, report line `smoke`
+  - Since: #91
+
+- RCP-193: The `tests/smoke` of `umami` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace and
+  no restart of the umami container. From a pod of the umami image and
+  through the Service `umami` on port 3000 it MUST get `/api/heartbeat`,
+  get 401 for a wrong password, log in as `admin` with `umami`, require
+  `isConfigured` from `/api/2fa/status`, and create a website. It MUST
+  send a page view to `/api/send` as the tracker script does, with a
+  browser's `User-Agent`, and require one page view from
+  `/api/websites/<id>/stats`. It MUST change the password through
+  `/api/me/password` and log in with the new one. Once the umami pod was
+  deleted and its successor is ready, it MUST read the page view again
+  with the session of that login and get 401 for `umami`.
+
+  Umami drops a request whose `User-Agent` the package `isbot` matches,
+  such as curl's, and answers it with `{"beep":"boop"}`
+  (`src/app/api/send/route.ts`). The page view comes back from
+  PostgreSQL. The session is a token signed with `APP_SECRET`, so the new
+  pod accepts it only when the secret comes from the Secret. A password
+  change ends the sessions signed before it, so the test logs in again
+  before the restart. The old pod is gone before its successor is ready,
+  so no request after the restart reaches it. With
+  `kubectl rollout restart`, which starts the successor first, a request
+  right after the old pod was gone waited 133 seconds for a connection to
+  the Service, on kind with 1.35 and in CI with 1.36. On kind with 1.37,
+  ten requests after each of five deletions passed. With rollout
+  restarts, the first request after the third one hung.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #91
+
+- AC-120 (RCP-190 to RCP-193): `check umami --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `postgresql`
+  as included and `cnpg` as installed, and its smoke test reads the page
+  view after the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -5252,3 +5442,4 @@ feature's design (OQ-6).
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
+| umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
