@@ -5571,7 +5571,7 @@ the proof fits a CI runner. The recipe is at level `deploys`.
   Secret `zulip` with the keys `secret-key` and `owner-password`.
 
   - Test: `check zulip`; CI `check` job
-  - Since: this change
+  - Since: #123
 
 - RCP-394: `create-organization.sh` MUST create the organization at the
   root domain with the owner `applications.zulip.administrator` and the
@@ -5583,8 +5583,8 @@ the proof fits a CI runner. The recipe is at level `deploys`.
     is replaced; manual: on kind, a password of twelve `a` left no
     organization and the log line `ZULIP_OWNER_PASSWORD is too weak for
     Zulip.`, and after the Secret got a strong password the next start
-    created the organization with the owner (#PR)
-  - Since: this change
+    created the organization with the owner (#123)
+  - Since: #123
 
 - RCP-395: The `tests/smoke` of `zulip` MUST reach Zulip through the
   Service `zulip`, log in as the owner, and have a member created with
@@ -5597,7 +5597,7 @@ the proof fits a CI runner. The recipe is at level `deploys`.
   without a SASL authentication, and that `manage.py check_redis` passes.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #123
 
 ## Actual
 
