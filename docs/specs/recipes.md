@@ -4642,14 +4642,14 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   `docker.io/stirlingtools/stirling-pdf:3.2.0` pinned to its index.
 
   - Test: `check stirling-pdf`; CI `check` job
-  - Since: this change
+  - Since: #98
 
 - RCP-241: `stirling-pdf` MUST run as UID, GID and `fsGroup` 1001 under
   `security_profile: restricted`, with the init container
   `prepare-non-root` of DEC-164.
 
   - Test: `check lint`; CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #98
 
 - RCP-242: The `tests/smoke` of `stirling-pdf` MUST require no Pod
   Security warning from a server-side dry run of the label
@@ -4673,7 +4673,7 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   needs no PDF tool.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #98
 
 - AC-145 (RCP-240 to RCP-242): `check stirling-pdf --level deploys` passes
   in CI on each Kubernetes minor, with differences of the classes Selector
