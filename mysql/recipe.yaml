@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.mysql.password
+    description: Password of the user app.
+    secret: true
+  - path: applications.mysql.root_password
+    description: Password of the user root.
+    secret: true

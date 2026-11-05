@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.vaultwarden.domain
+    description: URL clients reach Vaultwarden at, with its scheme.
+    secret: false
+  - path: applications.vaultwarden.admin_token
+    description: Token of the admin page /admin, preferably as an Argon2id PHC string.
+    secret: true

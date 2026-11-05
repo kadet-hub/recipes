@@ -335,6 +335,7 @@ Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/
   init.yml          # generator pins, applications.<name>, classes of the components
   <component>.yml   # one per component, with its RBAC
   <option>.yml      # optional class, such as crds.yml
+  recipe.yaml       # required parameters and backends (RCP-260)
   vendor/           # vendored files, each with <file>.LICENSE (RCP-35)
   README.md
   tests/
@@ -536,6 +537,135 @@ belong in the recipe.
 
   - Test: manual: review; CI `check` job
   - Since: #10
+
+## Required parameters and backends
+
+A program that writes a target for a recipe, such as the quickstart, a
+Backstage template or the Helm converter, needs two facts that the README
+states only in prose: the parameters the target must set, and the
+inventory backends the recipe resolves on. A Backstage prototype wrote a
+target for immich without `applications.valkey.password`, and the target
+did not compile until someone read the README.
+
+DEC-190: Each recipe declares both facts in `<name>/recipe.yaml`, and
+`check lint` proves the file against the README and against Kapitan. The
+registry copies the two keys into the recipe's index record (REC-18
+there), where a program reads them from the signed index.
+
+```yaml
+# immich/recipe.yaml
+backends:
+  - omegaconf
+required:
+  - path: applications.valkey.password
+    description: Password of Valkey's user default, with which Immich connects to its job queue.
+    secret: true
+```
+
+DEC-191: Every recipe declares `backends: [omegaconf]`, and its relative
+class includes stay.
+
+With the backends `reclass` and `reclass-rs`, `kapitan inventory` of
+`tests/target.yml` stops for postgresql and for every recipe that
+includes it with `Class recipes.cluster not found`. Both backends resolve
+`.cluster` in `postgresql/init.yml` against the class name
+`recipes.postgresql` and look for `recipes.cluster`. The omegaconf backend
+resolves it against the file's directory (Layout). By the same rule,
+`.valkey` in `valkey/init.yml` names `recipes.valkey` itself, and reclass
+stops with a `RecursionError` while reclass-rs dies of a segmentation
+fault.
+
+Replacing every relative include of the 36 recipes with
+`recipes.<name>.<class>` fixes the class lookup on both backends. 28
+recipes then stop at their first interpolation. reclass separates the
+keys of a reference with `:`, so it looks up
+`${applications.postgresql.cluster}` as one key, and it has no `escape`
+resolver. These interpolations are what DEC-3, RCP-5 and RCP-42 ask for.
+omegaconf in turn reads `${applications:postgresql:cluster}` as a call of
+a resolver named `applications` and fails with
+`Unsupported interpolation type applications`.
+
+The other eight recipes resolve. blackbox-exporter, cnpg, jellyfin,
+memcached, ollama, rabbitmq and uptime-kuma resolve on both backends to
+the same parameters as on omegaconf, rabbitmq-cluster-operator on
+reclass-rs only. None of them derives a value from another yet. The
+probes ran on 2026-11-05 with Kapitan 0.36.3, kapicorp-reclass 2.0.0 and
+reclass-rs 0.10.1 from check's lock, on the recipes at `a723bd2`.
+
+| Alternative | Why it was not taken |
+|---|---|
+| Lines in the README next to `Source:`, `Level:` and `Requires:` | Those lines hold one value each. A list of paths with a description and two flags would need a parser for prose. |
+| Absolute includes, and all three backends for the seven recipes that resolve on them | The first value one of them derives (RCP-5) drops reclass and reclass-rs again, and a consumer on those backends breaks with that recipe's next version. The proof compiles on omegaconf only. |
+| Interpolations in reclass syntax | omegaconf cannot read them, and `escape`, `merge` and `parentkey` have no reclass counterpart. |
+
+- RCP-260: Every recipe MUST have a file `recipe.yaml` with the keys
+  `backends` and `required` and no other. `backends` MUST list
+  `omegaconf` and MAY list `reclass` and `reclass-rs`, each once.
+  `required` MUST list each parameter a target must set, as a mapping
+  with `path`, `description`, `secret` and, for a parameter that only an
+  option needs, `option`.
+
+  `path` is the dotted parameter path, such as
+  `applications.valkey.password`. `description` is one line of at most
+  300 characters, the limit of RCP-32. `secret` is `true` for a value the
+  target sets as a ref (RCP-19). `option` names the option
+  `recipes.<name>.<option>` that needs the parameter, such as `route` for
+  the Gateway keycloak's route attaches to. A recipe that needs no
+  parameter has `required: []`.
+
+  The file is no class, and `check lint` does not lint it as one
+  (RCP-36). RCP-4 and RCP-4a apply to it as to a class file.
+
+  - Test: `check lint`; `check/tests/test_lint.py` (`Meta`)
+  - Since: this change
+
+- RCP-261: `check lint` MUST fail unless `recipe.yaml` matches the README.
+  Each path MUST appear in backticks in the section "Required parameters"
+  (RCP-40), and each backticked path there below `applications.`,
+  `components.` or `generators.` MUST be a path of the file. The section
+  MUST say "No parameter has to be set." exactly when `required` is
+  empty. The Include snippet MUST set each path, to `<ref>` exactly when
+  `secret` is `true`, and MUST include `recipes.<name>.<option>` for each
+  `option`.
+
+  The README is what a reader reads and the file what a program reads.
+  The rule keeps the two from drifting apart, so the section names each
+  path in full. authentik, netbox, semaphore and wordpress abbreviated
+  paths such as `.email` until this change.
+
+  - Test: `check lint`; `check/tests/test_lint.py` (`Meta`)
+  - Since: this change
+
+- RCP-262: `check lint` MUST prove each path of `required`. The Include
+  snippet as the recipe's only target MUST resolve with
+  `kapitan inventory` on omegaconf, and MUST fail with
+  `Interpolation key '<path>` once the path is removed from it. For each
+  `option`, the snippet without `recipes.<name>.<option>` and without the
+  paths of that option MUST resolve.
+
+  Kapitan resolves interpolations when it loads the inventory, before a
+  generator runs, so `kapitan inventory` stops where a compile of the
+  snippet would stop. It needs neither the generators nor the network.
+  The snippet's placeholders, such as `<ref>`, resolve as strings. The
+  included recipes lie next to the recipe as in the proof (RCP-49). An
+  error that names a key below the path counts too: keycloak's target
+  sets `applications.keycloak.issuer` as a whole mapping. With
+  `--compiled`, `check` runs no Kapitan (RCP-34) and skips this rule and
+  RCP-263.
+
+  - Test: `check lint`; `check/tests/test_check.py` (`Meta`)
+  - Since: this change
+
+- RCP-263: `check lint` MUST run `kapitan inventory` on `tests/target.yml`
+  with each backend of `backends`, and MUST fail when one of them does not
+  resolve it.
+
+  The proof compiles on omegaconf only. A further backend is checked to
+  resolve the test target, not to resolve it to the same values; DEC-191
+  compared the values once.
+
+  - Test: `check lint`; `check/tests/test_check.py` (`Meta`)
+  - Since: this change
 
 ## Proof
 
@@ -5645,8 +5775,9 @@ argument as a literal `${...}` and reads nothing.
 
 - RCP-36: `check lint` MUST apply its class file rules, RCP-17 to RCP-19
   among them, to every file of a recipe that can act as a class: each
-  `*.yml` and `*.yaml` below the recipe directory, except `tests/` and the
-  files a `copy` entry of the recipe names as input. Every `classes` entry
+  `*.yml` and `*.yaml` below the recipe directory, except `tests/`,
+  `recipe.yaml` (RCP-260) and the files a `copy` entry of the recipe names
+  as input. Every `classes` entry
   of a linted file MUST resolve to a linted file.
 
   The omegaconf backend loads any YAML file below the classes path that a
@@ -6086,6 +6217,7 @@ feature's design (OQ-6).
 | `.github/actions/tools/` | Pinned helm, kubectl, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
+| `<name>/recipe.yaml`, `check/lint.py`, `check/check.py` | Required parameters and backends (RCP-260 to RCP-263) |
 
 | Value | Setting |
 |---|---|

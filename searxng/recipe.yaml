@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.searxng.secret_key
+    description: server.secret_key, which signs the URLs of SearXNG's image proxy.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, written into SEARXNG_VALKEY_URL as it is, so without characters a URL reserves.
+    secret: true

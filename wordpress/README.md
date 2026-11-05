@@ -62,9 +62,11 @@ kadet-hub.org shows.
 ## Required parameters
 
 The eight keys and salts of `wp-config.php` must be set:
-`applications.wordpress.auth_key`, `secure_auth_key`, `logged_in_key`,
-`nonce_key`, `auth_salt`, `secure_auth_salt`, `logged_in_salt` and
-`nonce_salt`. Each is a long random string, such as the values that
+`applications.wordpress.auth_key`, `applications.wordpress.secure_auth_key`,
+`applications.wordpress.logged_in_key`, `applications.wordpress.nonce_key`,
+`applications.wordpress.auth_salt`, `applications.wordpress.secure_auth_salt`,
+`applications.wordpress.logged_in_salt` and
+`applications.wordpress.nonce_salt`. Each is a long random string, such as the values that
 `https://api.wordpress.org/secret-key/1.1/salt/` generates. WordPress
 signs its login cookies with them, so a change logs every user out. The
 included recipe `mariadb` requires `applications.mariadb.password`, the

@@ -48,8 +48,9 @@ compile pull them by digest as the recipe's page on kadet-hub.org shows.
 
 ## Required parameters
 
-`applications.netbox.superuser.name`, `.email` and `.password` are the
-superuser's login, address and password. The image creates the superuser on
+`applications.netbox.superuser.name`, `applications.netbox.superuser.email`
+and `applications.netbox.superuser.password` are the superuser's login,
+address and password. The image creates the superuser on
 a start when no user of that name exists and leaves an existing one alone.
 A later change of the address or the password in the target does not reach
 NetBox, and a new name creates a second superuser.

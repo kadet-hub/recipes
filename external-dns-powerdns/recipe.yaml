@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.powerdns.api_key
+    description: Key of PowerDNS's HTTP API, which the included recipe powerdns requires.
+    secret: true

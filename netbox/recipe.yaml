@@ -1,0 +1,21 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.netbox.superuser.name
+    description: Login of the superuser, which the image creates when no user of that name exists.
+    secret: false
+  - path: applications.netbox.superuser.email
+    description: Address of the superuser.
+    secret: false
+  - path: applications.netbox.superuser.password
+    description: Password of the superuser, set only when the image creates it.
+    secret: true
+  - path: applications.netbox.secret_key
+    description: SECRET_KEY of NetBox, at least 50 characters.
+    secret: true
+  - path: applications.netbox.api_token_pepper
+    description: Pepper with ID 1 of API_TOKEN_PEPPERS, at least 50 letters and digits.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey.
+    secret: true
