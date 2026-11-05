@@ -4544,6 +4544,174 @@ Secret `<cluster>-ca` in the pod.
   as included and `cnpg` as installed, and its smoke test reads the page
   view after the restart.
 
+## Memos
+
+Memos is a note-taking app. Its users write short Markdown notes, memos,
+into a timeline, tag and search them, and share single memos or the whole
+instance. The web UI and the API share one port. usememos/memos, MIT,
+builds the image `docker.io/neosmemo/memos`. usememos/dotcom holds the
+source of usememos.com with the documentation and carries no license
+file. `memos` takes the compose example of
+`content/docs/deploy/docker-compose.mdx` in usememos/dotcom (DEC-170), at
+commit `b5fd0a3dff1408783452c627b05dc7aecf745c47` of 2026-11-01, SHA-256
+`f2d53cb23eea5cd5f65beb4b716d443ac2e225027e398ac41ab9e9fa79d5ef02`. The
+commit added the changelog of Memos 26.11.0 and was the newest of `main`
+on 2026-11-05. The example runs `neosmemo/memos:stable`, which on
+2026-11-05 was the same index as `26.11.0`, the newest release, for amd64,
+arm64 and arm/v7. The image carries no `org.opencontainers.image.revision`
+label. Its SLSA provenance names commit
+`b40d8a7b573774c52b022c8d6537d6baf2129dc0`, the tag `26.11.0`. The recipe
+takes from the documentation what the image dictates, such as variable
+names, the port and the data path, and copies no other text.
+
+Memos numbers its releases by year and month since 26.10.0, after 0.31.0.
+The GitHub advisory database lists advisories for
+`github.com/usememos/memos` up to release 0.25.2, and none of them names a
+range that includes 26.11.0.
+
+The example's one service becomes the StatefulSet `memos`. Its relative
+bind mount `./data` becomes the claim `data` at `/var/opt/memos` (DEC-21).
+Memos keeps the SQLite database `memos_prod.db` and uploaded files there.
+The published port `5230:5230` becomes port 5230 of the Service `memos`.
+`MEMOS_PORT` and `MEMOS_DRIVER` keep the example's values. A Service named
+`memos` would put `MEMOS_PORT=tcp://<address>:5230` into the pod as a
+service link variable, which Memos reads as its port
+(`content/docs/deploy/kubernetes.mdx`). The recipe renders no service
+links, as for every compose source, and sets the variable itself. Neither
+the example nor the image defines a health check, so the recipe renders
+no probe. Memos answers `/healthz` once its database answers.
+
+DEC-170: `memos` takes its compose file from the code block under "Basic
+setup" in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom,
+and its `Source` line names that file (Memos). It is the only deployment
+upstream ships that Compose sources map without a gap.
+`scripts/compose.yaml` of usememos/memos at the release tag mounts
+`~/.memos/`, a directory in the user's home outside the repository, on
+which Compose sources stop. usememos/helm has a chart, version 0.2.1 with
+Memos 0.25.2 as `appVersion` and the image tag `latest` as its default.
+No chart repository serves it. `https://usememos.github.io/helm/index.yaml`
+answered 404 on 2026-11-05, the workflow that publishes to GitHub Pages
+runs only when started by hand, and commit `5754897` of 2025-11-23 removed
+the OCI workflow. `check` takes no chart from a Git repository. A designed
+recipe on the image was considered. The project ships a compose example,
+which DEC-10 puts first, as DEC-28 did for `pihole`.
+
+DEC-171: `memos` requires `MEMOS_INSTANCE_URL` as the parameter
+`applications.memos.instance_url` (Memos). The example's
+`https://memos.example.com` stands for the user's address, as
+Vaultwarden's example does for `DOMAIN` (RCP-111). Memos serves
+`robots.txt` and its sitemap only with the URL and builds their links from
+it (`server/frontend/frontend.go` of 26.11.0). It also allows
+cross-origin requests with cookies and MCP clients from that origin
+(`server/cors.go`, `server/mcp/origin.go`). On the first start a
+non-empty URL sets the instance's access policy to public, so visitors
+without an account see memos marked public (`initializeInstanceAccessSetting`
+in `store/migrator.go`). A later change of the URL leaves the policy as it
+is. Copying the example's value was considered. Every instance would then
+name the same foreign host. Leaving the variable out was considered too.
+The instance would start private, unlike the example, and serve no
+sitemap.
+
+DEC-172: `memos` runs as the image's user `nonroot`, UID 10001 and GID
+10001 in its `/etc/passwd`, with `fsGroup` 10001 for the claim, under
+`security_profile: restricted` (Memos). The compose example sets no
+`user`. The image starts its entrypoint as root. The entrypoint changes
+the owner of `/var/opt/memos` to 10001 and then starts Memos as 10001
+with `su-exec` (`scripts/entrypoint.sh` of 26.11.0). Started as 10001, it
+skips both steps and starts Memos directly. The documentation names UID
+10001 as the user Memos runs as (`content/docs/deploy/docker.mdx`). The
+ownership change serves data that older releases wrote as root, and a
+claim of this recipe holds none. `tests/smoke` checks that the pod passes
+the level `restricted`. `baseline` with the start as root was considered.
+The ownership change and the switch need `CHOWN`, `SETUID` and `SETGID`,
+which Memos does not use afterwards.
+
+DEC-173: `memos` renders no account (Memos). The first account that is
+created becomes the admin, through the web UI's sign-up or through
+`POST /api/users` without a login (`CreateUser` in
+`server/api/user_service.go` of 26.11.0). After that, anyone who reaches
+the Service can still register a regular account, Memos' default, until
+an admin turns off user registration in the instance settings. Unlike
+Vaultwarden's `SIGNUPS_ALLOWED` (DEC-55), Memos reads no variable for the
+setting. The Service is `ClusterIP`, so until the target exposes it only
+the cluster reaches the sign-up, and the README asks for the admin account
+and the setting before the exposure. Memos' declarative configuration was
+considered, files below `/etc/memos/config` that declare admins and
+instance settings. It would mount a file that the example does not have,
+and Memos makes declared users and settings read-only in the web UI and
+the API (`docs/design/declarative-configuration.md` of 26.11.0).
+
+- RCP-250: The `Source` line of `memos` MUST name
+  `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at a commit
+  of `main`, with the file's SHA-256, below the comment
+  `<!-- renovate: branch=main -->`.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23). The documentation has no release tags, so Renovate moves the
+  commit to the newest of `main`, as for SearXNG (RCP-16). usememos/dotcom
+  also holds the website and its blog, so most moves leave the file as it
+  is and `check` passes. A changed file fails, and the maintainer maps the
+  change. A package rule groups the `Source` line with the image line
+  marked `# renovate: upstream`, which Renovate moves to Memos' newest
+  release.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    Renovate dry run
+  - Since: this change
+
+- RCP-251: `memos` MUST run `docker.io/neosmemo/memos` as the StatefulSet
+  `memos` with one replica and the claim `data` at `/var/opt/memos`. It
+  MUST set `MEMOS_PORT` to `5230`, `MEMOS_DRIVER` to `sqlite` and
+  `MEMOS_INSTANCE_URL` from `applications.memos.instance_url`, which the
+  recipe leaves unset.
+
+  The compile then stops with
+  `Interpolation key 'applications.memos.instance_url' not found` until
+  the target sets it (RCP-40). SQLite allows one pod that writes. Memos
+  refuses to start with a URL whose scheme is not `http` or `https`, or
+  that has no host, or has credentials, a query or a fragment
+  (`internal/profile/profile.go` of 26.11.0).
+
+  - Test: CI `check` job, report line `smoke`; manual: a compile of
+    `tests/target.yml` without the parameter stops with
+    `Interpolation key` and its name
+  - Since: this change
+
+- RCP-252: `memos` MUST run as UID 10001 and GID 10001 with `fsGroup`
+  10001 under `security_profile: restricted` (DEC-172).
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-253: The `tests/smoke` of `memos` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From
+  a pod of the memos image and through the Service `memos` on port 5230 it
+  MUST get `Service ready.` from `/healthz` and the web UI from `/`, and
+  require from `/api/instance/profile` the image's version, the instance
+  URL of `tests/target.yml`, the public access policy and `needsSetup`. It
+  MUST create an account through `POST /api/users` without a login and
+  require the role `ADMIN`, sign in through `/api/auth/signin`, get 400
+  there for a wrong password, create a private memo with the access token,
+  read it back, and get 401 for it without a token. Once the pod `memos-0`
+  was deleted and its successor is ready, it MUST require `needsSetup`
+  false, sign in again and read the memo.
+
+  The test pod runs Memos' image, whose busybox carries `wget`, and the
+  test reads the JSON answers with `jq` outside the cluster. Memos answers
+  wrong credentials with `InvalidArgument`, which its REST gateway turns
+  into 400. Reading a private memo needs a login, also on a public
+  instance. The account and the memo come back after the restart
+  only if the new pod reads `memos_prod.db` from the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-150 (RCP-250 to RCP-253): `check memos --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test reads the memo after the
+  restart. `tests/target.yml` without `applications.memos.instance_url`
+  stops the compile with `Interpolation key` and that key.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -5443,3 +5611,4 @@ feature's design (OQ-6).
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
+| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-253) |
