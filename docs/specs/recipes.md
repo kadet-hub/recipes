@@ -1167,7 +1167,7 @@ What the table does not map is a gap, and so is each of these:
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
-  (DEC-120, DEC-121). Revised in this change: `.env` from an example
+  (DEC-120, DEC-121). Revised in #117: `.env` from an example
   file, which was resolved without one, the bind mounts below its
   configuration directory and `aliases`, which were gaps, `read_only`
   and `tmpfs`, all for jitsi-meet (DEC-306 to DEC-309).
@@ -1176,7 +1176,7 @@ What the table does not map is a gap, and so is each of these:
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; `.env`,
-    configuration directory, `aliases`, `read_only`, `tmpfs`: this change
+    configuration directory, `aliases`, `read_only`, `tmpfs`: #117
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -5580,7 +5580,7 @@ from the image with each release.
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     review of the four image tags
-  - Since: this change
+  - Since: #117
 
 - RCP-387: `jitsi-meet` MUST take `JICOFO_AUTH_PASSWORD`,
   `JVB_AUTH_PASSWORD` and the first moderator's password from the Secret
@@ -5589,7 +5589,7 @@ from the image with each release.
   unset.
 
   - Test: `check lint` (RCP-262)
-  - Since: this change
+  - Since: #117
 
 - RCP-388: `jitsi-meet` MUST set `ENABLE_AUTH=1` on web, prosody and
   jicofo and `ENABLE_GUESTS=1` on web and prosody.
@@ -5597,7 +5597,7 @@ from the image with each release.
   - Test: `jitsi-meet/tests/smoke`; manual: on kind with `ENABLE_AUTH=0`
     on jicofo the smoke test fails with `jicofo opened a meeting for a
     guest`
-  - Since: this change
+  - Since: #117
 
 - RCP-389: The postStart hook of `jitsi-meet-prosody` MUST create
   `moderator@meet.jitsi` with the password of the Secret `jitsi-meet`, and
@@ -5606,7 +5606,7 @@ from the image with each release.
   - Test: `jitsi-meet/tests/smoke` logs in before and after deleting
     prosody's pod; manual: prosody's log on kind shows `Account password
     changed` for the existing account after the restart
-  - Since: this change
+  - Since: #117
 
 ### Media
 
@@ -5650,7 +5650,7 @@ only with `PROSODY_ENABLE_S2S` and on 5347 only for an external component.
   private XML data (XEP-0049), which only the claim keeps.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #117
 
 ## Migration
 
