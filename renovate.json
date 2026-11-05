@@ -318,6 +318,18 @@
       "groupName": "umami"
     },
     {
+      "description": "RCP-16: jitsi-meet's Source line and its four images move in one pull request; Jitsi tags a release stable-<build> and a fix of it stable-<build>-<n>",
+      "matchPackageNames": [
+        "jitsi/docker-jitsi-meet",
+        "ghcr.io/jitsi/web",
+        "ghcr.io/jitsi/prosody",
+        "ghcr.io/jitsi/jicofo",
+        "ghcr.io/jitsi/jvb"
+      ],
+      "groupName": "jitsi-meet",
+      "versioning": "regex:^stable-(?<major>\\d+)(?:-(?<minor>\\d+))?$"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# What docker-compose.yml of docker-jitsi-meet sets up, with this recipe's
+# secure domain (RCP-39, RCP-390): from a pod of its own, through the
+# Services, web answers on 8000 and 8443, jvb on 8080 and prosody's c2s port
+# offers XMPP. Over BOSH through web, prosody refuses in-band registration and
+# a wrong password, the moderator logs in, jicofo refuses a new meeting to a
+# guest and opens one for the moderator, the guest joins it, jicofo offers
+# both a session on the bridge's UDP port 10000, and a message goes each way.
+# Data the moderator stores in prosody survives deleting prosody's pod.
+# Media is not tested: no client sends audio or video.
+set -euo pipefail
+image=$(kubectl get statefulset jitsi-meet-prosody -o jsonpath='{.spec.template.spec.containers[0].image}')
+# The prosody image brings bash and curl, so the test pod needs no other image.
+kubectl run jitsi-meet-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod jitsi-meet-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/jitsi-meet-smoke --for=condition=Ready --timeout=120s >/dev/null
+password=$(kubectl get secret jitsi-meet -o jsonpath='{.data.MODERATOR_PASSWORD}' | base64 -d)
+jvb=$(kubectl get pod -l name=jitsi-meet-jvb -o jsonpath='{.items[0].status.podIP}')
+
+# A BOSH client (XEP-0124, XEP-0206) for bash and curl. A session keeps its sid
+# and next rid in /tmp/bosh-<name> and every stanza it got in /tmp/bosh-<name>.log.
+client=$(cat <<'EOF'
+set -euo pipefail
+url=http://jitsi-meet:8000/http-bind
+c="xmlns='jabber:client'"
+fail() { echo "$*" >&2; exit 1; }
+post() { curl -fsS --max-time 30 -H 'Content-Type: text/xml; charset=utf-8' --data "$1" "$url"; }
+open() { # name domain
+  local rid=$((RANDOM * 100000 + 1000)) r
+  r=$(post "<body rid='$rid' xmlns='http://jabber.org/protocol/httpbind' to='$2' xml:lang='en' wait='2' hold='1' ver='1.6' xmpp:version='1.0' xmlns:xmpp='urn:xmpp:xbosh'/>")
+  sed -n "s/.* sid='\([^']*\)'.*/\1 $((rid + 1)) $2/p" <<<"$r" | head -1 >"/tmp/bosh-$1"
+  printf '%s\n' "$r" >"/tmp/bosh-$1.log"
+}
+send() { # name stanzas [attributes of body]
+  local sid rid dom r
+  read -r sid rid dom <"/tmp/bosh-$1"
+  echo "$sid $((rid + 1)) $dom" >"/tmp/bosh-$1"
+  r=$(post "<body rid='$rid' sid='$sid' xmlns='http://jabber.org/protocol/httpbind' ${3-}>$2</body>")
+  printf '%s\n' "$r" >>"/tmp/bosh-$1.log"
+  printf '%s\n' "$r"
+}
+expect() { # name regex: polls for up to 60 seconds until a stanza matches
+  local _
+  for _ in $(seq 30); do
+    grep -qE "$2" "/tmp/bosh-$1.log" && return 0
+    send "$1" '' >/dev/null
+  done
+  fail "$1 got no stanza matching $2"
+}
+login() { # name domain mechanism [user password]
+  local auth r
+  open "$1" "$2"
+  if [[ $3 == PLAIN ]]; then auth=$(printf '\0%s\0%s' "$4" "$5" | base64 -w0); else auth='='; fi
+  r=$(send "$1" "<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='$3'>$auth</auth>")
+  grep -q '<success' <<<"$r" || return 1
+  send "$1" '' "to='$2' xml:lang='en' xmpp:restart='true' xmlns:xmpp='urn:xmpp:xbosh'" >/dev/null
+  send "$1" "<iq $c type='set' id='bind'><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/></iq>" | grep -q '<jid>'
+}
+conference() { # name id room: asks jicofo for the meeting, prints its answer
+  send "$1" "<iq $c type='set' id='$2' to='focus.meet.jitsi'><conference xmlns='http://jitsi.org/protocol/focus' room='$3' machine-uid='$1'/></iq>" >/dev/null
+  expect "$1" "id='$2'"
+  grep -o "<iq[^>]* id='$2'[^>]*>.*" "/tmp/bosh-$1.log" | head -1
+}
+moderator() { # the first login after a start waits until prosody, jicofo and the bridge are connected
+  local i
+  for i in $(seq 30); do
+    if login "$1" meet.jitsi PLAIN moderator "$password" &&
+      conference "$1" "ready$i" "$2" | grep -q "ready='true'"; then return 0; fi
+    sleep 4
+  done
+  fail "the moderator got no meeting from jicofo"
+}
+EOF
+)
+run() { kubectl exec -i jitsi-meet-smoke -- bash -s -- "$password" "$jvb" <<<"$client"$'\n'"password=\$1 jvb=\$2"$'\n'"$1"; }
+
+run '
+curl -fsS -o /dev/null http://jitsi-meet:8000/
+# web serves 8443 with a self-signed certificate it keeps on its claim.
+curl -fsSk -o /dev/null https://jitsi-meet:8443/
+curl -fsS -o /dev/null http://jitsi-meet-jvb:8080/about/health
+exec 3<>/dev/tcp/jitsi-meet-prosody/5222
+printf "<?xml version=\"1.0\"?><stream:stream to=\"meet.jitsi\" xmlns=\"jabber:client\" xmlns:stream=\"http://etherx.jabber.org/streams\" version=\"1.0\">" >&3
+{ timeout 5 cat <&3 || true; } | grep -q "<starttls" || fail "prosody offers no XMPP on 5222"
+exec 3>&-
+
+open reg meet.jitsi
+grep -q "<mechanism>ANONYMOUS</mechanism>" /tmp/bosh-reg.log && fail "meet.jitsi offers anonymous logins"
+send reg "<iq $c type=\"get\" id=\"reg\" to=\"meet.jitsi\"><query xmlns=\"jabber:iq:register\"/></iq>" |
+  grep -q "<service-unavailable" || fail "prosody answered in-band registration"
+login wrong meet.jitsi PLAIN moderator wrong-password && fail "a wrong password logged in"
+
+moderator mod smoke@muc.meet.jitsi
+login guest guest.meet.jitsi ANONYMOUS || fail "the guest domain refused an anonymous login"
+conference guest new other@muc.meet.jitsi | grep -q "<not-authorized" || fail "jicofo opened a meeting for a guest"
+
+send mod "<presence $c to=\"smoke@muc.meet.jitsi/moderator\"><x xmlns=\"http://jabber.org/protocol/muc\"/></presence>" >/dev/null
+expect mod "<status code=.110."
+conference guest join smoke@muc.meet.jitsi | grep -q "ready=.true." || fail "jicofo kept the guest out of the open meeting"
+send guest "<presence $c to=\"smoke@muc.meet.jitsi/guest\"><x xmlns=\"http://jabber.org/protocol/muc\"/></presence>" >/dev/null
+expect guest "<status code=.110."
+expect mod "from=.smoke@muc.meet.jitsi/guest."
+# jicofo allocates the meeting on the bridge and offers its ICE candidates.
+expect mod "action=.session-initiate."
+grep -o "<candidate [^>]*>" /tmp/bosh-mod.log | grep "type=.host." | grep "protocol=.udp." | grep "port=.10000." |
+  grep -q "ip=.$jvb." || fail "the offer names no UDP candidate on port 10000 of the bridge"
+
+send guest "<message $c to=\"smoke@muc.meet.jitsi\" type=\"groupchat\"><body>hello from the guest</body></message>" >/dev/null
+send mod "<message $c to=\"smoke@muc.meet.jitsi\" type=\"groupchat\"><body>hello from the moderator</body></message>" >/dev/null
+expect mod ">hello from the guest</body>"
+expect guest ">hello from the moderator</body>"
+
+send mod "<iq $c type=\"set\" id=\"store\"><query xmlns=\"jabber:iq:private\"><smoke xmlns=\"urn:kadet-hub:smoke\">kept</smoke></query></iq>" |
+  grep -q "type=.result." || fail "prosody did not store private data"
+'
+
+kubectl delete pod jitsi-meet-prosody-0 >/dev/null
+kubectl rollout status statefulset/jitsi-meet-prosody --timeout=300s >/dev/null
+
+run '
+moderator again after@muc.meet.jitsi
+send again "<iq $c type=\"get\" id=\"read\"><query xmlns=\"jabber:iq:private\"><smoke xmlns=\"urn:kadet-hub:smoke\"/></query></iq>" |
+  grep -q ">kept</smoke>" || fail "the data stored before the restart is gone"
+'
+echo "web, jvb and prosody answer, registration and guest meetings are refused, a guest joined the moderator's meeting on the bridge, messages went both ways, and prosody kept its data across a restart"
