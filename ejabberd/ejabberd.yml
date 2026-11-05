@@ -1,0 +1,70 @@
+parameters:
+  components:
+    ejabberd:
+      application: ejabberd
+      type: statefulset
+      # renovate: upstream
+      image: ghcr.io/processone/ejabberd:26.09.1@sha256:1842577c33c8088ea15a2a7f940a7b8ffcfb09a4d1c0e713caf03df663f3b069
+      ports:
+        xmpp-client:
+          service_port: 5222
+        xmpp-server:
+          service_port: 5269
+        http:
+          service_port: 5280
+        https:
+          service_port: 5443
+      service:
+        type: ClusterIP
+      env:
+        EJABBERD_MACRO_HOST: ${applications.ejabberd.host}
+        EJABBERD_MACRO_ADMIN: admin@${applications.ejabberd.host}
+        # The image registers the admin with it when the database is empty.
+        REGISTER_ADMIN_PASSWORD:
+          secretKeyRef:
+            key: REGISTER_ADMIN_PASSWORD
+        CTL_ON_START: registered_users ${applications.ejabberd.host} ; status
+      secrets:
+        credentials:
+          string_data:
+            REGISTER_ADMIN_PASSWORD:
+              value: ${applications.ejabberd.admin_password}
+      # The image's HEALTHCHECK, which compose runs: every minute, a timeout
+      # of 5 seconds and 10 retries.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - ejabberdctl
+            - status
+          period_seconds: 60
+          timeout_seconds: 5
+          failure_threshold: 10
+      security_profile: restricted
+      # The image runs as the user ejabberd, UID and GID 9000 in its /etc/passwd.
+      workload_security_context:
+        runAsUser: 9000
+        runAsGroup: 9000
+        fsGroup: 9000
+      # beam.smp carries the file capability cap_net_bind_service+ep, and the
+      # kernel refuses to execute it without that capability in the bounding
+      # set (DEC-302).
+      security_context:
+        capabilities:
+          drop:
+            - ALL
+          add:
+            - NET_BIND_SERVICE
+      # The compose example's ./conf/ejabberd.yml is the file the image
+      # carries at /opt/ejabberd/conf/ejabberd.yml (DEC-301).
+      volume_mounts:
+        database:
+          mount_path: /opt/ejabberd/database
+      volume_claims:
+        database:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi

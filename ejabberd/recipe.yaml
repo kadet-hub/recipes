@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.ejabberd.admin_password
+    description: Password of the admin account admin@<host>, which the image registers when the database is empty.
+    secret: true
