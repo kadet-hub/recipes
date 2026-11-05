@@ -1327,8 +1327,8 @@ same bytes with both versions.
 
 - RCP-52: A consumer MUST fetch each included recipe of a parent as RCP-15
   fetches the parent: before publication at the parent's commit SHA,
-  afterwards by the digest that the parent's index record lists (CON-4 in
-  kadet-hub/registry).
+  afterwards by the digest that the parent's index record lists, which the
+  registry's consumer workflow adds itself (CON-7 in kadet-hub/registry).
 
   - Test: manual: the README's "Using a recipe" steps for nextcloud on a
     fresh clone
@@ -5118,7 +5118,12 @@ first command.
   consumer workflow handles that when its policy names the fetch inventory
   (CON-4 there). It verifies the recipe against the `recipes` section of
   the index (CON-5), and then the generators the recipe pins as
-  dependencies of the main inventory, like any generator.
+  dependencies of the main inventory, like any generator. It adds the
+  recipes a pinned recipe includes from that recipe's record (CON-7), so
+  the fetch inventory pins only the recipes the consumer's targets
+  include. Kapitan's own fetch reads no index, so a local compile pulls
+  the included recipes by digest. The Include sections of the recipes with
+  included recipes say both.
 
   - Test: manual: the README's "Using a recipe" steps on a fresh clone;
     the digest path: the registry's `consumer/test_consumer.py`
@@ -5127,7 +5132,8 @@ first command.
     published recipes by digest and deploys them on kind
   - Since: #5 (commit SHA); digest: registry #397, README on the digest
     path: #89; the Include sections of the recipes
-    with included recipes: #90
+    with included recipes: #90; included recipes from the index: registry
+    #536, the Include sections: #95
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at

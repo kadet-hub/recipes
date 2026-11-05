@@ -111,6 +111,12 @@ parameters:
 
 `gateway-api` on the `Requires:` line applies to the option `route` only.
 
+The recipe includes `recipes.postgresql`. Pin only this recipe in the fetch
+inventory. The consumer workflow adds `postgresql` at the digest this
+version's index record lists under `includes`. Kapitan's `--fetch` reads no
+index, so for a local compile pull it by digest as the recipe's page on
+kadet-hub.org shows.
+
 ## Required parameters
 
 `applications.keycloak.host`, the host name Keycloak serves and its
