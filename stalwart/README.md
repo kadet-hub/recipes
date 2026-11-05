@@ -173,7 +173,7 @@ SPF (`v=spf1 mx -all`), DKIM, DMARC with `p=quarantine` and reports to
 `postmaster`, MTA-STS (`_mta-sts` and a CNAME `mta-sts`), TLS-RPT
 (`_smtp._tls`), SRV records for submission and IMAP, and the CNAMEs
 `autoconfig` and `autodiscover`. The key of the DKIM record comes from the
-private key at runtime: Kapitan's ref functions derive a public key only in
+private key at runtime. Kapitan's ref functions derive a public key only in
 PEM, and DNS takes it as bare base64. At every start the init container
 `dns` derives it with `openssl`, prints the complete zone and stops the pod
 when the file holds no private key. `kubectl logs stalwart-0 -c dns` shows the
@@ -190,9 +190,9 @@ The zone has no address record for the host name, because the address that
 reaches the Service depends on the target. Add it where the zone lives. The
 Service can carry the annotation `external-dns.kubernetes.io/hostname` for
 the recipe `external-dns-powerdns` through
-`components.stalwart.service.annotations`. That recipe writes A records only:
-it reads Services, and the DNSEndpoint resources it could read for the other
-records have no kadet-hub generator.
+`components.stalwart.service.annotations`. That recipe writes only A records
+for Services. The DNSEndpoint resources it could read for the other records
+have no kadet-hub generator.
 
 MTA-STS starts in mode `testing`, in which senders report TLS failures and
 deliver anyway. Switch to `enforce` once the certificate is publicly valid,
