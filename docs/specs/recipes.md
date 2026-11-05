@@ -4643,8 +4643,9 @@ and 3 failures. The image has no `HEALTHCHECK`, and its documentation
 names no check. A connection to port 11211 succeeds once memcached
 listens, which is what the chart's readiness probe tests as well. The
 chart's liveness probe cannot run in the pinned image, which has no
-`pgrep`. The entrypoint `exec`s memcached, so memcached is the container's PID 1, and the kubelet
-restarts the container when memcached exits, without a probe. A TCP
+`pgrep`. The entrypoint `exec`s memcached, so memcached is the
+container's PID 1, and the kubelet restarts the container when memcached
+exits, without a probe. A TCP
 liveness probe was considered. Every restart empties the cache, and a
 probe that times out under load would restart a memcached that still
 serves.
