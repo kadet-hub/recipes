@@ -318,6 +318,14 @@
       "groupName": "umami"
     },
     {
+      "description": "RCP-16: actual's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "actualbudget/actual",
+        "docker.io/actualbudget/actual-server"
+      ],
+      "groupName": "actual"
+    },
+    {
       "description": "RCP-16: ejabberd's Source line and its main image move in one pull request",
       "matchPackageNames": [
         "processone/ejabberd",
