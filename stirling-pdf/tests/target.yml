@@ -1,0 +1,7 @@
+classes:
+  - recipes.stirling-pdf
+parameters:
+  namespace: stirling-pdf
+  kapitan:
+    vars:
+      target: stirling-pdf

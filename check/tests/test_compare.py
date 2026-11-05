@@ -146,6 +146,87 @@ class Compare(unittest.TestCase):
         )
 
 
+class ReferencedSecret(unittest.TestCase):
+    """RCP-243: a Secret only in the recipe that the chart side's pods read by name."""
+
+    SECRET = "Secret/demo/demo-login"
+
+    def setUp(self):
+        self.chart, self.recipe = load("chart.yaml"), load("recipe.yaml")
+        self.secret = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": "demo-login", "namespace": "demo"},
+            "type": "Opaque",
+            "data": {"username": "", "password": ""},
+        }
+        self.recipe.append(self.secret)
+
+    def pods(self, *sides):
+        return [find(objs, "Deployment")["spec"]["template"]["spec"] for objs in sides]
+
+    def read_keys(self, *sides, keys=("username", "password")):
+        for pod in self.pods(*sides):
+            pod["containers"][0]["env"] = [
+                {"name": key.upper(), "valueFrom": {"secretKeyRef": {"name": "demo-login", "key": key}}} for key in keys
+            ]
+
+    def assertAccepted(self):
+        result = compare.compare(self.chart, self.recipe)
+        self.assertEqual(result["referenced_secrets"], [self.SECRET])
+        self.assertEqual(result["only_recipe"], [])
+        self.assertEqual([str(d) for d in result["differences"] if not d.cls], [])
+
+    def assertDenied(self):
+        result = compare.compare(self.chart, self.recipe)
+        self.assertEqual(result["referenced_secrets"], [])
+        self.assertEqual(result["only_recipe"], [self.SECRET])
+
+    def test_secret_key_refs_with_exactly_their_keys(self):
+        self.read_keys(self.chart, self.recipe)
+        self.assertAccepted()
+
+    def test_env_from_reads_every_key(self):
+        for pod in self.pods(self.chart, self.recipe):
+            pod["containers"][0]["envFrom"] = [{"secretRef": {"name": "demo-login"}}]
+        self.assertAccepted()
+
+    def test_secret_volume_reads_its_items(self):
+        for pod in self.pods(self.chart, self.recipe):
+            pod["volumes"] = [{
+                "name": "login",
+                "secret": {"secretName": "demo-login", "items": [{"key": "username", "path": "u"}, {"key": "password", "path": "p"}]},
+            }]
+        self.assertAccepted()
+
+    def test_unreferenced_secret_fails(self):
+        self.assertDenied()
+
+    def test_extra_key_fails(self):
+        self.read_keys(self.chart, self.recipe, keys=("password",))
+        self.assertDenied()
+
+    def test_missing_key_fails(self):
+        self.read_keys(self.chart, self.recipe, keys=("username", "password", "totp"))
+        self.assertDenied()
+
+    def test_reference_on_the_recipe_side_only_fails(self):
+        self.read_keys(self.recipe)
+        self.assertDenied()
+
+    def test_secret_in_another_namespace_fails(self):
+        self.read_keys(self.chart, self.recipe)
+        self.secret["metadata"]["namespace"] = "other"
+        self.SECRET = "Secret/other/demo-login"
+        self.assertDenied()
+
+    def test_only_secrets(self):
+        self.read_keys(self.chart, self.recipe)
+        self.secret["kind"] = "ConfigMap"
+        self.SECRET = "ConfigMap/demo/demo-login"
+        self.assertDenied()
+
+
 class Normalize(unittest.TestCase):
     def test_drops_exactly_the_listed_fields(self):
         chart, recipe = load("chart.yaml"), load("recipe.yaml")

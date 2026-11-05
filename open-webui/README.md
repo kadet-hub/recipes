@@ -62,6 +62,12 @@ the endpoint `applications.open-webui.openai.url` with the key
 endpoint below `/v1` and are not part of any recipe: they need a GPU and
 multi-GB images that the proof on kind cannot run.
 
+The recipe includes `recipes.valkey`. Pin only this recipe in the fetch
+inventory. The consumer workflow adds `ollama` and `valkey` at the digests
+this version's index record lists under `includes`. Kapitan's `--fetch`
+reads no index, so for a local compile pull them by digest as the recipe's
+page on kadet-hub.org shows.
+
 ## Required parameters
 
 - `applications.open-webui.secret_key`, as a ref. Open WebUI signs its

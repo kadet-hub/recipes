@@ -1,0 +1,21 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.semaphore.admin.username
+    description: Login of the admin account, which the init container admin creates on the first start.
+    secret: false
+  - path: applications.semaphore.admin.password
+    description: Password of the admin account, set only on the first start.
+    secret: true
+  - path: applications.semaphore.cookie_hash
+    description: 32 random bytes in base64 that sign the session cookies.
+    secret: true
+  - path: applications.semaphore.cookie_encryption
+    description: 32 random bytes in base64 that encrypt the session cookies.
+    secret: true
+  - path: applications.semaphore.access_key_encryption
+    description: 32 random bytes in base64 that encrypt the keys and secrets projects store, so keep it for the life of the database.
+    secret: true
+  - path: applications.semaphore.runner_token
+    description: Random string with which a runner registers itself.
+    secret: true

@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.mariadb.password
+    description: Password of the user app.
+    secret: true
+  - path: applications.mariadb.root_password
+    description: Password of the user root.
+    secret: true

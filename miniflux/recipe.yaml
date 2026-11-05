@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.miniflux.database.password
+    description: Password of the database, written into DATABASE_URL as it is, so without characters a URL reserves.
+    secret: true
+  - path: applications.miniflux.admin.password
+    description: Password of the admin account.
+    secret: true

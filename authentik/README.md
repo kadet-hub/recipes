@@ -42,10 +42,11 @@ parameters:
       bootstrap_token: <ref>
 ```
 
-The recipe includes `recipes.postgresql`. Pin `postgresql` in the fetch inventory next to this recipe, as an `oci` dependency at the
-digest this version's index record lists under `includes`, with
-`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
-kadet-hub.org shows the whole fetch inventory.
+The recipe includes `recipes.postgresql`. Pin only this recipe in the fetch
+inventory. The consumer workflow adds `postgresql` at the digest this
+version's index record lists under `includes`. Kapitan's `--fetch` reads no
+index, so for a local compile pull it by digest as the recipe's page on
+kadet-hub.org shows.
 
 ## Required parameters
 
@@ -53,7 +54,8 @@ kadet-hub.org shows the whole fetch inventory.
 signs its cookies with it, so a new key ends every session. Any random
 string works, such as one that `openssl rand -base64 60` prints.
 
-`applications.authentik.bootstrap_password` and `bootstrap_token` are the
+`applications.authentik.bootstrap_password` and
+`applications.authentik.bootstrap_token` are the
 password of the admin account `akadmin` and its API token
 `authentik-bootstrap-token`, which does not expire. They are
 `AUTHENTIK_BOOTSTRAP_PASSWORD` and `AUTHENTIK_BOOTSTRAP_TOKEN`. The worker

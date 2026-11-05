@@ -38,6 +38,7 @@ SELECTOR_SCHEME = "Selector scheme"
 EXPLICIT_DEFAULT = "Explicit default"
 PORT_BY_NAME = "Port by name"
 DERIVED_NAME = "Derived name"
+REFERENCED_SECRET = "Referenced Secret"
 
 
 def ident(obj):
@@ -403,6 +404,50 @@ def classify(d, chart_obj, recipe_obj, ctx):
     return ""
 
 
+def secret_reads(objs):
+    """(namespace, name) -> the keys that the pods of objs read from that Secret, None for every key:
+    secretKeyRef and the items of a secret volume name keys, envFrom and a volume without items do not."""
+    reads = {}
+
+    def add(namespace, name, keys):
+        if name:
+            seen = reads.get((namespace, name), set())
+            reads[(namespace, name)] = None if keys is None or seen is None else seen | keys
+
+    for o in objs:
+        namespace = (o.get("metadata") or {}).get("namespace")
+        for _, template in pod_templates(o):
+            pod = template.get("spec") or {}
+            for container in (pod.get("initContainers") or []) + (pod.get("containers") or []):
+                for env in container.get("env") or []:
+                    ref = (env.get("valueFrom") or {}).get("secretKeyRef") or {}
+                    add(namespace, ref.get("name"), {ref.get("key")})
+                for env_from in container.get("envFrom") or []:
+                    add(namespace, (env_from.get("secretRef") or {}).get("name"), None)
+            for volume in pod.get("volumes") or []:
+                secret = volume.get("secret") or {}
+                items = secret.get("items")
+                add(namespace, secret.get("secretName"), {i.get("key") for i in items} if items else None)
+    return reads
+
+
+def referenced_secrets(chart_raw, only_recipe):
+    """RCP-243: the Secrets only in the recipe that pods of the chart side read by name, each with exactly
+    the keys those pods read. A chart that names a Secret the user creates, such as through extra
+    environment variables, has no object for it, and the recipe renders the Secret."""
+    reads = secret_reads(chart_raw)
+    out = []
+    for o in only_recipe:
+        meta = o.get("metadata") or {}
+        key = (meta.get("namespace"), meta.get("name"))
+        if o.get("kind") != "Secret" or key not in reads:
+            continue
+        keys = set(o.get("data") or {}) | set(o.get("stringData") or {})
+        if reads[key] is None or keys == reads[key]:
+            out.append(ident(o))
+    return sorted(out)
+
+
 def compare(chart_raw, recipe_raw):
     """RCP-9, RCP-10 and RCP-12 on the objects outside RBAC.
 
@@ -413,6 +458,8 @@ def compare(chart_raw, recipe_raw):
     chart_raw = [o for o in chart_raw if o.get("kind") not in RBAC_KINDS]
     recipe_raw = [o for o in recipe_raw if o.get("kind") not in RBAC_KINDS]
     pairs, renamed, only_chart, only_recipe = pair(chart_raw, recipe_raw)
+    referenced = referenced_secrets(chart_raw, [o for o in recipe_raw if ident(o) in only_recipe])
+    only_recipe = [i for i in only_recipe if i not in referenced]
     selection_equal, selector_errors = check_selectors(chart_raw, recipe_raw, pairs)
     ctx = {
         "selection_equal": selection_equal,
@@ -436,6 +483,7 @@ def compare(chart_raw, recipe_raw):
         "renamed": renamed,
         "only_chart": only_chart,
         "only_recipe": only_recipe,
+        "referenced_secrets": referenced,
         "selector_errors": selector_errors,
         "selection_equal": len(selection_equal),
     }

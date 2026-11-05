@@ -406,5 +406,64 @@ class NextAttestation(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
 
 
+
+class Meta(unittest.TestCase):
+    """RCP-262, RCP-263: kapitan inventory proves recipe.yaml on copies of valkey and memcached."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def copy(self, name):
+        recipe = self.tmp / "recipes" / name
+        shutil.copytree(Path(__file__).resolve().parents[2] / name, recipe)
+        return recipe
+
+    def errors(self, recipe):
+        work = self.tmp / "work"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir()
+        return check.meta_errors(recipe, work)
+
+    def edit(self, path, old, new):
+        text = path.read_text()
+        self.assertIn(old, text)
+        path.write_text(text.replace(old, new, 1))
+
+    def test_valkey_passes(self):
+        self.assertEqual(self.errors(self.copy("valkey")), [])
+
+    def test_key_that_is_not_required_fails(self):
+        recipe = self.copy("valkey")
+        self.edit(recipe / "README.md", "      password: <ref>\n", "      password: <ref>\n      extra: <ref>\n")
+        self.edit(recipe / "recipe.yaml", "required:\n", "required:\n  - path: applications.valkey.extra\n    description: x\n    secret: true\n")
+        self.assertEqual(self.errors(recipe), [
+            "applications.valkey.extra is not required: the Include snippet without it resolves (RCP-262)"])
+
+    def test_backend_that_does_not_resolve_fails(self):
+        recipe = self.copy("valkey")
+        self.edit(recipe / "recipe.yaml", "  - omegaconf\n", "  - omegaconf\n  - reclass-rs\n")
+        errors = self.errors(recipe)
+        self.assertEqual(len(errors), 1)
+        # reclass-rs resolves .valkey of valkey/init.yml to recipes.valkey itself (DEC-191).
+        self.assertRegex(errors[0], r"^tests/target.yml does not resolve on reclass-rs: .+ \(RCP-263\)$")
+
+    def test_backend_that_resolves_passes(self):
+        recipe = self.copy("memcached")
+        self.edit(recipe / "init.yml", "  - .memcached\n", "  - recipes.memcached.memcached\n")
+        self.edit(recipe / "recipe.yaml", "  - omegaconf\n", "  - omegaconf\n  - reclass\n  - reclass-rs\n")
+        self.assertEqual(self.errors(recipe), [])
+
+    def test_option_that_does_not_need_the_key_fails(self):
+        recipe = self.copy("valkey")
+        (recipe / "tls.yml").write_text("parameters: {}\n")
+        self.edit(recipe / "README.md", "  - recipes.valkey\n", "  - recipes.valkey\n  - recipes.valkey.tls\n")
+        self.edit(recipe / "recipe.yaml", "    secret: true\n", "    secret: true\n    option: tls\n")
+        errors = self.errors(recipe)
+        self.assertEqual(len(errors), 1)
+        self.assertRegex(errors[0], r"^the Include snippet without the option tls and applications.valkey.password does not resolve: "
+                                    r".*Interpolation key 'applications.valkey.password' not found.* \(RCP-262\)$")
+
+
 if __name__ == "__main__":
     unittest.main()

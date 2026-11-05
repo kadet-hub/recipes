@@ -1,0 +1,18 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.nextcloud.host
+    description: Host name of the route and Nextcloud's trusted domain.
+    secret: false
+  - path: applications.nextcloud.admin.password
+    description: Password of the admin account.
+    secret: true
+  - path: applications.nextcloud.gateway.name
+    description: Name of the Gateway the route attaches to.
+    secret: false
+  - path: applications.nextcloud.gateway.namespace
+    description: Namespace of that Gateway, whose listener must admit routes from the target's namespace.
+    secret: false
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey.
+    secret: true

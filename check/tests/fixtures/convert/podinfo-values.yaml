@@ -1,0 +1,18 @@
+# Values of the CI conversion of podinfo 6.17.0 (docs/specs/converter.md CNV-19).
+replicaCount: 2
+serviceAccount:
+  enabled: true
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: podinfo.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

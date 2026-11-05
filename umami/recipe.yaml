@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.umami.app_secret
+    description: APP_SECRET, which signs login sessions and the tokens of the tracker.
+    secret: true
+  - path: applications.umami.two_factor_encryption_key
+    description: TWO_FACTOR_ENCRYPTION_KEY, 64 hexadecimal digits, which encrypts the secrets of two-factor authentication.
+    secret: true

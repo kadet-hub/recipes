@@ -1,0 +1,19 @@
+# The chart's defaults with its claim at /configs, the image from Docker Hub
+# and the pod under Pod Security restricted as stirlingpdfuser.
+image:
+  registry: docker.io
+persistence:
+  enabled: true
+securityContext:
+  enabled: true
+  fsGroup: 1001
+  runAsUser: 1001
+  runAsGroup: 1001
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
