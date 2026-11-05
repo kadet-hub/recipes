@@ -2592,10 +2592,11 @@ Both serve the same archive. The `Source` line takes the OCI form, because
 `check` pulls an OCI chart by its digest, and an HTTP repository has no
 digest a client checks (RCP-23).
 
-`tests/values.yaml` keeps the chart's defaults. The chart then renders a
-Deployment, its Service and ServiceAccount, and a ConfigMap with the
-module `http_2xx`, all named `<release>-prometheus-blackbox-exporter`. With
-the release name `blackbox-exporter` that is
+`tests/values.yaml` keeps the chart's defaults, except the pod's seccomp
+profile (DEC-205). The chart then renders a Deployment, its Service and
+ServiceAccount, and a ConfigMap with the module `http_2xx`, all named
+`<release>-prometheus-blackbox-exporter`. With the release name
+`blackbox-exporter` that is
 `blackbox-exporter-prometheus-blackbox-exporter`, which the recipe keeps as
 its component's name. A release of that name installed with the chart's
 defaults then keeps its object names when the recipe replaces it.
@@ -2609,6 +2610,24 @@ Prometheus Operator, which no recipe of this repository installs and
 `check` does not provide. The module configuration is the chart's `config`
 value as its template renders it, carried with the chart's license
 (RCP-42).
+
+DEC-205: The pod of `blackbox-exporter` sets `seccompProfile.type:
+RuntimeDefault` through the generator's `workload_security_context`, and
+`tests/values.yaml` sets the chart's `podSecurityContext` to the same. The
+chart's defaults give the container `runAsNonRoot`,
+`allowPrivilegeEscalation: false` and `capabilities.drop: [ALL]`, but no
+seccomp profile on the pod or the container. 11.20.2 is still the newest
+chart on 2026-11-05. Pod Security `restricted` requires the profile
+`RuntimeDefault` or `Localhost` on the pod or on every container. A
+namespace that enforces it therefore rejected the pods of
+blackbox-exporter 1.0.0, which the Argo CD example of
+kadet-hub/examples#144 ran into. `RuntimeDefault` is the seccomp filter of
+the container runtime. The pod level follows the chart, whose
+`podSecurityContext` value is empty by default and meant for such
+settings. The generator's `security_profile: restricted` was considered.
+It also sets the pod's `runAsNonRoot`, which the chart sets only on the
+container, so `tests/values.yaml` would have to differ from the chart's
+defaults in a second field.
 
 The recipe is at level `deploys`. check 0.14.0 fails every recipe at
 `migrates` (RCP-14).
@@ -2627,6 +2646,26 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
 
   - Test: CI `check` job, report line `smoke`
   - Since: #62
+
+- RCP-285: The pod of `blackbox-exporter` MUST set `seccompProfile.type:
+  RuntimeDefault`, and `tests/values.yaml` MUST set the chart's
+  `podSecurityContext` to the same (DEC-205).
+
+  - Test: `check blackbox-exporter`, which compares the Deployment with the
+    chart's; RCP-286
+  - Since: this change
+
+- RCP-286: The `tests/smoke` of `blackbox-exporter` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace.
+
+  PodSecurity admission checks the running pods of a namespace on that dry
+  run and warns about each violation, as for `memcached` (RCP-232). With
+  blackbox-exporter 1.0.0 on kind 1.37 it warned about the pod's
+  `seccompProfile` and nothing else.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
 
 ## Jellyfin
 
@@ -5933,7 +5972,7 @@ feature's design (OQ-6).
 | keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.14.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
-| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71) |
+| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults and the pod's seccomp profile `RuntimeDefault` (DEC-205), blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71, RCP-285, RCP-286) |
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.14.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.14.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-77, RCP-78) |
