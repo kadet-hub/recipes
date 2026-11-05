@@ -806,7 +806,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   cert-manager 1.18 or later with that gate on, and its README says so.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: this change
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103
 
 DEC-166: `check` accepts a Secret that only the recipe renders when pods
 of the chart side read it by name (Referenced Secret, RCP-243). A chart
@@ -840,7 +840,7 @@ as Secrets are compared by key (RCP-9).
 
   - Test: `check/tests/test_compare.py` (`ReferencedSecret`); CI `check`
     job, report line `difference: Referenced Secret`
-  - Since: this change
+  - Since: #103
 
 - AC-146 (RCP-243): `check/tests/test_compare.py` accepts a Secret that
   the chart side reads through `secretKeyRef`, `envFrom` and a `secret`
