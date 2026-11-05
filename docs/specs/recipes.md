@@ -5456,7 +5456,7 @@ content of `master.toml` are text of the subchart's templates, so
   `ghcr.io/langfuse/langfuse-worker` 4.75.0 pinned to their indexes.
 
   - Test: `check langfuse`; CI `check` job
-  - Since: this change
+  - Since: #120
 
 - RCP-321: `langfuse` MUST put `applications.langfuse.salt`,
   `.encryption_key`, `.nextauth_secret`, `.init.public_key`,
@@ -5469,7 +5469,7 @@ content of `master.toml` are text of the subchart's templates, so
 
   - Test: `check lint` (RCP-262); CI `check` job, report lines
     `difference: Referenced Secret` and `smoke`
-  - Since: this change
+  - Since: #120
 
 - RCP-322: The option `clickhouse` MUST render the StatefulSet and Service
   `langfuse-clickhouse` with `docker.io/clickhouse/clickhouse-server`
@@ -5479,7 +5479,7 @@ content of `master.toml` are text of the subchart's templates, so
   template `data`.
 
   - Test: `check langfuse`; CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #120
 
 - RCP-323: The option `s3` MUST render the subchart's Deployment, Service,
   claim and ConfigMap of the all-in-one server, the ServiceAccount
@@ -5488,7 +5488,7 @@ content of `master.toml` are text of the subchart's templates, so
   without a ClusterRole.
 
   - Test: `check langfuse`; CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #120
 
 - RCP-324: Without the options, `langfuse` MUST render no object of
   ClickHouse or SeaweedFS and MUST point Langfuse at
@@ -5496,7 +5496,7 @@ content of `master.toml` are text of the subchart's templates, so
   `applications.langfuse.s3.endpoint`.
 
   - Test: manual: a compile of `tests/target.yml` without both options
-  - Since: this change
+  - Since: #120
 
 - RCP-325: The `tests/smoke` of `langfuse` MUST require `OK` from
   `/api/public/health` and `/api/public/ready` of the web server through
@@ -5517,7 +5517,7 @@ content of `master.toml` are text of the subchart's templates, so
   needs all four stores. The login needs the user in PostgreSQL.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #120
 
 - AC-240 (RCP-320 to RCP-323, RCP-325): `check langfuse --level deploys`
   passes in CI on each Kubernetes minor, with differences of the classes
