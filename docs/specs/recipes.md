@@ -805,6 +805,22 @@ helm, kubectl, kind, oras and gh come from `PATH`; CI installs them pinned
   - Test: CI `check` job
   - Since: #2
 
+- RCP-270: When a rollout at level `deploys` fails, `check` MUST add to
+  its error the output of `kubectl describe` and the last 100 log lines of
+  each container for every pod in the cluster that is neither ready nor
+  completed.
+
+  `check` deletes the cluster when the proof ends, so the error is all that
+  remains of a pod that did not become ready. Up to check 0.15.0 a timeout
+  printed only `timed out waiting for the condition`, as in the two
+  failures DEC-195 explains. Pods of every namespace count, because a
+  workload can wait for a prerequisite's pod. For a container that has not
+  started, `kubectl logs` answers with the reason it waits, such as
+  `ContainerCreating`, and the error carries that answer.
+
+  - Test: `check/tests/test_check.py` (`RolloutFailure`)
+  - Since: #104
+
 - RCP-27: `check` MUST pull each generator a recipe pins only after
   verifying it as the consumers guide describes: the attestation of the
   latest index, that index listing the digest under the pinned version and
@@ -1024,6 +1040,45 @@ as Secrets are compared by key (RCP-9).
   - Test: CI `check` job, one leg per minor, report line `node image`;
     `check/tests/test_check.py`; manual: Renovate dry run
   - Since: #59, #61
+
+GitHub runs some `ubuntu-24.04` jobs on AWS, and the job log names the
+cloud under `Runner Image Provisioner`. Those runners have a root
+filesystem of 72 GB with 17 GB free. The runners on Azure have 91 to 92 GB
+free. That held for all 116 jobs of three probes on a fork on 2026-11-05,
+5 of them on AWS. Next to the images it pulls into the kind node, a proof
+needs room for the node image (1.3 GB) and the Kapitan `next` image
+(0.9 GB). Most recipes fit: in five CI runs of 2026-11-05, 19 legs of
+other recipes ran on AWS and passed. paperless-ai of `paperless-ngx` does
+not fit (DEC-195).
+
+DEC-195: The `check` job removes the Android SDK, .NET, GHC and GHCup that
+the runner image preinstalls when the root filesystem has less than 30 GB
+free, before `check` runs. `paperless-ngx` failed twice in CI because
+`rollout status` of `paperless-ngx-ai` timed out after 900 seconds (runs
+41944637582 on 1.35 and 41971837975 on 1.37). Both legs ran on AWS. The
+other 52 legs from 2026-11-04 to 2026-11-05 ran on Azure and passed. In
+one of the probes, `check paperless-ngx --level deploys` on 1.37 failed
+the same way on all 4 runners on AWS. The report of RCP-270 showed why:
+containerd could not extract paperless-ai's PyTorch layer with
+`no space left on device`, and the kubelet retried the pull until the wait
+ended. After the removal, which left about 39 GB free, the check passed on
+the same 4 runners. On Azure the removal frees 22 GB and took 32 to 196
+seconds in 6 jobs, so the job skips it where the space is there. A longer
+wait was considered. The pull fails, it is not slow. A larger runner was
+considered too. It is billed per minute, while the standard runners are
+free for this public repository.
+
+- RCP-271: Before `check` runs, the CI `check` job MUST free disk space by
+  removing preinstalled toolchains that `check` does not use, when the
+  runner's root filesystem has less than 30 GB free.
+
+  30 GB leaves room above what the proof of `paperless-ngx` needs. On kind
+  1.36 the node held 16.6 GB while it pulled paperless-ai, sampled every 10
+  seconds, and the node and Kapitan images add 2.2 GB.
+
+  - Test: CI `check` job, the `df` output of the step; manual: the probe
+    of DEC-195
+  - Since: #104
 
 - RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
   needs every other job of the run and fails when one of them failed or
@@ -2680,8 +2735,10 @@ paperless-ngx API. Its newest release is 3.0.9 of 2025-11-04, which the
 option runs as
 `docker.io/clusterzx/paperless-ai:3.0.9@sha256:2b65888163fd59716f1c8285b31c5bd0b30c9c3c192c42b516688e3887d4ba60`.
 Its amd64 image is 4.3 GiB compressed, as it carries PyTorch next to
-Node.js. The arm64 image is 0.6 GiB. On start its search service downloads
-two models from Hugging Face.
+Node.js, and 8.2 GiB unpacked. containerd keeps a compressed layer until
+it has unpacked it, so the pull needs about 12 GiB on the node at once.
+The arm64 image is 0.6 GiB. On start its search service downloads two
+models from Hugging Face.
 
 The option, which a target includes as `recipes.paperless-ngx.ai`, renders
 the StatefulSet `paperless-ngx-ai` with the claim `data` at `/app/data`, its
@@ -6261,7 +6318,7 @@ feature's design (OQ-6).
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
-| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70 |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70, RCP-271 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |

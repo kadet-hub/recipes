@@ -134,10 +134,11 @@ API client at the URL it names until the pod restarts, so let only the
 clients that need it reach port 3000.
 
 The amd64 image is 4.3 GiB compressed, as it carries PyTorch, and the
-arm64 image 0.6 GiB. On start paperless-ai downloads two models from
-Hugging Face, so the pod needs access to it. The image sets no user, so it
-runs as root, without capabilities and privilege escalation, as
-paperless-ai's own compose file runs it.
+arm64 image 0.6 GiB. Unpacked, the amd64 image takes 8.2 GiB, and while
+it is pulled a node needs about 12 GiB free for it. On start paperless-ai
+downloads two models from Hugging Face, so the pod needs access to it. The
+image sets no user, so it runs as root, without capabilities and privilege
+escalation, as paperless-ai's own compose file runs it.
 
 ## Mapping
 

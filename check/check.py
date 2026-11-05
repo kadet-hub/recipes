@@ -389,6 +389,26 @@ class Cluster:
             self.kubectl("auth", "can-i", "--list", "-n", namespace, *compare.impersonation(subject))
         )
 
+    def unready_pods(self):
+        """RCP-270: kubectl describe and the last 100 log lines of each pod that is neither ready nor completed."""
+        try:
+            pods = json.loads(self.kubectl("get", "pods", "-A", "-o", "json"))["items"]
+        except Failed as e:
+            return str(e)
+        out = []
+        for p in pods:
+            status = p.get("status") or {}
+            if status.get("phase") == "Succeeded" or any(
+                    c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions") or []):
+                continue
+            ns, name = p["metadata"]["namespace"], p["metadata"]["name"]
+            for args in (["describe", "pod"], ["logs", "--all-containers", "--prefix", "--timestamps", "--tail", "100"]):
+                # Not run(): logs of a container that has not started exit 1 with the reason, which is the point.
+                r = subprocess.run(["kubectl", "--kubeconfig", str(self.kubeconfig), *args, "-n", ns, name],
+                                   capture_output=True, text=True, timeout=60)
+                out.append(f"kubectl {' '.join(args)} -n {ns} {name}:\n{r.stdout}{r.stderr}")
+        return "\n".join(out)
+
 
 def prepare(cluster, namespaces, namespace):
     """RCP-8: a fresh cluster with every namespace, the target namespace as the context's."""
@@ -491,8 +511,12 @@ def wait_rollouts(cluster, objs):
     for o in objs:
         if o["kind"] in WORKLOADS:
             meta = o["metadata"]
-            cluster.kubectl("rollout", "status", f"{o['kind'].lower()}/{meta['name']}",
-                            "-n", meta.get("namespace", "default"), "--timeout", "900s", timeout=960)
+            try:
+                cluster.kubectl("rollout", "status", f"{o['kind'].lower()}/{meta['name']}",
+                                "-n", meta.get("namespace", "default"), "--timeout", "900s", timeout=960)
+            except Failed as e:
+                # RCP-270: the cluster is deleted after the run, so the pods' state goes into the error now.
+                raise Failed(f"{e}\n{cluster.unready_pods()}") from None
 
 
 def owned(recipe, objs, work, compiled=None):
