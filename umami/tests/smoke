@@ -66,8 +66,12 @@ api --data "$(jq -nc --arg p "$password" '{currentPassword: "umami", newPassword
   "$url/api/me/password" >/dev/null
 token=$(login "$password" | head -1 | jq -er .token) || fail "admin cannot log in with the new password"
 
+old=$(kubectl get pod -l name=umami -o jsonpath='{.items[0].metadata.name}')
 kubectl rollout restart deployment/umami >/dev/null
 kubectl rollout status deployment/umami --timeout=300s >/dev/null
+# The old pod answers until it is gone, so the requests below reach the new
+# one once the Service's endpoints follow.
+kubectl wait pod/"$old" --for=delete --timeout=120s >/dev/null
 reachable
 # The new pod accepts the session only when APP_SECRET comes from the Secret.
 [[ $(pageviews) == 1 ]] || fail "the page view or the session did not outlast the restart"

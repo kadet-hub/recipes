@@ -4528,7 +4528,10 @@ Secret `<cluster>-ca` in the pod.
   PostgreSQL. The session is a token signed with `APP_SECRET`, so the new
   pod accepts it only when the secret comes from the Secret. A password
   change ends the sessions signed before it, so the test logs in again
-  before the restart.
+  before the restart. It waits until the old pod is gone, so the requests
+  after the restart reach the new one. On kind with 1.36 a request right
+  after `rollout status` reached the old pod, and the next one found the
+  Service without a ready endpoint.
 
   - Test: CI `check` job, report line `smoke`
   - Since: #91
