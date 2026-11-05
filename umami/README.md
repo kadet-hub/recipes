@@ -126,9 +126,9 @@ of Umami's image, which carries `curl`. From there, through the Service
 - requires one page view from `/api/websites/<id>/stats`, which Umami reads
   from PostgreSQL
 - changes the password as above and logs in with the new one
-- restarts the Deployment and reads the page view again with the session
-  of that login, which the new pod accepts only with the same
-  `APP_SECRET`, and gets 401 for `umami`.
+- deletes the pod and, once its successor is ready, reads the page view
+  again with the session of that login, which the new pod accepts only
+  with the same `APP_SECRET`, and gets 401 for `umami`.
 
 Not tested: the tracker script in a browser, the web UI, two-factor
 authentication itself, and a route or Ingress in front of the Service.

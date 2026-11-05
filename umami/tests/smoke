@@ -3,7 +3,7 @@
 # umami image and through the Service umami on port 3000 the heartbeat, the
 # login as admin, a website, a page view sent as the tracker sends it and
 # read back from the stats, and the same stats with the same session after
-# the Deployment restarted its pod.
+# the pod was replaced.
 set -euo pipefail
 url=http://umami:3000
 image=$(kubectl get deployment umami -o jsonpath='{.spec.template.spec.containers[?(@.name=="umami")].image}')
@@ -32,7 +32,7 @@ fail() { echo "$1" >&2; kubectl logs deployment/umami --tail=40 >&2; exit 1; }
 # The Service gets the ready pod as its endpoint a moment after the pod is ready.
 reachable() {
   for _ in $(seq 30); do
-    [[ $(run curl -fsS "$url/api/heartbeat" 2>/dev/null) == '{"ok":true}' ]] && return
+    [[ $(run curl -fsS -m 10 "$url/api/heartbeat" 2>/dev/null) == '{"ok":true}' ]] && return
     sleep 2
   done
   fail "/api/heartbeat does not answer through the Service umami"
@@ -66,12 +66,16 @@ api --data "$(jq -nc --arg p "$password" '{currentPassword: "umami", newPassword
   "$url/api/me/password" >/dev/null
 token=$(login "$password" | head -1 | jq -er .token) || fail "admin cannot log in with the new password"
 
+# The old pod is gone before its successor is ready, so no request below
+# reaches it.
 old=$(kubectl get pod -l name=umami -o jsonpath='{.items[0].metadata.name}')
-kubectl rollout restart deployment/umami >/dev/null
-kubectl rollout status deployment/umami --timeout=300s >/dev/null
-# The old pod answers until it is gone, so the requests below reach the new
-# one once the Service's endpoints follow.
-kubectl wait pod/"$old" --for=delete --timeout=120s >/dev/null
+kubectl delete pod "$old" --wait >/dev/null
+for _ in $(seq 30); do
+  new=$(kubectl get pod -l name=umami -o jsonpath='{.items[*].metadata.name}')
+  [[ -n $new ]] && break
+  sleep 1
+done
+kubectl wait pod/"$new" --for=condition=Ready --timeout=300s >/dev/null
 reachable
 # The new pod accepts the session only when APP_SECRET comes from the Secret.
 [[ $(pageviews) == 1 ]] || fail "the page view or the session did not outlast the restart"

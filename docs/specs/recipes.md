@@ -4518,9 +4518,9 @@ Secret `<cluster>-ca` in the pod.
   send a page view to `/api/send` as the tracker script does, with a
   browser's `User-Agent`, and require one page view from
   `/api/websites/<id>/stats`. It MUST change the password through
-  `/api/me/password` and log in with the new one. After a restart of the
-  Deployment it MUST read the page view again with the session of that
-  login and get 401 for `umami`.
+  `/api/me/password` and log in with the new one. Once the umami pod was
+  deleted and its successor is ready, it MUST read the page view again
+  with the session of that login and get 401 for `umami`.
 
   Umami drops a request whose `User-Agent` the package `isbot` matches,
   such as curl's, and answers it with `{"beep":"boop"}`
@@ -4528,10 +4528,13 @@ Secret `<cluster>-ca` in the pod.
   PostgreSQL. The session is a token signed with `APP_SECRET`, so the new
   pod accepts it only when the secret comes from the Secret. A password
   change ends the sessions signed before it, so the test logs in again
-  before the restart. It waits until the old pod is gone, so the requests
-  after the restart reach the new one. On kind with 1.36 a request right
-  after `rollout status` reached the old pod, and the next one found the
-  Service without a ready endpoint.
+  before the restart. The old pod is gone before its successor is ready,
+  so no request after the restart reaches it. With
+  `kubectl rollout restart`, which starts the successor first, a request
+  right after the old pod was gone waited 133 seconds for a connection to
+  the Service, on kind with 1.35 and in CI with 1.36. On kind with 1.37,
+  ten requests after each of five deletions passed. With rollout
+  restarts, the first request after the third one hung.
 
   - Test: CI `check` job, report line `smoke`
   - Since: #91
