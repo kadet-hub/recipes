@@ -1163,14 +1163,14 @@ What the table does not map is a gap, and so is each of these:
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
-  (DEC-120, DEC-121). Revised in this change: `read_only`, which was a
-  gap, for navidrome (DEC-215).
+  (DEC-120, DEC-121). Revised in #115: `read_only`, which was a gap,
+  for navidrome (DEC-215).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; `read_only`:
-    this change
+    #115
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -4469,7 +4469,7 @@ for the account before the exposure.
   with that tag, pinned to its index.
 
   - Test: `check lint`; CI `check` job, report line `compose`
-  - Since: this change
+  - Since: #115
 
 - RCP-296: `navidrome` MUST run the StatefulSet `navidrome` with UID, GID
   and `fsGroup` 1000 and `security_profile: restricted` (DEC-217), a
@@ -4478,7 +4478,7 @@ for the account before the exposure.
   (DEC-216).
 
   - Test: `check lint`; CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #115
 
 - RCP-297: The `tests/smoke` of `navidrome` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -4502,7 +4502,7 @@ for the account before the exposure.
   `data`.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #115
 
 - RCP-298: Renovate MUST move the `Source` line and the image of
   `navidrome` in one pull request and MUST NOT need a release timestamp
@@ -4513,7 +4513,7 @@ for the account before the exposure.
   (RCP-184).
 
   - Test: manual: Renovate dry run
-  - Since: this change
+  - Since: #115
 
 - AC-295 (RCP-295 to RCP-297): `check navidrome --level deploys` passes in
   CI on each Kubernetes minor, and its smoke test finds the track after the
