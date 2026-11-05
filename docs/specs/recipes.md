@@ -4657,7 +4657,7 @@ the API (`docs/design/declarative-configuration.md` of 26.11.0).
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     Renovate dry run
-  - Since: this change
+  - Since: #97
 
 - RCP-251: `memos` MUST run `docker.io/neosmemo/memos` as the StatefulSet
   `memos` with one replica and the claim `data` at `/var/opt/memos`. It
@@ -4675,13 +4675,13 @@ the API (`docs/design/declarative-configuration.md` of 26.11.0).
   - Test: CI `check` job, report line `smoke`; manual: a compile of
     `tests/target.yml` without the parameter stops with
     `Interpolation key` and its name
-  - Since: this change
+  - Since: #97
 
 - RCP-252: `memos` MUST run as UID 10001 and GID 10001 with `fsGroup`
   10001 under `security_profile: restricted` (DEC-172).
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #97
 
 - RCP-253: The `tests/smoke` of `memos` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -4705,7 +4705,7 @@ the API (`docs/design/declarative-configuration.md` of 26.11.0).
   only if the new pod reads `memos_prod.db` from the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #97
 
 - AC-150 (RCP-250 to RCP-253): `check memos --level deploys` passes in CI
   on each Kubernetes minor, and its smoke test reads the memo after the
