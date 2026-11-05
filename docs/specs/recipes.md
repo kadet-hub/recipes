@@ -5551,7 +5551,7 @@ ServiceAccount has no role.
   index.
 
   - Test: `check librechat`; CI `check` job
-  - Since: #PR
+  - Since: #121
 
 - RCP-336: `librechat` MUST put `applications.librechat.creds_key`,
   `.creds_iv`, `.jwt_secret` and `.jwt_refresh_secret` into the keys
@@ -5566,7 +5566,7 @@ ServiceAccount has no role.
 
   - Test: `check lint` (RCP-262); CI `check` job, report lines
     `difference: Referenced Secret` and `smoke`
-  - Since: #PR
+  - Since: #121
 
 - RCP-337: `librechat` MUST set `ALLOW_REGISTRATION` to `"false"` and MUST
   NOT set `SEARCH`. It MUST render no object of Meilisearch, the RAG API or
@@ -5574,7 +5574,7 @@ ServiceAccount has no role.
 
   - Test: `check librechat` (renders: the ConfigMap compared with the
     chart's); CI `check` job, report line `smoke`
-  - Since: #PR
+  - Since: #121
 
 - RCP-338: The `tests/smoke` of `librechat` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -5599,13 +5599,13 @@ ServiceAccount has no role.
   answer and asks for the title without streaming.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #PR
+  - Since: #121
 
 - RCP-339: `librechat` MUST run as UID 1000 with the security contexts of
   DEC-259.
 
   - Test: `check librechat`; CI `check` job, report line `smoke`
-  - Since: #PR
+  - Since: #121
 
 - AC-335 (RCP-335 to RCP-339): `check librechat --level deploys` passes in
   CI on each Kubernetes minor, its report lists the objects of `mongodb` as
