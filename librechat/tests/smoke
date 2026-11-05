@@ -85,10 +85,10 @@ spec:
 EOF
 kubectl rollout status deployment/librechat-stub --timeout 120s >/dev/null
 
-# The first user, as the README creates it. LibreChat makes the first user
-# of a new database an admin.
-kubectl exec deployment/librechat-librechat -- npm run create-user -- \
-  "$email" Smoke smoke "$password" --email-verified=true >/dev/null
+# The first user, as the README creates it, with the password at the
+# script's prompt. LibreChat makes the first user of a new database an admin.
+printf '%s\n' "$password" | kubectl exec -i deployment/librechat-librechat -- \
+  npm run create-user -- "$email" Smoke smoke --email-verified=true >/dev/null
 
 # The image brings node, so the test pod needs no other image.
 image=$(kubectl get deployment librechat-librechat -o jsonpath='{.spec.template.spec.containers[0].image}')
