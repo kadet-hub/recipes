@@ -61,9 +61,10 @@ requests, each with the port where the URL has one, such as
 `home.example.com` behind an Ingress or `homepage.homepage.svc:3000` inside
 the cluster. homepage answers every other host with 400, its health check
 too. `localhost:3000` and `127.0.0.1:3000` are always allowed, so
-`kubectl port-forward` works without an entry. `*` turns the check off,
-which homepage's documentation advises against. Without the parameter the
-compile stops with `Interpolation key` and its name.
+`kubectl port-forward` to the local port 3000 works without an entry. `*`
+turns the check off, which homepage's documentation advises against.
+Without the parameter the compile stops with `Interpolation key` and its
+name.
 
 ## Settings
 
