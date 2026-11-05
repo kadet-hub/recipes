@@ -778,6 +778,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, a container's empty `securityContext`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
   | Port by name | `targetPort: http-metrics` against `9402` | resolves to the same container port |
   | Derived name | container named after the component, webhook configuration `<ns>-<component>`, sorted container ports | names the generator derives, no change in behaviour |
+  | Referenced Secret | a Secret only in the recipe that a pod of the chart side reads through a `secretKeyRef` | the chart reads a Secret that the user creates, RCP-243 |
 
   The two cert-manager runs ended with exactly these differences. A class
   is added here only with the run that needs it.
@@ -790,7 +791,8 @@ For a compose source and a designed recipe, `renders`, also as part of
   where the other side leaves it unset, a port name that resolves to the other side's number in the selected pods
   or the same pod, a first container named after its workload, container
   ports that are the same set sorted by name, and a webhook configuration
-  named `<namespace>-...` with the same webhooks.
+  named `<namespace>-...` with the same webhooks. A Secret only in the
+  recipe is accepted only as RCP-243 describes.
 
   The `kubernetes` generator renders `securityContext: {}` on a container
   that sets no `security_context`. The Keycloak Operator's chart sets none.
@@ -804,7 +806,48 @@ For a compose source and a designed recipe, `renders`, also as part of
   cert-manager 1.18 or later with that gate on, and its README says so.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: this change
+
+DEC-166: `check` accepts a Secret that only the recipe renders when pods
+of the chart side read it by name (Referenced Secret, RCP-243). A chart
+often takes credentials from a Secret that the user creates next to it,
+through an `existingSecret` value or through extra environment variables
+with a `secretKeyRef`. The chart renders no object for that Secret, and
+the recipe, which takes the credentials as parameters, renders it. Until
+this change a recipe could do this only where the chart could render the
+same Secret itself from `tests/values.yaml`, as gitea does through
+`extraDeploy` (DEC-38) and open-webui through `extraResources`.
+stirling-pdf-chart 4.0.0 has no such value. Taking the credentials as
+plain environment values was considered. A ref of the target would then
+end up in the Deployment, which DEC-38 rejects. Requiring the chart to
+render the Secret, through a change upstream, was considered as well. It
+would hold the recipe back until the project releases the change. The
+class checks the names and keys that the chart side reads, not the values,
+as Secrets are compared by key (RCP-9).
+
+- RCP-243: `check` MUST accept a Secret only in the recipe when a pod of
+  the chart side in the Secret's namespace reads it by name, through
+  `env[].valueFrom.secretKeyRef`, `envFrom[].secretRef` or a `secret`
+  volume of a container or init container, and the Secret has exactly the
+  keys those pods read. `envFrom` and a `secret` volume without `items`
+  read every key. `check` MUST report each such Secret with the class
+  Referenced Secret, and MUST fail on any other object only in the recipe.
+
+  A reference on the recipe side alone does not count, because the recipe
+  could otherwise add any Secret by reading it itself. A key that the
+  chart side does not read is an extra value no source asked for, and a
+  key it reads that the Secret lacks would stop the pod.
+
+  - Test: `check/tests/test_compare.py` (`ReferencedSecret`); CI `check`
+    job, report line `difference: Referenced Secret`
+  - Since: this change
+
+- AC-146 (RCP-243): `check/tests/test_compare.py` accepts a Secret that
+  the chart side reads through `secretKeyRef`, `envFrom` and a `secret`
+  volume with exactly its keys, and denies an unreferenced Secret, an
+  extra key, a missing key, a reference on the recipe side only, a Secret
+  in another namespace and an object of another kind. CI `check` passes
+  for every recipe with the same verdict as before.
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
@@ -5895,7 +5938,7 @@ feature's design (OQ-6).
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
-| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12) |
+| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68) |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70 |
