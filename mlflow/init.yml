@@ -1,0 +1,21 @@
+classes:
+  - recipes.postgresql
+  - .mlflow
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    mlflow:
+      # The target sets admin_password and secret_key.
+      # Host headers the server accepts besides localhost and private
+      # addresses: the Service's names in the cluster.
+      allowed_hosts: mlflow-mlflow:5000,mlflow-mlflow.${namespace}:5000,mlflow-mlflow.${namespace}.svc:5000,mlflow-mlflow.${namespace}.svc.cluster.local:5000

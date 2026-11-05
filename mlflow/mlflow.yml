@@ -1,0 +1,109 @@
+parameters:
+  components:
+    mlflow-mlflow:
+      application: mlflow
+      image: ghcr.io/mlflow/mlflow:v3.18.0-full@sha256:a8459ca08b1e8a0dc287b4e226d4f2338f56052d7e2d333a4aa5891be0670919
+      # One pod owns the claim, so the old pod stops before the new one starts.
+      update_strategy:
+        type: Recreate
+      workload_security_context:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+      command:
+        - mlflow
+        - server
+        - --allowed-hosts=${applications.mlflow.allowed_hosts}
+        - --app-name=basic-auth
+        - --host=0.0.0.0
+        - --port=5000
+        - --workers=4
+        - --serve-artifacts
+      ports:
+        http:
+          container_port: 5000
+          service_port: 5000
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service:
+        type: ClusterIP
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 0
+          period_seconds: 10
+          timeout_seconds: 10
+          failure_threshold: 30
+        liveness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 15
+          period_seconds: 20
+          timeout_seconds: 1
+          failure_threshold: 3
+        readiness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 5
+          period_seconds: 10
+          timeout_seconds: 1
+          failure_threshold: 3
+      env:
+        MLFLOW_BACKEND_STORE_URI:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: uri
+        MLFLOW_ARTIFACTS_DESTINATION: /mlflow/artifacts
+        MLFLOW_AUTH_CONFIG_PATH: /etc/mlflow/basic_auth.ini
+        MLFLOW_AUTH_ADMIN_PASSWORD:
+          secretKeyRef:
+            key: admin-password
+        MLFLOW_FLASK_SERVER_SECRET_KEY:
+          secretKeyRef:
+            key: flask-secret-key
+      secrets:
+        auth:
+          string_data:
+            # The users and permissions of basic auth live in SQLite on the
+            # claim. MLflow reads database_uri only from this file.
+            basic_auth.ini:
+              value: |
+                [mlflow]
+                default_permission = READ
+                database_uri = sqlite:////mlflow/basic_auth.db
+                admin_username = admin
+            admin-password:
+              value: ${applications.mlflow.admin_password}
+            flask-secret-key:
+              value: ${applications.mlflow.secret_key}
+      volume_mounts:
+        mlflow-storage:
+          mount_path: /mlflow
+        tmp:
+          mount_path: /tmp
+        # The Secret's volume, after the others as the chart mounts it.
+        auth:
+          mount_path: /etc/mlflow
+      volumes:
+        mlflow-storage:
+          persistentVolumeClaim:
+            claimName: mlflow-mlflow
+        tmp:
+          emptyDir: {}
+      persistent_volume_claims:
+        mlflow-mlflow:
+          storage: 10Gi
+      service_account:
+        create: true

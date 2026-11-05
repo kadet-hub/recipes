@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# RCP-333: from a pod of the mlflow image and through the Service
+# mlflow-mlflow, MLflow refuses a request and a sign-up without a login and
+# a request with a wrong password. As the admin of the Secret the test logs
+# a run with a parameter, a metric and an artifact, registers a model
+# version from the run and reads all of it back, also after the pod was
+# replaced.
+set -euo pipefail
+image=$(kubectl get deployment mlflow-mlflow -o jsonpath='{.spec.template.spec.containers[0].image}')
+password=$(kubectl get secret mlflow-mlflow -o jsonpath='{.data.admin-password}' | base64 -d)
+
+kubectl run mlflow-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod mlflow-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/mlflow-smoke --for=condition=Ready --timeout=300s >/dev/null
+
+client() {
+  kubectl exec -i mlflow-smoke -- env MLFLOW_TRACKING_URI=http://mlflow-mlflow:5000 \
+    MLFLOW_TRACKING_USERNAME=admin MLFLOW_TRACKING_PASSWORD="$password" python - "$@" <<'EOF'
+import base64, os, sys, tempfile, time, urllib.error, urllib.request
+from mlflow import MlflowClient
+
+url = os.environ["MLFLOW_TRACKING_URI"]
+
+
+def status(path, login=None, data=None):
+    request = urllib.request.Request(url + path, data, {"Content-Type": "application/json"})
+    if login:
+        request.add_header("Authorization", "Basic " + base64.b64encode(login.encode()).decode())
+    try:
+        return urllib.request.urlopen(request, timeout=10).status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+# The Service gets the ready pod as its endpoint a moment after the pod is ready.
+for _ in range(60):
+    try:
+        if status("/health") == 200:
+            break
+    except OSError:
+        pass
+    time.sleep(2)
+else:
+    sys.exit("/health does not answer through the Service mlflow-mlflow")
+search = "/api/2.0/mlflow/experiments/search?max_results=1"
+assert status(search) == 401, "a request without a login was not refused"
+assert status(search, "admin:wrong-password") == 401, "a wrong password was not refused"
+signup = b'{"username": "smoke", "password": "smoke-password-1"}'
+assert status("/api/2.0/mlflow/users/create", data=signup) == 401, "a user signed up without a login"
+
+client = MlflowClient()
+if sys.argv[1] == "write":
+    experiment = client.create_experiment("smoke")
+    run = client.create_run(experiment).info.run_id
+    client.log_param(run, "alpha", "0.5")
+    client.log_metric(run, "rmse", 0.25, step=1)
+    with tempfile.TemporaryDirectory() as d:
+        with open(f"{d}/notes.txt", "w") as f:
+            f.write("smoke artifact\n")
+        client.log_artifact(run, f"{d}/notes.txt", "model")
+    client.set_terminated(run)
+    client.create_registered_model("smoke")
+    client.create_model_version("smoke", f"runs:/{run}/model", run_id=run)
+    print(run)
+else:
+    run = sys.argv[2]
+    data = client.get_run(run).data
+    assert data.params == {"alpha": "0.5"}, data.params
+    assert data.metrics == {"rmse": 0.25}, data.metrics
+    with tempfile.TemporaryDirectory() as d:
+        path = client.download_artifacts(run, "model/notes.txt", d)
+        assert open(path).read() == "smoke artifact\n", "the artifact changed"
+    version = client.get_model_version("smoke", "1")
+    assert version.run_id == run and version.status == "READY", version
+    print(f"run {run}: alpha 0.5, rmse 0.25, model/notes.txt; model smoke version 1 {version.status}")
+EOF
+}
+
+run=$(client write | tail -1)
+client read "$run" >/dev/null
+
+# The old pod is gone before its successor starts (strategy Recreate), so
+# the read below reaches the new one: PostgreSQL keeps the run and the model
+# version, the claim the artifact and the user store.
+old=$(kubectl get pod -l name=mlflow-mlflow -o jsonpath='{.items[0].metadata.name}')
+kubectl delete pod "$old" --wait >/dev/null
+for _ in $(seq 60); do
+  new=$(kubectl get pod -l name=mlflow-mlflow -o jsonpath='{.items[*].metadata.name}')
+  [[ -n $new ]] && break
+  sleep 1
+done
+[[ -n $new ]] || { echo "no pod replaced $old" >&2; exit 1; }
+kubectl wait pod/"$new" --for=condition=Ready --timeout=600s >/dev/null
+# check reports the last line.
+echo "$(client read "$run" | tail -1), read through the Service as admin after the pod was replaced; no login, a sign-up without one and a wrong password got 401"
