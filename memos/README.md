@@ -119,7 +119,7 @@ reference is rewritten.
 ## Proof
 
 `check memos --level deploys` with `tests/target.yml`, on kind for each
-Kubernetes minor CI tests, with check 0.15.0. A compose file has no
+Kubernetes minor CI tests, with check 0.16.0. A compose file has no
 Kubernetes objects to compare with, so the recipe is proven by deploying it
 (RCP-38). `tests/target.yml` sets the instance URL to the Service's own
 address, `http://memos:5230`.
