@@ -2653,7 +2653,7 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
 
   - Test: `check blackbox-exporter`, which compares the Deployment with the
     chart's; RCP-286
-  - Since: this change
+  - Since: #106
 
 - RCP-286: The `tests/smoke` of `blackbox-exporter` MUST require no Pod
   Security warning from a server-side dry run of the label
@@ -2665,7 +2665,7 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
   `seccompProfile` and nothing else.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #106
 
 ## Jellyfin
 
