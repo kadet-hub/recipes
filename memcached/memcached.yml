@@ -1,0 +1,27 @@
+parameters:
+  components:
+    memcached:
+      application: memcached
+      # renovate: Source
+      image: docker.io/library/memcached:1.6.45@sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab
+      security_profile: restricted
+      read_only_root_filesystem: true
+      # The image runs as the user memcache, UID 11211 in its /etc/passwd.
+      workload_security_context:
+        runAsUser: 11211
+        runAsGroup: 11211
+      ports:
+        memcache:
+          service_port: 11211
+      healthcheck:
+        readiness:
+          type: tcp
+          port: memcache
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 192Mi
+      service:
+        type: ClusterIP
