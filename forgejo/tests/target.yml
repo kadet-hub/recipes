@@ -1,0 +1,17 @@
+classes:
+  - recipes.forgejo
+parameters:
+  namespace: forgejo
+  kapitan:
+    vars:
+      target: forgejo
+  # The values tests/values.yaml gives the chart.
+  applications:
+    forgejo:
+      admin:
+        username: forgejo_admin
+        password: aaaaaaaaaaaaaaaa
+      secret_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
