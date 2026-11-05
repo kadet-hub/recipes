@@ -1,0 +1,34 @@
+name: Request a recipe
+description: Ask for a recipe of an application this repository does not have yet.
+title: "[request] "
+labels: [recipe-request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Open requests are listed on [kadet-hub.org/wanted](https://kadet-hub.org/wanted/), most 👍 first.
+        If the application is there already, add a 👍 to that issue instead.
+  - type: input
+    id: app
+    attributes:
+      label: Application
+      placeholder: Uptime Kuma
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Upstream source
+      description: The Helm chart or Docker Compose file the recipe would rebuild, with a link.
+      placeholder: |
+        Helm chart: oci://ghcr.io/example/charts/app, version 1.2.3
+        Compose file: https://github.com/example/app/blob/main/compose.yaml
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What you would run it for, and what the chart or compose file does not give you.
+    validations:
+      required: true
