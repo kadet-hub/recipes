@@ -115,6 +115,22 @@ example in kadet-hub/examples has a custom manager for its fetch inventory.
 It bumps each recipe on its own, so an included recipe can move past the
 digest its parent lists, which the consumer workflow then refuses.
 
+## Converting your own chart
+
+`kadet-convert` turns a chart and your values file into a Kapitan project
+for the `kubernetes` generator and proves with `check`'s comparison that it
+renders the same objects as `helm template`:
+
+```sh
+uvx --from 'git+https://github.com/kadet-hub/recipes@check-v<version>#subdirectory=check' \
+  kadet-convert oci://ghcr.io/stefanprodan/charts/podinfo:6.17.0 \
+  --name podinfo --namespace podinfo -f values.yaml --out podinfo
+```
+
+It needs helm, kubectl, kind, Docker, oras and gh, as `check` does. Usage
+and the report are in [docs/convert.md](docs/convert.md), the design in
+[docs/specs/converter.md](docs/specs/converter.md).
+
 ## Adding a recipe
 
 The `to-recipe` skill of the `kapitan-recipes` plugin
