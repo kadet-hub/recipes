@@ -1,0 +1,36 @@
+parameters:
+  components:
+    memos:
+      application: memos
+      type: statefulset
+      # renovate: upstream
+      image: docker.io/neosmemo/memos:26.11.0@sha256:087e7dc6b76b31fcd1107a5767398b2a310ced209adb791efd8760c745dc8034
+      security_profile: restricted
+      # The image's user nonroot, UID and GID 10001 in its /etc/passwd. Started
+      # as that user, the entrypoint skips its chown and su-exec (DEC-172).
+      workload_security_context:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      ports:
+        http:
+          container_port: 5230
+          service_port: 5230
+      service:
+        type: ClusterIP
+      env:
+        MEMOS_PORT: "5230"
+        MEMOS_DRIVER: sqlite
+        # The example's https://memos.example.com stands for the target's URL (DEC-171).
+        MEMOS_INSTANCE_URL: ${applications.memos.instance_url}
+      volume_mounts:
+        data:
+          mount_path: /var/opt/memos
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
