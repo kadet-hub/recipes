@@ -350,15 +350,16 @@ def classify(d, chart_obj, recipe_obj, ctx):
     if last == "automountServiceAccountToken":
         unset_side = "chart" if d.chart is MISSING else "recipe" if d.recipe is MISSING else None
         value = d.recipe if unset_side == "chart" else d.chart
-        if unset_side and value is True:
-            if kind == "ServiceAccount":
-                return EXPLICIT_DEFAULT
+        if unset_side and value is True and kind == "ServiceAccount":
+            return EXPLICIT_DEFAULT
+        if unset_side and isinstance(value, bool) and kind != "ServiceAccount":
             obj = chart_obj if unset_side == "chart" else recipe_obj
             pod = _get(obj, path[:-1]) or {}
             sa = ctx[unset_side + "_by_id"].get(
                 f"ServiceAccount/{obj['metadata'].get('namespace')}/{pod.get('serviceAccountName', 'default')}"
             )
-            if sa is None or sa.get("automountServiceAccountToken") is not False:
+            # A pod without the field mounts the token unless its ServiceAccount sets false.
+            if value is (sa is None or sa.get("automountServiceAccountToken") is not False):
                 return EXPLICIT_DEFAULT
 
     # The generator renders securityContext: {} on a container that sets none.
