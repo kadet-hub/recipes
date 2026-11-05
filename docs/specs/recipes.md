@@ -4980,20 +4980,31 @@ the level `restricted`. `baseline` with the start as root was considered.
 The ownership change and the switch need `CHOWN`, `SETUID` and `SETGID`,
 which Memos does not use afterwards.
 
-DEC-173: `memos` renders no account (Memos). The first account that is
+DEC-173: `memos` renders no account and closes user registration with
+Memos' declarative configuration (Memos). The first account that is
 created becomes the admin, through the web UI's sign-up or through
-`POST /api/users` without a login (`CreateUser` in
-`server/api/user_service.go` of 26.11.0). After that, anyone who reaches
-the Service can still register a regular account, Memos' default, until
-an admin turns off user registration in the instance settings. Unlike
-Vaultwarden's `SIGNUPS_ALLOWED` (DEC-55), Memos reads no variable for the
-setting. The Service is `ClusterIP`, so until the target exposes it only
-the cluster reaches the sign-up, and the README asks for the admin account
-and the setting before the exposure. Memos' declarative configuration was
-considered, files below `/etc/memos/config` that declare admins and
-instance settings. It would mount a file that the example does not have,
-and Memos makes declared users and settings read-only in the web UI and
-the API (`docs/design/declarative-configuration.md` of 26.11.0).
+`POST /api/users` without a login. `CreateUser` creates that account
+before it reads the registration setting (`server/api/user_service.go` of
+26.11.0). Memos' default then leaves registration open, so anyone who
+reaches the Service could register a regular account. Memos reads no
+variable for the setting, unlike Vaultwarden's `SIGNUPS_ALLOWED`
+(DEC-55). Memos reads JSON files below `/etc/memos/config` as the desired
+state of its instance settings and applies them at every start
+(`content/docs/configuration/declarative-configuration.mdx`, which names
+the registration policy as a use). The recipe mounts one such file from a
+ConfigMap and sets `disallowUserRegistration` of the setting group
+`GENERAL` to `true`. A second account without a login then gets 403.
+
+Memos manages a declared group whole and refuses changes to it through the
+web UI and the API. The file therefore releases the group's other fields
+with `ignoreChanges`, so an admin still edits them in the web UI. The
+compose example leaves registration open. Keeping that was considered, as
+the first version of this change did. An instance exposed before its admin
+closed registration would accept anyone, and Vaultwarden closes its
+signups for the same reason. Declaring the admin in the file as well was
+considered. Its password would be a parameter that Memos sends only on
+creation or after a raised `writeOnlyVersion`, and the first sign-up
+creates the admin already.
 
 - RCP-250: The `Source` line of `memos` MUST name
   `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at a commit
@@ -5045,7 +5056,8 @@ the API (`docs/design/declarative-configuration.md` of 26.11.0).
   require from `/api/instance/profile` the image's version, the instance
   URL of `tests/target.yml`, the public access policy and `needsSetup`. It
   MUST create an account through `POST /api/users` without a login and
-  require the role `ADMIN`, sign in through `/api/auth/signin`, get 400
+  require the role `ADMIN`, get 403 there for a second account, sign in
+  through `/api/auth/signin`, get 400
   there for a wrong password, create a private memo with the access token,
   read it back, and get 401 for it without a token. Once the pod `memos-0`
   was deleted and its successor is ready, it MUST require `needsSetup`
@@ -5054,16 +5066,38 @@ the API (`docs/design/declarative-configuration.md` of 26.11.0).
   The test pod runs Memos' image, whose busybox carries `wget`, and the
   test reads the JSON answers with `jq` outside the cluster. Memos answers
   wrong credentials with `InvalidArgument`, which its REST gateway turns
-  into 400. Reading a private memo needs a login, also on a public
+  into 400, and a closed registration with `PermissionDenied`, which
+  becomes 403. Reading a private memo needs a login, also on a public
   instance. The account and the memo come back after the restart
   only if the new pod reads `memos_prod.db` from the claim.
 
   - Test: CI `check` job, report line `smoke`
   - Since: #97
 
-- AC-150 (RCP-250 to RCP-253): `check memos --level deploys` passes in CI
-  on each Kubernetes minor, and its smoke test reads the memo after the
-  restart. `tests/target.yml` without `applications.memos.instance_url`
+- RCP-254: `memos` MUST mount `instance.json` from a ConfigMap at
+  `/etc/memos/config`. The file MUST declare `instance/settings/GENERAL`
+  with `disallowUserRegistration` set to `true` and MUST release every
+  other field of the group with `ignoreChanges` (DEC-173).
+
+  In 26.11.0 the other fields are `customProfile`, `disallowPasswordAuth`,
+  `disallowChangeUsername`, `disallowChangeNickname`,
+  `weekStartDayOffset`, `additionalStyle` and `additionalScript`
+  (`proto/api/instance_service.proto`). Memos writes an ignored field with
+  its stored value at every apply. A field that a later release adds to
+  the group is managed with its default until the file releases it too.
+  Memos stops at startup when a managed resource disappears from the
+  files, so a target that drops the declaration adds a `removed` entry.
+
+  - Test: CI `check` job, report line `smoke`; manual: on a container of
+    the pinned image, an admin changed `customProfile.title` through
+    `PATCH /api/instance/settings/GENERAL`, a change of
+    `disallowUserRegistration` got 400 with the reason
+    `MANAGED_BY_CONFIGURATION`, and the title stayed after a restart
+  - Since: #97
+
+- AC-150 (RCP-250 to RCP-254): `check memos --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test refuses a second sign-up
+  and reads the memo after the restart. `tests/target.yml` without `applications.memos.instance_url`
   stops the compile with `Interpolation key` and that key.
 
 ## Migration
@@ -5979,4 +6013,4 @@ feature's design (OQ-6).
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
-| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-253) |
+| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
