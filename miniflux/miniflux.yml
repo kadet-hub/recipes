@@ -10,6 +10,17 @@ parameters:
           service_port: 80
       service:
         type: ClusterIP
+      # The healthcheck that basic.yml comments out, with the compose
+      # defaults (RCP-280).
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - /usr/bin/miniflux
+            - -healthcheck
+            - auto
+          period_seconds: 30
+          timeout_seconds: 30
       env:
         DATABASE_URL:
           secretKeyRef:
