@@ -3261,7 +3261,7 @@ LTS line drops.
   - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
     each of the three parameters stops with `Interpolation key` and its
     name
-  - Since: this change
+  - Since: #93
 
 - RCP-221: The `tests/smoke` of `forgejo` MUST require that `/api/healthz`
   reports `pass` for `database:ping` and that the web UI answers, both
@@ -3281,7 +3281,7 @@ LTS line drops.
   read after the deletion shows that both outlive the pod.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #93
 
 - AC-135 (RCP-220, RCP-221): `check forgejo --level deploys` passes in CI
   on each Kubernetes minor, its report lists the objects of `postgresql` as
