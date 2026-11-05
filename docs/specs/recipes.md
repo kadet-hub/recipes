@@ -4670,13 +4670,13 @@ as a prerequisite (DEC-13).
   - Test: `check lint`; CI `check` job, report lines `image` and `smoke`;
     manual: the compile of `tests/target.yml` writes
     `memcached-deploy.yml` and `memcached-svc.yml` only
-  - Since: this change
+  - Since: #94
 
 - RCP-231: `memcached` MUST have the readiness probe of DEC-152 and no
   liveness or startup probe.
 
   - Test: manual: review; CI `check` job, which waits for the rollout
-  - Since: this change
+  - Since: #94
 
 - RCP-232: The `tests/smoke` of `memcached` MUST, through the Service
   `memcached` on port 11211 in the text protocol, store a value on one
@@ -4694,7 +4694,7 @@ as a prerequisite (DEC-13).
   with a pod running as root in the namespace.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #94
 
 - AC-140 (RCP-230 to RCP-232): `check memcached --level deploys` passes in
   CI on each Kubernetes minor, and its smoke test reads the value on a
