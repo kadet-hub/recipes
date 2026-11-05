@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# RCP-372: the pods pass Pod Security restricted, and the Service answers the
+# ping. The first admin is created with mmctl in local mode as the README
+# says. Through the API Mattermost reports the image tag as a Team Edition
+# build, refuses a sign-up without an invitation, and lets the admin create
+# a team, a channel and a second user and post a message with a file, which
+# the second user reads. After the pod is replaced the second user reads the
+# message and the file again.
+set -euo pipefail
+fail() { echo "$*" >&2; exit 1; }
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$ns" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || fail "$warnings"
+kubectl get --raw "/api/v1/namespaces/$ns/services/mattermost-team-edition:8065/proxy/api/v4/system/ping" |
+  jq -e '.status == "OK"' >/dev/null
+
+deploy=deployment/mattermost-mattermost-team-edition
+admin=smoke-admin reader=smoke-reader password=aaaaaaaaaaaaaaaa
+kubectl exec "$deploy" -- mmctl --local user create --email "$admin@example.com" \
+  --username "$admin" --password "$password" --system-admin >/dev/null
+
+url=http://localhost:18065
+pf=
+forward() {
+  [[ -z $pf ]] || kill "$pf" 2>/dev/null || true
+  kubectl port-forward service/mattermost-team-edition 18065:8065 >/dev/null &
+  pf=$!
+  for _ in $(seq 30); do
+    curl -fsS -o /dev/null "$url/api/v4/system/ping" 2>/dev/null && return
+    sleep 2
+  done
+  fail "no answer through the port forward"
+}
+trap '[[ -z $pf ]] || kill $pf' EXIT
+forward
+login() {
+  curl -fsS -D - -o /dev/null -H 'Content-Type: application/json' \
+    --data "$(jq -n --arg l "$1" --arg p "$password" '{login_id: $l, password: $p}')" "$url/api/v4/users/login" |
+    tr -d '\r' | sed -n 's/^[Tt]oken: //p'
+}
+api() { local token=$1; shift; curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' "$@"; }
+
+tag=$(kubectl get "$deploy" -o jsonpath='{.spec.template.spec.containers[0].image}' | sed 's/@.*//; s/.*://')
+curl -fsS "$url/api/v4/config/client?format=old" |
+  jq -e --arg tag "$tag" '.Version == $tag and .BuildEnterpriseReady == "false" and .EnableOpenServer == "false"' >/dev/null ||
+  fail "the client config does not name Team Edition $tag without open sign-up"
+signup=$(jq -n '{email: "intruder@example.com", username: "intruder", password: "bbbbbbbbbbbbbbbb"}')
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data "$signup" "$url/api/v4/users")
+[[ $status == 403 ]] || fail "a sign-up without an invitation got $status, not 403"
+
+token=$(login "$admin")
+[[ $token ]] || fail "the admin cannot log in"
+api "$token" "$url/api/v4/users/me" | jq -e '.roles | split(" ") | index("system_admin")' >/dev/null
+team=$(api "$token" --data '{"name": "smoke", "display_name": "Smoke", "type": "I"}' "$url/api/v4/teams" | jq -er .id)
+channel=$(jq -n --arg team "$team" '{team_id: $team, name: "smoke", display_name: "Smoke", type: "O"}' |
+  api "$token" --data @- "$url/api/v4/channels" | jq -er .id)
+user=$(jq -n --arg u "$reader" --arg p "$password" '{email: "\($u)@example.com", username: $u, password: $p}' |
+  api "$token" --data @- "$url/api/v4/users" | jq -er .id)
+jq -n --arg team "$team" --arg user "$user" '{team_id: $team, user_id: $user}' |
+  api "$token" --data @- "$url/api/v4/teams/$team/members" >/dev/null
+jq -n --arg user "$user" '{user_id: $user}' | api "$token" --data @- "$url/api/v4/channels/$channel/members" >/dev/null
+content="smoke $RANDOM"
+file=$(curl -fsS -H "Authorization: Bearer $token" -F "channel_id=$channel" -F "files=@-;filename=smoke.txt" \
+  "$url/api/v4/files" <<<"$content" | jq -er '.file_infos[0].id')
+message="hello from $admin $RANDOM"
+jq -n --arg channel "$channel" --arg message "$message" --arg file "$file" \
+  '{channel_id: $channel, message: $message, file_ids: [$file]}' | api "$token" --data @- "$url/api/v4/posts" >/dev/null
+
+# The message from PostgreSQL, the file from the claim.
+read_back() {
+  local token
+  token=$(login "$reader")
+  [[ $token ]] || fail "$reader cannot log in $1"
+  api "$token" "$url/api/v4/channels/$channel/posts" |
+    jq -e --arg m "$message" --arg f "$file" '[.posts[] | select(.message == $m and (.file_ids | index($f)))] | length == 1' >/dev/null ||
+    fail "$reader does not read the message $1"
+  [[ $(api "$token" "$url/api/v4/files/$file") == "$content" ]] || fail "$reader does not read the file $1"
+}
+read_back "after the post"
+old=$(kubectl get pod -l name=mattermost-mattermost-team-edition -o name)
+kubectl delete "$old" --wait=true >/dev/null
+for _ in $(seq 60); do
+  new=$(kubectl get pod -l name=mattermost-mattermost-team-edition -o name)
+  [[ $new && $new != "$old" ]] && kubectl wait "$new" --for=condition=Ready --timeout=10s >/dev/null 2>&1 && break
+  sleep 5
+done
+forward
+read_back "after the pod was replaced"
+echo "Mattermost Team Edition $tag: the admin from mmctl --local created team, channel and $reader and posted a message with a file, which $reader read before and after the pod was replaced; sign-up without an invitation got 403; the pods pass Pod Security restricted"
