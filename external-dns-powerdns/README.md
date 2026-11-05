@@ -55,10 +55,11 @@ parameters:
       api_key: <ref>
 ```
 
-The recipe includes `recipes.powerdns`. Pin `powerdns` in the fetch inventory next to this recipe, as an `oci` dependency at the
-digest this version's index record lists under `includes`, with
-`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
-kadet-hub.org shows the whole fetch inventory.
+The recipe includes `recipes.powerdns`. Pin only this recipe in the fetch
+inventory. The consumer workflow adds `powerdns` at the digest this
+version's index record lists under `includes`. Kapitan's `--fetch` reads no
+index, so for a local compile pull it by digest as the recipe's page on
+kadet-hub.org shows.
 
 ## Required parameters
 

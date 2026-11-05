@@ -27,9 +27,9 @@ global:
 ```
 
 Recipes are fetched by a separate fetch inventory, `fetch/targets/recipes.yml`,
-with one `oci` dependency per published recipe, pinned by version and digest.
-The recipe's page on [kadet-hub.org](https://kadet-hub.org/recipes/) shows
-the entry for its latest version, with the recipes it includes:
+with one `oci` dependency per recipe your targets include, pinned by version
+and digest. The recipe's page on [kadet-hub.org](https://kadet-hub.org/recipes/)
+shows the entry for its latest version:
 
 ```yaml
 parameters:
@@ -40,11 +40,11 @@ parameters:
         output_path: inventory/classes/recipes/cert-manager
 ```
 
-A recipe that includes another needs that one in the fetch inventory too,
-at the digest its index record lists. The
+The consumer workflow of the
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
-section "Recipes", has the verification steps and the consumer workflow
-that runs them in CI. A commit of `main` that is not released yet can be
+section "Recipes", adds the recipes a pinned recipe includes at the digests
+its index record lists, and verifies them in CI. The guide also has the
+verification steps by hand. A commit of `main` that is not released yet can be
 fetched as a `git` dependency with `ref` set to its full SHA, `subdir` to
 the recipe and the same `output_path`.
 
@@ -70,7 +70,9 @@ parameters:
 ```
 
 Pull each recipe by digest as the consumers guide shows under "Verifying a
-recipe by hand", or fetch them with Kapitan, then compile:
+recipe by hand", or fetch the pinned ones with Kapitan. Kapitan's fetch
+reads no index, so pull the recipes they include by digest in either case,
+as the recipe's page shows. Then compile:
 
 ```sh
 kapitan compile --inventory-path fetch --force-fetch --output-path .
@@ -104,16 +106,18 @@ these checks in CI, but has not been tested with a fetch inventory yet.
 
 ### Updating
 
-Change version and digest of the recipe, and of each recipe it includes to
-the digests its new record lists, delete `inventory/classes/recipes/<name>`
-and run both commands again. `--force-fetch` copies the new version over the
+Change version and digest of the recipe, delete
+`inventory/classes/recipes/<name>` and the directories of the recipes it
+includes, pull those at the digests the new record lists and run both
+commands again. `--force-fetch` copies the new version over the
 old one but leaves the files it removed.
 
-The kadet-hub Renovate preset does not match recipe pins yet. The
-[open-webui-searxng](https://github.com/kadet-hub/examples/tree/main/open-webui-searxng)
-example in kadet-hub/examples has a custom manager for its fetch inventory.
-It bumps each recipe on its own, so an included recipe can move past the
-digest its parent lists, which the consumer workflow then refuses.
+The kadet-hub Renovate preset updates the recipe pins in `fetch/` from
+[kadet-hub/renovate-config#21](https://github.com/kadet-hub/renovate-config/pull/21)
+on, one pull request per recipe. With only the recipes your targets include
+pinned, each update is complete, because the consumer workflow takes the
+included recipes from the new record
+([kadet-hub/registry#536](https://github.com/kadet-hub/registry/pull/536)).
 
 ## Adding a recipe
 

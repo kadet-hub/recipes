@@ -45,10 +45,11 @@ parameters:
       runner_token: <ref>
 ```
 
-The recipe includes `recipes.postgresql`. Pin `postgresql` in the fetch inventory next to this recipe, as an `oci` dependency at the
-digest this version's index record lists under `includes`, with
-`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
-kadet-hub.org shows the whole fetch inventory.
+The recipe includes `recipes.postgresql`. Pin only this recipe in the fetch
+inventory. The consumer workflow adds `postgresql` at the digest this
+version's index record lists under `includes`. Kapitan's `--fetch` reads no
+index, so for a local compile pull it by digest as the recipe's page on
+kadet-hub.org shows.
 
 ## Required parameters
 
