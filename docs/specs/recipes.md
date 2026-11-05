@@ -4544,6 +4544,170 @@ Secret `<cluster>-ca` in the pod.
   as included and `cnpg` as installed, and its smoke test reads the page
   view after the restart.
 
+## Home Assistant
+
+Home Assistant is a home automation server. Its integrations connect it to
+the devices and services of a home, it records their states in a SQLite
+database, runs automations on them, and serves its web UI and REST API on
+port 8123. home-assistant/core, Apache-2.0, builds the image
+`ghcr.io/home-assistant/home-assistant`, which its documentation installs
+as Home Assistant Container. `home-assistant` runs release 2026.11.0 of
+2026-11-04, the newest on 2026-11-05, pinned to the index
+`sha256:c6c1ca9931036bf3a2c4cc088d8db25dfea3b33935a5ecc83c40349462e2f69e`
+for amd64 and arm64. `stable` was the same index on 2026-11-05. The image
+carries no `org.opencontainers.image.revision` label.
+
+Every advisory of home-assistant/core published by 2026-11-05 names a
+release before 2026.11.0 as fixed, except GHSA-gh5m-4m97-c95h. That one
+concerns the Supervisor and Home Assistant OS, which the image does not
+run.
+
+DEC-130: `home-assistant` is a designed recipe on the image (Designed
+recipes). home-assistant/core ships no chart, Kustomize base or compose
+file. The container guide of the documentation includes its compose
+example from `source/_includes/installation/container/compose.md` of
+home-assistant/home-assistant.io. That file is a Liquid template, and
+`docker compose` cannot read its image line. The example also sets
+`privileged: true`, `network_mode: host` and bind mounts of the host paths
+`/etc/localtime` and `/run/dbus`. Each of these is a gap of Compose
+sources, so a compose recipe would stop (RCP-37). Pinning the template as
+the `Source`, as `pihole` pins a README (DEC-28), was considered. It would
+pin a file that the recipe could not map.
+
+DEC-131: `home-assistant` runs outside the setup that Home Assistant
+supports (Home Assistant). ADR-0013 of home-assistant/architecture defines
+the installation Home Assistant Container and says: "The only supported
+way to run the container is on the host network as root with full
+privileges." The recipe runs the image as root under Pod Security
+`baseline`, on the pod network and without `privileged`. With both, the
+container reaches every device of its node and every port of the node's
+network namespace, and Pod Security admits it only at `privileged`.
+
+Without them, Home Assistant serves its web UI and API, and integrations
+that reach a device by its address or a cloud service work. What needs the
+node's network or devices does not work: discovery over mDNS, SSDP and
+DHCP, pairing with HomeKit, Bluetooth, and USB or serial sticks such as
+Zigbee and Z-Wave coordinators. The README lists them under "Left out".
+Rendering the documented setup was considered. The recipe's default would
+then need a namespace at `privileged` and hand Home Assistant the node.
+
+Pod Security `restricted` was considered as well. Run as UID 1000 with
+every capability dropped, the image's s6-overlay init stopped with
+`/run belongs to uid 0 instead of 1000` and exit code 100 before Home
+Assistant started. Home Assistant 2026.11.0 also reports a container that
+does not run as root as `Unsupported Third Party Container`
+(`homeassistant/helpers/system_info.py`). It installs the Python
+requirements of an integration that the image lacks into
+`/usr/local/lib/python3.14/site-packages`, which belongs to root.
+
+DEC-132: The option `host-network` of `home-assistant` sets
+`hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet` (Home
+Assistant). Home Assistant then sends and receives multicast on the
+node's network, which discovery and HomeKit need. The DNS policy keeps the
+cluster's Service names resolvable from the node's network. Pod Security
+`baseline` forbids `hostNetwork`, so the namespace needs the level
+`privileged`. The option renders no `privileged` and no device. A device
+path names hardware of one node, and `privileged` gives the container
+every device of the node, so both stay with the target. Kubernetes
+Services carry no multicast, so no Service type replaces the node's
+network for discovery.
+
+DEC-133: `home-assistant` renders no owner account. The first visitor of
+the web UI creates it in Home Assistant's onboarding, as with the image
+alone (Home Assistant). Home Assistant reads no account from the
+environment. `POST /api/onboarding/users` creates the owner while the
+onboarding has not done that step and needs no login, and answers 403
+afterwards. A Job that sends that request with a credential parameter was
+considered. It would add a workload and a client the image does not have,
+and a changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+onboarding, and the README asks for the owner before the exposure.
+
+The image has no `HEALTHCHECK`, and the documentation names no check, so
+the recipe has no probe (Designed recipes). The pod is ready once its
+container runs, and `tests/smoke` waits until Home Assistant answers. The
+container guide gives Home Assistant 60 seconds to stop, so that it closes
+its database. The recipe sets that as the pod's termination grace period.
+
+The claim `config` at `/config` holds `configuration.yaml`, the users and
+tokens in `.storage`, and the recorder's database `home-assistant_v2.db`.
+It has 1Gi, the size Compose sources give a volume without one, and the
+README offers the size as a setting. The bind mount of `/etc/localtime`
+and the variable `TZ` set the time zone of the container's processes. Home
+Assistant keeps its own time zone, which the onboarding asks for, in
+`.storage/core.config`. The recipe renders neither, so the processes run
+in UTC, and the README names `TZ` as a setting.
+
+- RCP-210: The `Source` line of `home-assistant` MUST name
+  `ghcr.io/home-assistant/home-assistant` at the tag of a release of
+  home-assistant/core, pinned to its index, and the StatefulSet
+  `home-assistant` MUST run exactly that image.
+
+  `check lint` fails when no container runs the image of the `Source` line
+  (RCP-23). Renovate moves the `Source` line and the class line marked
+  `# renovate: Source` in one pull request (RCP-16).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-211: `home-assistant` MUST run the image as its root user in the
+  StatefulSet `home-assistant`, with the claim `config` at `/config`, a
+  termination grace period of 60 seconds and the Service `home-assistant`
+  on port 8123 of type `ClusterIP`. Without its option it MUST NOT render
+  `hostNetwork`, `privileged`, an added capability, a `hostPath` or a
+  device (DEC-131).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`; manual:
+    review
+  - Since: this change
+
+- RCP-212: The option `host-network` MUST set `hostNetwork: true` and
+  `dnsPolicy: ClusterFirstWithHostNet` on the StatefulSet
+  `home-assistant` and MUST change nothing else (DEC-132).
+
+  `tests/target.yml` leaves the option out, so CI deploys the default.
+  The option is proven by its render: the compiled StatefulSet against
+  the one without the option, and `check home-assistant --level renders`
+  with the option in `tests/target.yml`.
+
+  - Test: manual: compile and `check --level renders` with
+    `recipes.home-assistant.host-network` in `tests/target.yml`
+  - Since: this change
+
+- RCP-213: The `tests/smoke` of `home-assistant` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: baseline` on its namespace. From a
+  pod of the Home Assistant image and through the Service
+  `home-assistant` on port 8123 it MUST require that no onboarding step is
+  done, create the owner through `/api/onboarding/users`, exchange the
+  returned code at `/auth/token` for an access and a refresh token, and
+  get 403 for a second owner. It MUST get 401 from `/api/` without a token
+  and `API running.` with the access token, and require that
+  `/api/config` names the image tag as `version`. Once the pod
+  `home-assistant-0` was deleted and its successor answers, it MUST find
+  the step `user` done, get a new access token with the refresh token, and
+  get `API running.` with it.
+
+  The refresh token and the onboarding's progress live in `.storage` on
+  the claim, so the new pod accepts the refresh token only when it reads
+  the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-130 (RCP-210, RCP-211, RCP-213): `check home-assistant --level
+  deploys` passes in CI on each Kubernetes minor, and its smoke test gets
+  `API running.` with a token refreshed after the restart.
+
+- AC-131 (RCP-212): A compile of `tests/target.yml` with
+  `recipes.home-assistant.host-network` renders the StatefulSet
+  `home-assistant` with `hostNetwork: true` and
+  `dnsPolicy: ClusterFirstWithHostNet` and no other difference, and
+  `check home-assistant --level renders` passes with that target. A
+  server-side dry run of that StatefulSet warns `host namespaces
+  (hostNetwork=true)` in a namespace at `enforce: baseline` and nothing at
+  `privileged`.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -5443,3 +5607,4 @@ feature's design (OQ-6).
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
+| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213) |
