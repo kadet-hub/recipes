@@ -4544,6 +4544,142 @@ Secret `<cluster>-ca` in the pod.
   as included and `cnpg` as installed, and its smoke test reads the page
   view after the restart.
 
+## Stirling-PDF
+
+Stirling-PDF is a web UI and HTTP API that merges, splits, converts and
+edits PDF files. One Java process does the work, with LibreOffice,
+Tesseract, qpdf and other tools from its image. It keeps `settings.yml`,
+an H2 database with its users and its keys in `/configs`.
+Stirling-Tools/Stirling-PDF is MIT except the directories its `LICENSE`
+names, such as `app/proprietary/`, which holds the login.
+
+DEC-160: `stirling-pdf` is a chart recipe on the chart
+`stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart, MIT. The
+project keeps the chart in its own GitHub organization. Its release
+workflow publishes each version with chart-releaser as a GitHub release
+asset and in the HTTP repository `https://docs.stirlingpdf.com/Stirling-PDF-chart`,
+the URL the chart's README gives to `helm repo add`. It pushes no OCI
+artifact, so the `Source` line takes the HTTP form of RCP-23. The compose
+files below `docker/compose/` of Stirling-PDF were considered as the
+source. DEC-10 puts the project's chart first. The chart lags behind the
+application: from 2026-02-19 to 2026-10-21 it stayed at Stirling-PDF
+2.5.1, while the project released 2.5.2 to 3.2.0. Version 4.0.0 of
+2026-10-21 moved it to 3.2.0.
+
+DEC-161: `stirling-pdf` runs Stirling-PDF 3.2.0, the chart's
+`appVersion`, pinned to its index for amd64 and arm64. 3.2.2 of 2026-10-24
+was the newest release on 2026-11-05. No advisory of
+Stirling-Tools/Stirling-PDF on 2026-11-05 names a release after 3.0.0 as
+affected. Running the image ahead of the chart, as gitea does for an
+advisory, was considered. Without an advisory it would run a version that
+the chart's release was not made for.
+
+DEC-162: `tests/values.yaml` sets `image.registry: docker.io`, so the
+recipe runs `docker.io/stirlingtools/stirling-pdf`. The chart's default
+registry `docker.stirlingpdf.com` forwards to Docker Hub. It answered three
+anonymous manifest requests for `3.2.0` on 2026-11-05 with 429 Too Many
+Requests, and its responses name one address as Docker Hub's rate limit
+source, so all anonymous clients of the proxy share one limit. The
+installation guide on docs.stirlingpdf.com names Docker Hub and
+`ghcr.io/stirling-tools/stirling-pdf` for when `docker.stirlingpdf.com` is
+unreachable. Both served the same index as the proxy's tag. GHCR was
+considered. Docker Hub keeps the chart's `image.repository`, so only the
+registry changes.
+
+DEC-163: `tests/values.yaml` turns on the chart's claim with
+`persistence.enabled`, as the chart's `examples/single-node.yaml` does.
+With the chart's default, an `emptyDir` at `/configs`, every new pod starts
+with new keys, the default settings and the default admin password again.
+The claim `stirling-pdf-stirling-pdf-chart` asks for 8Gi with
+ReadWriteOnce. With it the chart sets the Deployment's strategy to
+`maxSurge: 0`, so one pod at a time opens the database, and
+`STORAGE_LOCAL_BASEPATH` to `/configs/storage`. The example's `resources`,
+2Gi of memory, were considered as well. The chart's default sets none, and
+the README names them as a setting.
+
+DEC-164: `stirling-pdf` runs as `stirlingpdfuser`, UID, GID and `fsGroup`
+1001, under `security_profile: restricted`, by `securityContext` and
+`containerSecurityContext` in `tests/values.yaml`. The chart then renders
+its init container `prepare-non-root`. It copies `/usr/local/bin` into an
+`emptyDir` that the container mounts there, because the image's start
+script links into that directory, which belongs to root. The chart's
+default `fsGroup` 1000 and its comment name UID 1000 as the image's user.
+In the 3.2.0 image UID 1000 is `ubuntu` and `stirlingpdfuser` is 1001. On
+kind with Kubernetes 1.37, the container as UID 1000 could not write
+`/logs` or create `/tmp/stirling-pdf` and restarted. As 1001 it became
+ready after 47 seconds. Started as root, the chart's default, the start
+script switches to `stirlingpdfuser` with `setpriv` and runs LibreOffice as
+a second user, `stirlingofficeuser`. As 1001 it cannot switch, so
+LibreOffice runs as `stirlingpdfuser`, and its log reports the image's
+LibreOffice sandbox with Landlock and seccomp as active. The chart's
+default was considered. It needs Pod Security `baseline`, and the start
+script runs as root with the runtime's default capabilities until it
+switches users.
+
+DEC-165: `stirling-pdf` renders no initial account. Stirling-PDF 3.2.0
+turns the login on by default (`security.enableLogin` in
+`settings.yml.template`), and every API call needs a session or an API key.
+Without `SECURITY_INITIALLOGIN_USERNAME` and `_PASSWORD` the first start
+creates the user `admin` with the password `stirling`
+(`InitialSecuritySetup.java`), and the web UI asks for a new password at
+the first login. The chart renders no account either. The README asks to
+change the password before the Service is exposed. An initial account from
+a Secret through `envs` was considered. The Secret would be an object the
+chart does not render, and Stirling-PDF creates the account only once, so
+a changed parameter would not reach it.
+
+The chart's Ingress, HTTPRoute, ServiceMonitor, PodDisruptionBudget,
+HorizontalPodAutoscaler and cluster mode, which needs PostgreSQL, Valkey,
+S3 and a licence, are off by default and not part of the recipe. The chart
+renders no hook. The ServiceAccount has no role. The init container's
+command is text of the chart's `templates/deployment.yaml`, so
+`stirling-pdf.yml.LICENSE` carries the chart's license (RCP-42). Renovate
+moves the `Source` line through the `helm` datasource (RCP-16).
+
+- RCP-240: `stirling-pdf` MUST render the chart's Deployment, Service,
+  ServiceAccount and claim `stirling-pdf-stirling-pdf-chart` with the
+  values of DEC-162 to DEC-164, and
+  `docker.io/stirlingtools/stirling-pdf:3.2.0` pinned to its index.
+
+  - Test: `check stirling-pdf`; CI `check` job
+  - Since: this change
+
+- RCP-241: `stirling-pdf` MUST run as UID, GID and `fsGroup` 1001 under
+  `security_profile: restricted`, with the init container
+  `prepare-non-root` of DEC-164.
+
+  - Test: `check lint`; CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-242: The `tests/smoke` of `stirling-pdf` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
+  `status: UP` with the version of the image tag from
+  `/api/v1/info/status` through the Service. It MUST get 401 from
+  `/api/v1/general/merge-pdfs` without a login. As `admin` it MUST merge
+  two one-page PDFs that it writes itself, and require from `qpdf --check`
+  and `pdftotext` in the image a valid file of two pages with the first
+  file's text on the first. It MUST change `ui.appNameNavbar` through
+  `/api/v1/admin/settings`. Once the pod was deleted and its successor is
+  ready, it MUST read the new value from
+  `/api/v1/admin/settings/key/ui.appNameNavbar`.
+
+  Stirling-PDF applies a changed setting only at its next start
+  (`AdminSettingsController.java`), from `settings.yml` on the claim, so
+  the value after the restart shows that the claim keeps the settings. On
+  kind the key still read as unset before the restart. The test
+  writes the PDFs with a correct cross-reference table, so the merge gets
+  well-formed input. qpdf and pdftotext come from the image, so the runner
+  needs no PDF tool.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-145 (RCP-240 to RCP-242): `check stirling-pdf --level deploys` passes
+  in CI on each Kubernetes minor, with differences of the classes Selector
+  scheme, Derived name and Explicit default only, and its smoke test reads
+  the setting after the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -5443,3 +5579,4 @@ feature's design (OQ-6).
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
+| stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), default account `admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242) |
