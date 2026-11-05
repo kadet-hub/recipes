@@ -1134,6 +1134,7 @@ and the README lists the renames.
 | `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 | `init: true` where the image's start script runs the server as PID 1 and the server ends on `SIGTERM` | nothing | DEC-120 |
 | `depends_on` with `condition: service_healthy` on a service that becomes an included recipe, where the dependent exits while that service does not answer | an init container of the dependent's image that waits until the included recipe's Service accepts connections | DEC-121. It adds no image. |
+| `read_only: true` | `read_only_root_filesystem: true`, and an `emptyDir` at `/tmp` where the service writes temporary files there | DEC-215. Docker leaves `/tmp` of a read-only container read-only, and an `emptyDir` stands in for the `tmpfs` that a compose file would add. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -1162,12 +1163,14 @@ What the table does not map is a gap, and so is each of these:
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
-  (DEC-120, DEC-121).
+  (DEC-120, DEC-121). Revised in this change: `read_only`, which was a
+  gap, for navidrome (DEC-215).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
-    `cap_add`: #68; `init`, wait for the database: #91
+    `cap_add`: #68; `init`, wait for the database: #91; `read_only`:
+    this change
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -4377,6 +4380,150 @@ setup, and the README asks for the account before the exposure.
   in CI on each Kubernetes minor, and its smoke test sees the monitor UP
   after the restart.
 
+## Navidrome
+
+Navidrome is a music server. It scans the audio files in its music folder
+into a SQLite database and streams them to its web UI and to clients of
+the Subsonic API. Navidrome is GPL-3.0. Release v0.64.2 of 2026-09-24 was
+the newest of navidrome/navidrome on 2026-11-05.
+
+The project publishes no chart. navidrome/navidrome carries
+`contrib/docker-compose/docker-compose.yml`, with Caddy and Traefik
+variants next to it, and `contrib/k8s/manifest.yml`, a plain manifest
+with a `hostPath` volume for the music and an Ingress for Traefik that is
+no source type of DEC-9. `navidrome` takes the compose file at commit
+`101145742f4762164202cb4858c9126258bdc463`, the tag v0.64.2, SHA-256
+`ef8a611ca3cf06af8879253809632b7005ff47cb892018006bb3e290022f8958`. The
+file runs `deluan/navidrome:latest`, which on 2026-11-05 was the same
+index as `0.64.2`,
+`sha256:38dc2727bfcfd5ede290f8ada114fc90368146f265ae4701ddddbcbe2a44ee52`,
+for amd64, arm64, arm/v7, arm/v6, 386 and riscv64. The project pushes the
+same index as `docker.io/navidrome/navidrome` and
+`ghcr.io/navidrome/navidrome`, and the recipe keeps the name the compose
+file uses.
+
+The file's one service becomes the StatefulSet `navidrome`. The named
+volume `navidrome_data` becomes the claim `data` at `/data`, where
+Navidrome keeps its database, its cache and its settings. The published
+port `4533:4533` becomes port 4533 of the Service `navidrome`. The service
+sets no `healthcheck`, and the image has no `HEALTHCHECK`, so the recipe
+renders no probe. `version: '3.6'`, which `docker compose config` drops as
+obsolete, `container_name` and `restart` render nothing. The music mount
+and `user: 1000:1000` are comments in the file.
+
+DEC-215: `read_only: true` becomes `read_only_root_filesystem: true` of the
+container and an `emptyDir` at `/tmp` (Compose sources). With the compose
+file as it is, Navidrome 0.64.2 exits at its first start. SQLite needs a
+temporary file for the migration
+`20241024125533_fix_sort_tags_collation_and_index.sql`, and Docker leaves
+`/tmp` of a read-only container read-only too. `docker run --read-only` of
+the pinned image on an empty volume stopped with `Failed to apply new
+migrations` and `disk I/O error: permission denied`, as root and as UID
+1000. With `--tmpfs /tmp` it started. On kind the recipe without the
+`emptyDir` restarted on the same error, and with it the pod became ready. The `emptyDir` takes the place of the `tmpfs` that a
+compose file would add. Dropping `read_only` was considered. The compose
+file asks for a read-only root filesystem, and on kind the server ran with
+writes to `/data` and `/tmp` alone. `SQLITE_TMPDIR=/data` was considered
+too. It started, but it puts scratch files on the claim and sets a variable
+that the project's files do not set.
+
+DEC-216: `navidrome` mounts the claim `music` at `/music`, read-only, which
+the compose file has only as the comment `#- "/mnt/music:/music:ro"`. The
+image sets `ND_MUSICFOLDER=/music`. Without a volume at `/music`, nothing
+could put files into the music folder under the read-only root filesystem.
+A bind mount of a host path is a gap of Compose sources. The claim is
+`ReadWriteOnce` with `1Gi`, as the claim `data`, and the README offers the
+size as a setting. Navidrome's documentation asks for read access to the
+music folder, so the mount is read-only, as in the comment. Files reach the
+claim from a pod of the target's own that mounts it, as `tests/smoke`
+writes its file. Leaving the music volume to the target was considered.
+Every target would have to add one before Navidrome had anything to serve,
+and the recipe could not be proven with a file to scan.
+
+DEC-217: `navidrome` runs as UID and GID 1000 with `fsGroup` 1000 under
+`security_profile: restricted`. The compose file has `user: 1000:1000` as a
+comment, and the compose example of Navidrome's Docker documentation sets
+it. The image has no `USER` and runs as root without it. Root was
+considered. Pod Security `restricted` refuses it, and the server needs no
+privilege: it listens on port 4533, and on kind it wrote only to its
+volumes. On kind the pod passed the level `restricted`.
+
+DEC-218: `navidrome` renders no admin account. The first visitor of the web
+UI creates it, as with the compose file. Navidrome's `POST
+/auth/createAdmin` creates the first user as an admin without a login while
+no user exists, and answers 403 afterwards (`server/auth.go` of v0.64.2).
+Its other route below `/auth` is `login` (`server/server.go`), so Navidrome
+has no self-registration. The setting `ND_DEVAUTOCREATEADMINPASSWORD`
+creates the user `admin` with a given password when the database is new. It
+was considered and rejected. Navidrome documents it only for its
+development environment, and at its start it logs the password in plain
+text with the warning `This should only be used for development purposes!!`
+(`server/initial_setup.go`). The Service is `ClusterIP`, so until the
+target exposes it only the cluster reaches the web UI, and the README asks
+for the account before the exposure.
+
+- RCP-295: The `Source` line of `navidrome` MUST name
+  `contrib/docker-compose/docker-compose.yml` of navidrome/navidrome at
+  the commit of the release tag that the image's tag names, with the
+  file's SHA-256, and `navidrome` MUST run `docker.io/deluan/navidrome`
+  with that tag, pinned to its index.
+
+  - Test: `check lint`; CI `check` job, report line `compose`
+  - Since: this change
+
+- RCP-296: `navidrome` MUST run the StatefulSet `navidrome` with UID, GID
+  and `fsGroup` 1000 and `security_profile: restricted` (DEC-217), a
+  read-only root filesystem with an `emptyDir` at `/tmp` (DEC-215), the
+  claim `data` at `/data` and the claim `music` read-only at `/music`
+  (DEC-216).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-297: The `tests/smoke` of `navidrome` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From
+  a pod of the Navidrome image that mounts the claim `music-navidrome-0`,
+  it MUST write a FLAC file of three seconds of silence with tags that
+  `ffmpeg` of the image generates. Through the Service `navidrome` on port
+  4533 it MUST get `/ping`, get Subsonic error 40 from `/rest/ping` before
+  any user exists, create the admin through `/auth/createAdmin` and get
+  403 for a second one. As that admin it MUST get `ok` from `/rest/ping`,
+  error 40 for a wrong password, start a scan with `/rest/startScan`, find
+  the track by its title with `/rest/search3` with a duration of 3
+  seconds, and download it byte for byte with `/rest/download`. Once the
+  pod `navidrome-0` was deleted and its successor is ready, it MUST log in
+  to the Subsonic API again and find the track.
+
+  The image carries `curl` and `ffmpeg` with the filter `anullsrc` and the
+  FLAC encoder, so the test needs no other image. The claim is
+  `ReadWriteOnce`, and kind's one node lets both pods mount it. The user
+  and the track after the restart come from the database on the claim
+  `data`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-298: Renovate MUST move the `Source` line and the image of
+  `navidrome` in one pull request and MUST NOT need a release timestamp
+  for the image.
+
+  Docker Hub listed 3328 tags of `deluan/navidrome` on 2026-11-05, so
+  Renovate gets no release timestamps for it, as for `wordpress`
+  (RCP-184).
+
+  - Test: manual: Renovate dry run
+  - Since: this change
+
+- AC-295 (RCP-295 to RCP-297): `check navidrome --level deploys` passes in
+  CI on each Kubernetes minor, and its smoke test finds the track after the
+  restart.
+
+Not proven: a music library of real size and its scan time, transcoding
+and streaming to a client, the web UI in a browser, an existing volume of
+music mounted in place of the claim, and a route or Ingress in front of
+the Service.
+
 ## Open WebUI
 
 Open WebUI is a web interface and an API for chatting with language
@@ -6369,6 +6516,7 @@ feature's design (OQ-6).
 | netbox | chart `netbox` 8.3.99 of netbox-community/netbox-chart, NetBox v4.7.4 with its RQ worker, includes postgresql and valkey, pepper ID 1 (DEC-86), `kubernetes` generator 1.14.0, level `deploys` (RCP-140 to RCP-142) |
 | ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.14.0, level `deploys` (RCP-130, RCP-131) |
 | uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.14.0, level `deploys` (RCP-120 to RCP-122) |
+| navidrome | `contrib/docker-compose/docker-compose.yml` of Navidrome v0.64.2 at `1011457`, `read_only` with an `emptyDir` at `/tmp` (DEC-215), SQLite on the claim `data`, claim `music` read-only at `/music` (DEC-216), UID 1000 under `restricted` (DEC-217), admin account from the web UI (DEC-218), `kubernetes` generator 1.14.0, level `deploys` (RCP-295 to RCP-298) |
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
