@@ -22,10 +22,12 @@ The recipe renders the StatefulSet `open-webui` with the claim
 `open-webui` of 2Gi at `/app/backend/data`, which holds the SQLite
 database and uploads, the Service `open-webui` on port 80 and the
 ServiceAccount `open-webui-sa`. The included recipe `valkey` carries Open
-WebUI's websockets and state shared between workers. The image
-`ghcr.io/open-webui/open-webui:0.12.5` is pinned to its index for amd64
-and arm64. It is 1643 MB compressed for amd64 and 1481 MB for arm64 (sums
-of the layer sizes, MB = 10^6 bytes).
+WebUI's websockets and state shared between workers. The pod is ready once
+Open WebUI's `/ready` answers, which it does after startup with the
+database and Valkey reachable. The chart renders no probe by default. The
+image `ghcr.io/open-webui/open-webui:0.12.5` is pinned to its index for
+amd64 and arm64. It is 1643 MB compressed for amd64 and 1481 MB for arm64
+(sums of the layer sizes, MB = 10^6 bytes).
 
 ## Include
 
@@ -111,6 +113,7 @@ target reaches a running instance only through the admin settings.
 | `extraEnvVars` | `<c>.env`, a mapping of name to value |
 | `resources` | `<c>.resources` |
 | `service.type` | `<c>.service.type` |
+| `readinessProbe`, `livenessProbe`, `startupProbe` | `<c>.healthcheck.readiness`, `.liveness`, `.startup` |
 | `nodeSelector`, `tolerations`, `affinity` | `<c>.node_selector`, `<c>.tolerations`, `<c>.affinity` |
 | `podSecurityContext`, `containerSecurityContext` | `<c>.workload_security_context`, `<c>.security_context` |
 | `sso.*` | `<c>.env` with Open WebUI's `OAUTH_*` and `OPENID_*` variables |
@@ -133,7 +136,7 @@ list in the target.
 includes both options. `tests/values.yaml` turns the chart's Ollama,
 Pipelines and Redis off, points the chart at `ollama` and `valkey`, and
 creates the Secret `open-webui` through `extraResources`, as a user would
-next to the chart. It gives the Ollama and OpenAI variables through
+next to the chart. It sets the recipe's probe as `readinessProbe`. It gives the Ollama and OpenAI variables through
 `extraEnvVars`, in the order the options add them, and sets
 `allowPrivilegeEscalation: false` on both containers, because `check`
 does not accept the empty `securityContext` that the generator renders on
@@ -144,8 +147,7 @@ on `name`, the chart on `app.kubernetes.io/instance` and `component`, and
 both select the same pods. The chart binds no role. The objects of `ollama`
 and `valkey` are proven by their own recipes.
 
-`tests/smoke` waits for `/health` through the Service, because the chart
-sets no probes. It signs up the first account, which becomes admin, and
+`tests/smoke` requires `/health` through the Service. It signs up the first account, which becomes admin, and
 requires 403 for a second signup.
 It starts an OpenAI-compatible stub, pulls `smollm:135m` into Ollama
 through Open WebUI's `/ollama/api/pull`, finds both models in
