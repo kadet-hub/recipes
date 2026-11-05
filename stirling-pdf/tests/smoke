@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# RCP-242: the pod under Pod Security restricted, the status of the image's
+# version through the Service, the API closed without a login, two one-page
+# PDFs merged through /api/v1/general/merge-pdfs as admin and checked with
+# qpdf and pdftotext of the image, and a setting written through the admin
+# API that the next pod reads from the claim.
+set -euo pipefail
+name=stirling-pdf-stirling-pdf-chart
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level.
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$ns" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+image=$(kubectl get deployment "$name" -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image%@*}
+tag=${tag##*:}
+kubectl get --raw "/api/v1/namespaces/$ns/services/$name:http/proxy/api/v1/info/status" |
+  jq -e --arg tag "$tag" '.status == "UP" and .version == $tag' >/dev/null
+
+work=$(mktemp -d)
+pf=
+forward() {
+  kubectl port-forward "service/$name" 18080:8080 >/dev/null &
+  pf=$!
+  for _ in $(seq 30); do
+    curl -fsS -o /dev/null http://localhost:18080/api/v1/info/status 2>/dev/null && return
+    sleep 2
+  done
+  echo "the Service $name does not answer" >&2
+  return 1
+}
+trap 'kill $pf 2>/dev/null; rm -rf "$work"' EXIT
+forward
+url=http://localhost:18080/api/v1
+# The image creates the user admin with the password stirling on its first start.
+login() {
+  jq -n '{username: "admin", password: "stirling"}' |
+    curl -fsS -H 'Content-Type: application/json' -d @- "$url/auth/login" | jq -er .session.access_token
+}
+
+# A one-page PDF 1.4 with the text $1 in Helvetica, with a correct xref table.
+pdf() {
+  local content="BT /F1 12 Tf 20 50 Td ($1) Tj ET"
+  local objs=(
+    "<< /Type /Catalog /Pages 2 0 R >>"
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+    "<< /Length ${#content} >>"$'\nstream\n'"$content"$'\nendstream'
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+  )
+  local out=$'%PDF-1.4\n' xref="" i
+  for i in "${!objs[@]}"; do
+    xref+=$(printf '%010d 00000 n ' "${#out}")$'\n'
+    out+="$((i + 1)) 0 obj"$'\n'"${objs[i]}"$'\nendobj\n'
+  done
+  printf '%sxref\n0 6\n0000000000 65535 f \n%strailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n' "$out" "$xref" "${#out}"
+}
+pdf 'kadet one' >"$work/one.pdf"
+pdf 'kadet two' >"$work/two.pdf"
+merge=(-F "fileInput=@$work/one.pdf" -F "fileInput=@$work/two.pdf" "$url/general/merge-pdfs")
+
+code=$(curl -sS -o /dev/null -w '%{http_code}' "${merge[@]}")
+[[ $code == 401 ]] || { echo "merge without a login: HTTP $code" >&2; exit 1; }
+token=$(login)
+curl -fsS -H "Authorization: Bearer $token" -o "$work/merged.pdf" "${merge[@]}"
+# qpdf --check exits non-zero on a damaged file.
+mapfile -t out < <(kubectl exec -i "deployment/$name" -c "$name" -- sh -c '
+  f=$(mktemp)
+  cat >"$f"
+  qpdf --check "$f" >/dev/null && qpdf --show-npages "$f" &&
+    pdftotext -f 1 -l 1 "$f" - | tr -s "\n\f" " " && echo &&
+    pdftotext -f 2 -l 2 "$f" - | tr -s "\n\f" " " && echo
+  status=$?
+  rm -f "$f"
+  exit $status' <"$work/merged.pdf")
+[[ ${out[0]:-} == 2 && ${out[1]:-} == 'kadet one ' && ${out[2]:-} == 'kadet two ' ]] ||
+  { printf 'merged PDF: %s\n' "${out[@]}" >&2; exit 1; }
+
+key=ui.appNameNavbar
+value='kadet smoke'
+jq -n --arg key "$key" --arg value "$value" '{settings: {($key): $value}}' |
+  curl -fsS -X PUT -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d @- \
+    "$url/admin/settings" | jq -e '.message | startswith("Successfully updated 1 setting")' >/dev/null
+
+# Stirling-PDF applies a changed setting at its next start, from settings.yml
+# on the claim.
+pod=$(kubectl get pod -l "name=$name" -o jsonpath='{.items[0].metadata.name}')
+kill "$pf"
+kubectl delete pod "$pod" --wait=true >/dev/null
+for _ in $(seq 150); do
+  ready=$(kubectl get pod -l "name=$name" -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' |
+    awk -v old="$pod" '$1 != old && $2 == "True"')
+  [[ -n $ready ]] && break
+  sleep 2
+done
+[[ -n $ready ]] || { echo "no new pod became ready" >&2; exit 1; }
+forward
+token=$(login)
+curl -fsS -H "Authorization: Bearer $token" "$url/admin/settings/key/$key" |
+  jq -e --arg value "$value" '.value == $value' >/dev/null
+# check reports the last line.
+echo "Stirling-PDF $tag merged two PDFs into one of 2 pages as admin, and the next pod read $key from the claim. The pod passes Pod Security restricted."

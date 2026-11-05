@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.pihole.password
+    description: Password of the web interface and the API. An empty string turns the login off.
+    secret: true

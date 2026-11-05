@@ -1,2 +1,6 @@
-# The chart's defaults: no ServiceMonitor, Ingress, route or config reloader.
-{}
+# The chart's defaults, so no ServiceMonitor, Ingress, route or config
+# reloader, plus the pod's seccomp profile RuntimeDefault, without which Pod
+# Security restricted rejects the pod (RCP-285).
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault

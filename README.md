@@ -26,10 +26,15 @@ global:
   inventory-backend: omegaconf
 ```
 
+reclass and reclass-rs do not resolve the recipes, which use omegaconf's
+interpolations and resolvers (DEC-191 in
+[docs/specs/recipes.md](docs/specs/recipes.md)). A recipe's `recipe.yaml`
+lists the backends it resolves on and the parameters a target must set.
+
 Recipes are fetched by a separate fetch inventory, `fetch/targets/recipes.yml`,
-with one `oci` dependency per published recipe, pinned by version and digest.
-The recipe's page on [kadet-hub.org](https://kadet-hub.org/recipes/) shows
-the entry for its latest version, with the recipes it includes:
+with one `oci` dependency per recipe your targets include, pinned by version
+and digest. The recipe's page on [kadet-hub.org](https://kadet-hub.org/recipes/)
+shows the entry for its latest version:
 
 ```yaml
 parameters:
@@ -40,11 +45,11 @@ parameters:
         output_path: inventory/classes/recipes/cert-manager
 ```
 
-A recipe that includes another needs that one in the fetch inventory too,
-at the digest its index record lists. The
+The consumer workflow of the
 [consumers guide](https://github.com/kadet-hub/registry/blob/main/docs/consumers.md),
-section "Recipes", has the verification steps and the consumer workflow
-that runs them in CI. A commit of `main` that is not released yet can be
+section "Recipes", adds the recipes a pinned recipe includes at the digests
+its index record lists, and verifies them in CI. The guide also has the
+verification steps by hand. A commit of `main` that is not released yet can be
 fetched as a `git` dependency with `ref` set to its full SHA, `subdir` to
 the recipe and the same `output_path`.
 
@@ -70,7 +75,9 @@ parameters:
 ```
 
 Pull each recipe by digest as the consumers guide shows under "Verifying a
-recipe by hand", or fetch them with Kapitan, then compile:
+recipe by hand", or fetch the pinned ones with Kapitan. Kapitan's fetch
+reads no index, so pull the recipes they include by digest in either case,
+as the recipe's page shows. Then compile:
 
 ```sh
 kapitan compile --inventory-path fetch --force-fetch --output-path .
@@ -104,16 +111,34 @@ these checks in CI, but has not been tested with a fetch inventory yet.
 
 ### Updating
 
-Change version and digest of the recipe, and of each recipe it includes to
-the digests its new record lists, delete `inventory/classes/recipes/<name>`
-and run both commands again. `--force-fetch` copies the new version over the
+Change version and digest of the recipe, delete
+`inventory/classes/recipes/<name>` and the directories of the recipes it
+includes, pull those at the digests the new record lists and run both
+commands again. `--force-fetch` copies the new version over the
 old one but leaves the files it removed.
 
-The kadet-hub Renovate preset does not match recipe pins yet. The
-[open-webui-searxng](https://github.com/kadet-hub/examples/tree/main/open-webui-searxng)
-example in kadet-hub/examples has a custom manager for its fetch inventory.
-It bumps each recipe on its own, so an included recipe can move past the
-digest its parent lists, which the consumer workflow then refuses.
+The kadet-hub Renovate preset updates the recipe pins in `fetch/` from
+[kadet-hub/renovate-config#21](https://github.com/kadet-hub/renovate-config/pull/21)
+on, one pull request per recipe. With only the recipes your targets include
+pinned, each update is complete, because the consumer workflow takes the
+included recipes from the new record
+([kadet-hub/registry#536](https://github.com/kadet-hub/registry/pull/536)).
+
+## Converting your own chart
+
+`kadet-convert` turns a chart and your values file into a Kapitan project
+for the `kubernetes` generator and proves with `check`'s comparison that it
+renders the same objects as `helm template`:
+
+```sh
+uvx --from 'git+https://github.com/kadet-hub/recipes@check-v<version>#subdirectory=check' \
+  kadet-convert oci://ghcr.io/stefanprodan/charts/podinfo:6.17.0 \
+  --name podinfo --namespace podinfo -f values.yaml --out podinfo
+```
+
+It needs helm, kubectl, kind, Docker, oras and gh, as `check` does. Usage
+and the report are in [docs/convert.md](docs/convert.md), the design in
+[docs/specs/converter.md](docs/specs/converter.md).
 
 ## Adding a recipe
 
@@ -140,7 +165,8 @@ approval (RCP-20). A pull request merges only after the `ci` job passed and
 a maintainer approved it (RCP-65). The rules `check lint` and the registry
 gate apply are in [docs/specs/recipes.md](docs/specs/recipes.md): the README
 lines and the 300-character description (RCP-23, RCP-32), the shipped files
-and their licenses (RCP-33, RCP-42), and generator pins by digest.
+and their licenses (RCP-33, RCP-42), generator pins by digest, and
+`recipe.yaml` against the README and Kapitan (RCP-260 to RCP-263).
 
 ## Security
 

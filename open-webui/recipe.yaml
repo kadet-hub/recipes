@@ -1,0 +1,17 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.open-webui.secret_key
+    description: WEBUI_SECRET_KEY, which signs logins.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, part of a Redis URL, so letters and digits only.
+    secret: true
+  - path: applications.open-webui.openai.url
+    description: OpenAI-compatible endpoint, such as https://llm.example.com/v1.
+    secret: false
+    option: openai
+  - path: applications.open-webui.openai.api_key
+    description: Key of that endpoint.
+    secret: true
+    option: openai

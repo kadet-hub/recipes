@@ -1,0 +1,33 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.paperless-ngx.secret_key
+    description: Signs the sessions of paperless-ngx.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, written into PAPERLESS_REDIS as it is, so without characters a URL reserves.
+    secret: true
+  - path: applications.paperless-ngx.ai.user
+    description: The paperless-ngx user that paperless-ai acts as.
+    secret: false
+    option: ai
+  - path: applications.paperless-ngx.ai.token
+    description: API token of that user, from its profile in paperless-ngx.
+    secret: true
+    option: ai
+  - path: applications.paperless-ngx.ai.url
+    description: OpenAI-compatible endpoint up to /v1.
+    secret: false
+    option: ai
+  - path: applications.paperless-ngx.ai.model
+    description: Model that paperless-ai asks the endpoint for.
+    secret: false
+    option: ai
+  - path: applications.paperless-ngx.ai.api_key
+    description: Key of the endpoint, any value for an endpoint without keys.
+    secret: true
+    option: ai
+  - path: applications.paperless-ngx.ai.jwt_secret
+    description: Signs the logins of paperless-ai's web interface.
+    secret: true
+    option: ai

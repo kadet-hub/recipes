@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.valkey.password
+    description: Password of Valkey's user default, with which Immich connects to its job queue.
+    secret: true
