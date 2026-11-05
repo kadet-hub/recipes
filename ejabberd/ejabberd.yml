@@ -24,11 +24,17 @@ parameters:
           secretKeyRef:
             key: REGISTER_ADMIN_PASSWORD
         CTL_ON_START: registered_users ${applications.ejabberd.host} ; status
+        # Written to ~/.erlang.cookie before any Erlang node starts (DEC-305).
+        ERLANG_COOKIE:
+          secretKeyRef:
+            key: ERLANG_COOKIE
       secrets:
         credentials:
           string_data:
             REGISTER_ADMIN_PASSWORD:
               value: ${applications.ejabberd.admin_password}
+            ERLANG_COOKIE:
+              value: ${applications.ejabberd.erlang_cookie}
       # The image's HEALTHCHECK, which compose runs: every minute, a timeout
       # of 5 seconds and 10 retries.
       healthcheck:
@@ -40,6 +46,16 @@ parameters:
           period_seconds: 60
           timeout_seconds: 5
           failure_threshold: 10
+      # tini hands SIGTERM to the shell ejabberdctl, which exits without
+      # stopping the Erlang VM, so Mnesia would lose its last writes. Stop
+      # ejabberd first and wait until it has stopped (DEC-304).
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - sh
+              - -c
+              - ejabberdctl stop && ejabberdctl stopped
       security_profile: restricted
       # The image runs as the user ejabberd, UID and GID 9000 in its /etc/passwd.
       workload_security_context:

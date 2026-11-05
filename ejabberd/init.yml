@@ -14,7 +14,7 @@ parameters:
         output_type: yml
   applications:
     ejabberd:
-      # The target sets admin_password.
+      # The target sets admin_password and erlang_cookie.
       # The XMPP domain, example.com as in the compose example.
       host: example.com
       component_defaults:

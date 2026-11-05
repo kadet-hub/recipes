@@ -9,3 +9,4 @@ parameters:
     ejabberd:
       # The compose example's password.
       admin_password: somePassw0rd
+      erlang_cookie: aaaaaaaaaaaaaaaaaaaa

@@ -27,7 +27,17 @@ fail() { echo "$*" >&2; exit 1; }
 # ejabberd.yml), so it runs in the ejabberd pod.
 api() {
   kubectl exec -i ejabberd-0 -- curl -sSk --fail-with-body -u "admin@$host:$admin_password" \
-    -H "Host: $host" -H 'Content-Type: application/json' --data @- "https://127.0.0.1:5443/api/$1"
+    -H "Host: $host" -H 'Content-Type: application/json' --data @- "https://127.0.0.1:5443/api/$1" ||
+    fail "API call $1 failed"
+}
+# The image registers the admin from CTL_ON_CREATE once ejabberd has
+# started, which can be after the readiness probe passed.
+wait_for_admin() {
+  for _ in $(seq 30); do
+    jq -nc --arg h "$host" '{host: $h}' | api registered_users 2>/dev/null | grep -q '"admin"' && return
+    sleep 2
+  done
+  fail "the admin account does not answer the API"
 }
 
 # A BOSH client in POSIX sh. post and start keep the request ID in the shell
@@ -86,6 +96,7 @@ out=$(xmpp "start; post \"<iq \$J type='set' id='reg'><query xmlns='jabber:iq:re
 grep -q "<forbidden xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" <<<"$out" || fail "registration was not refused: $out"
 
 # The admin creates the accounts and a persistent room with its archive.
+wait_for_admin
 for user in alice bob; do
   jq -nc --arg u "$user" --arg h "$host" --arg p "$password" '{user: $u, host: $h, password: $p}' | api register >/dev/null
 done
@@ -121,6 +132,7 @@ for _ in $(seq 60); do
 done
 # The readiness probe runs once a minute, as the image's HEALTHCHECK does.
 kubectl wait pod/ejabberd-0 --for=condition=Ready --timeout=300s >/dev/null
+wait_for_admin
 
 out=$(jq -nc --arg h "$host" '{host: $h}' | api registered_users)
 grep -q '"alice"' <<<"$out" && grep -q '"bob"' <<<"$out" || fail "accounts after the restart: $out"

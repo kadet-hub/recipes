@@ -19,7 +19,9 @@ recipe maps the one under "Customized Example" (DEC-300 in
 and arm64. ejabberd and its image are GPL-2.0. The image runs as the user
 `ejabberd`, UID 9000, under the Pod Security level `restricted`. The
 container adds the capability `NET_BIND_SERVICE`, without which the kernel
-refuses to start `beam.smp` (DEC-302).
+refuses to start `beam.smp` (DEC-302). A preStop hook stops ejabberd before the
+kubelet sends SIGTERM, because the image's entrypoint would otherwise kill
+the Erlang VM before Mnesia saves its last writes (DEC-304).
 
 ## Include
 
@@ -34,17 +36,24 @@ parameters:
   applications:
     ejabberd:
       admin_password: <ref>
+      erlang_cookie: <ref>
 ```
 
 ## Required parameters
 
 `applications.ejabberd.admin_password` is the password of the admin account
-`admin@<host>`. Set it as a ref with the backend of your choice. Without it
-the compile stops with
-`Interpolation key 'applications.ejabberd.admin_password' not found`. The
-image registers the account only when the database on the claim is empty,
-so a later change of the parameter does not change the password. Change it
-with `kubectl exec ejabberd-0 -- ejabberdctl change_password admin <host> <password>`.
+`admin@<host>`. `applications.ejabberd.erlang_cookie` is the Erlang cookie
+of the ejabberd node, a long random string such as one that
+`openssl rand -hex 32` prints. The node accepts Erlang distribution on the
+pod's address with it, so whoever knows it controls ejabberd. Set both as
+refs with the backend of your choice. Without one of them the compile stops
+with `Interpolation key '<key>' not found`. The image registers the account only when the database on the claim is empty,
+so a later change of the parameter does not change the password. Change
+it with `kubectl exec ejabberd-0 -- ejabberdctl change_password admin <host> <password>`.
+The cookie keeps the image's first start from failing, after which the
+image would not register the account (DEC-305). Should the admin still be
+missing, register it with
+`kubectl exec ejabberd-0 -- ejabberdctl register admin <host> <password>`.
 
 ## Settings
 
@@ -107,22 +116,24 @@ command or config names `main`, so no reference is rewritten.
 
 | Compose | Recipe |
 |---|---|
-| service `main` | StatefulSet `ejabberd`, Service `ejabberd`, Secret `ejabberd` with `REGISTER_ADMIN_PASSWORD` |
+| service `main` | StatefulSet `ejabberd`, Service `ejabberd`, Secret `ejabberd` with `REGISTER_ADMIN_PASSWORD` and `ERLANG_COOKIE` |
 | `ghcr.io/processone/ejabberd` without a tag | `ghcr.io/processone/ejabberd:26.09.1@sha256:1842577c33c8088ea15a2a7f940a7b8ffcfb09a4d1c0e713caf03df663f3b069`, which `latest` was at migration |
 | ports `5222`, `5269`, `5280` and `5443` | Service ports `xmpp-client`, `xmpp-server`, `http` and `https`, `ClusterIP` |
 | `EJABBERD_MACRO_HOST`, `EJABBERD_MACRO_ADMIN`, `CTL_ON_START` | `env`, with the compose example's `example.com` from `applications.ejabberd.host` |
 | `REGISTER_ADMIN_PASSWORD` | from `applications.ejabberd.admin_password` in the Secret `ejabberd` |
+| not in the example | `ERLANG_COOKIE` from `applications.ejabberd.erlang_cookie` in the Secret `ejabberd` (DEC-305) |
 | bind mount `./conf/ejabberd.yml` at `/opt/ejabberd/conf/ejabberd.yml` | not rendered: `CONTAINER.md` copies it from `ejabberd.yml.example`, and the image carries `.github/container/ejabberd.yml.example` byte for byte at that path, SHA-256 `12e320cde9dcb0b8f73cab84a33a3abe90a8aaf4e9295f087346d354385ad8fa` (DEC-301) |
 | bind mount `./database` at `/opt/ejabberd/database` | claim template `database`, `ReadWriteOnce`, `1Gi` |
 | the image's `HEALTHCHECK`, `ejabberdctl status` | readiness probe every 60 seconds with a timeout of 5 seconds and 10 failures, the `HEALTHCHECK`'s values |
 | `version`, `container_name` | not rendered. `docker compose config` drops `version`. |
+| `docker stop`, which kills the Erlang VM before Mnesia writes its log | preStop hook `ejabberdctl stop && ejabberdctl stopped` (DEC-304) |
 
 ## Proof
 
 `check ejabberd --level deploys` with `tests/target.yml`, on kind for each
 Kubernetes minor CI tests, with check 0.16.0. A compose file has no
 Kubernetes objects to compare with, so the recipe is proven by deploying it
-(RCP-38). `tests/target.yml` sets the compose example's password.
+(RCP-38). `tests/target.yml` sets the compose example's password and a test cookie.
 
 `tests/smoke` starts a pod of the ejabberd image, which carries `curl` and
 `nc`. From there, through the Service `ejabberd`, it
