@@ -10,6 +10,7 @@ import http.server
 import io
 import json
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import threading
@@ -146,6 +147,46 @@ class Established(unittest.TestCase):
     def test_never_established_fails(self):
         with self.assertRaisesRegex(check.Failed, "not Established"):
             self.established(self.crd(None), self.crd(None), timeout=-1)
+
+
+class RolloutFailure(unittest.TestCase):
+    """RCP-270: a failed rollout reports describe and logs of each pod that is neither ready nor completed."""
+
+    PODS = json.dumps({"items": [
+        {"metadata": {"namespace": "app", "name": "web-0"},
+         "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "False"}]}},
+        {"metadata": {"namespace": "app", "name": "db-0"},
+         "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]}},
+        {"metadata": {"namespace": "app", "name": "token-x"}, "status": {"phase": "Succeeded"}},
+        {"metadata": {"namespace": "other", "name": "pull-0"}, "status": {"phase": "Pending"}},
+    ]})
+
+    def wait(self, *answers):
+        cluster = check.Cluster("c", Path("/nonexistent"))
+        sts = {"kind": "StatefulSet", "metadata": {"name": "web", "namespace": "app"}}
+        self.ran = []
+
+        def kubectl(cmd, **kw):
+            self.ran.append(" ".join(cmd[3:]))
+            return subprocess.CompletedProcess(cmd, 1, "", f"{' '.join(cmd[3:5])} output\n")
+
+        with mock.patch.object(cluster, "kubectl", side_effect=answers), mock.patch("subprocess.run", side_effect=kubectl):
+            check.wait_rollouts(cluster, [sts])
+
+    def test_timeout_reports_unready_pods(self):
+        with self.assertRaises(check.Failed) as failed:
+            self.wait(check.Failed("error: timed out waiting for the condition"), self.PODS)
+        logs = "logs --all-containers --prefix --timestamps --tail 100"
+        self.assertEqual(self.ran, ["describe pod -n app web-0", f"{logs} -n app web-0",
+                                    "describe pod -n other pull-0", f"{logs} -n other pull-0"])
+        message = str(failed.exception)
+        self.assertTrue(message.startswith("error: timed out waiting for the condition\n"))
+        self.assertIn("kubectl describe pod -n app web-0:\ndescribe pod output", message)
+        self.assertIn(f"kubectl {logs} -n other pull-0:\nlogs --all-containers output", message)
+
+    def test_rollout_passes_without_report(self):
+        self.wait("statefulset rolling update complete")
+        self.assertEqual(self.ran, [])
 
 
 class RequirementOrder(unittest.TestCase):
