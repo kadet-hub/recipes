@@ -32,6 +32,10 @@ parameters:
       service_account:
         create: true
         automount_service_account_token: true
+      # The chart's podSecurityContext as tests/values.yaml sets it (RCP-285).
+      workload_security_context:
+        seccompProfile:
+          type: RuntimeDefault
       security_context:
         allowPrivilegeEscalation: false
         capabilities:

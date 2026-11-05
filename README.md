@@ -26,6 +26,11 @@ global:
   inventory-backend: omegaconf
 ```
 
+reclass and reclass-rs do not resolve the recipes, which use omegaconf's
+interpolations and resolvers (DEC-191 in
+[docs/specs/recipes.md](docs/specs/recipes.md)). A recipe's `recipe.yaml`
+lists the backends it resolves on and the parameters a target must set.
+
 Recipes are fetched by a separate fetch inventory, `fetch/targets/recipes.yml`,
 with one `oci` dependency per recipe your targets include, pinned by version
 and digest. The recipe's page on [kadet-hub.org](https://kadet-hub.org/recipes/)
@@ -119,6 +124,22 @@ pinned, each update is complete, because the consumer workflow takes the
 included recipes from the new record
 ([kadet-hub/registry#536](https://github.com/kadet-hub/registry/pull/536)).
 
+## Converting your own chart
+
+`kadet-convert` turns a chart and your values file into a Kapitan project
+for the `kubernetes` generator and proves with `check`'s comparison that it
+renders the same objects as `helm template`:
+
+```sh
+uvx --from 'git+https://github.com/kadet-hub/recipes@check-v<version>#subdirectory=check' \
+  kadet-convert oci://ghcr.io/stefanprodan/charts/podinfo:6.17.0 \
+  --name podinfo --namespace podinfo -f values.yaml --out podinfo
+```
+
+It needs helm, kubectl, kind, Docker, oras and gh, as `check` does. Usage
+and the report are in [docs/convert.md](docs/convert.md), the design in
+[docs/specs/converter.md](docs/specs/converter.md).
+
 ## Adding a recipe
 
 The `to-recipe` skill of the `kapitan-recipes` plugin
@@ -144,7 +165,8 @@ approval (RCP-20). A pull request merges only after the `ci` job passed and
 a maintainer approved it (RCP-65). The rules `check lint` and the registry
 gate apply are in [docs/specs/recipes.md](docs/specs/recipes.md): the README
 lines and the 300-character description (RCP-23, RCP-32), the shipped files
-and their licenses (RCP-33, RCP-42), and generator pins by digest.
+and their licenses (RCP-33, RCP-42), generator pins by digest, and
+`recipe.yaml` against the README and Kapitan (RCP-260 to RCP-263).
 
 ## Security
 

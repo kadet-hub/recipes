@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.15.0 implements renders and deploys, for charts
+Status: Draft. check 0.16.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -335,6 +335,7 @@ Related: [kadet-hub authoring guide](https://github.com/kadet-hub/registry/blob/
   init.yml          # generator pins, applications.<name>, classes of the components
   <component>.yml   # one per component, with its RBAC
   <option>.yml      # optional class, such as crds.yml
+  recipe.yaml       # required parameters and backends (RCP-260)
   vendor/           # vendored files, each with <file>.LICENSE (RCP-35)
   README.md
   tests/
@@ -536,6 +537,135 @@ belong in the recipe.
 
   - Test: manual: review; CI `check` job
   - Since: #10
+
+## Required parameters and backends
+
+A program that writes a target for a recipe, such as the quickstart, a
+Backstage template or the Helm converter, needs two facts that the README
+states only in prose: the parameters the target must set, and the
+inventory backends the recipe resolves on. A Backstage prototype wrote a
+target for immich without `applications.valkey.password`, and the target
+did not compile until someone read the README.
+
+DEC-190: Each recipe declares both facts in `<name>/recipe.yaml`, and
+`check lint` proves the file against the README and against Kapitan. The
+registry copies the two keys into the recipe's index record (REC-18
+there), where a program reads them from the signed index.
+
+```yaml
+# immich/recipe.yaml
+backends:
+  - omegaconf
+required:
+  - path: applications.valkey.password
+    description: Password of Valkey's user default, with which Immich connects to its job queue.
+    secret: true
+```
+
+DEC-191: Every recipe declares `backends: [omegaconf]`, and its relative
+class includes stay.
+
+With the backends `reclass` and `reclass-rs`, `kapitan inventory` of
+`tests/target.yml` stops for postgresql and for every recipe that
+includes it with `Class recipes.cluster not found`. Both backends resolve
+`.cluster` in `postgresql/init.yml` against the class name
+`recipes.postgresql` and look for `recipes.cluster`. The omegaconf backend
+resolves it against the file's directory (Layout). By the same rule,
+`.valkey` in `valkey/init.yml` names `recipes.valkey` itself, and reclass
+stops with a `RecursionError` while reclass-rs dies of a segmentation
+fault.
+
+Replacing every relative include of the 36 recipes with
+`recipes.<name>.<class>` fixes the class lookup on both backends. 28
+recipes then stop at their first interpolation. reclass separates the
+keys of a reference with `:`, so it looks up
+`${applications.postgresql.cluster}` as one key, and it has no `escape`
+resolver. These interpolations are what DEC-3, RCP-5 and RCP-42 ask for.
+omegaconf in turn reads `${applications:postgresql:cluster}` as a call of
+a resolver named `applications` and fails with
+`Unsupported interpolation type applications`.
+
+The other eight recipes resolve. blackbox-exporter, cnpg, jellyfin,
+memcached, ollama, rabbitmq and uptime-kuma resolve on both backends to
+the same parameters as on omegaconf, rabbitmq-cluster-operator on
+reclass-rs only. None of them derives a value from another yet. The
+probes ran on 2026-11-05 with Kapitan 0.36.3, kapicorp-reclass 2.0.0 and
+reclass-rs 0.10.1 from check's lock, on the recipes at `a723bd2`.
+
+| Alternative | Why it was not taken |
+|---|---|
+| Lines in the README next to `Source:`, `Level:` and `Requires:` | Those lines hold one value each. A list of paths with a description and two flags would need a parser for prose. |
+| Absolute includes, and all three backends for the seven recipes that resolve on them | The first value one of them derives (RCP-5) drops reclass and reclass-rs again, and a consumer on those backends breaks with that recipe's next version. The proof compiles on omegaconf only. |
+| Interpolations in reclass syntax | omegaconf cannot read them, and `escape`, `merge` and `parentkey` have no reclass counterpart. |
+
+- RCP-260: Every recipe MUST have a file `recipe.yaml` with the keys
+  `backends` and `required` and no other. `backends` MUST list
+  `omegaconf` and MAY list `reclass` and `reclass-rs`, each once.
+  `required` MUST list each parameter a target must set, as a mapping
+  with `path`, `description`, `secret` and, for a parameter that only an
+  option needs, `option`.
+
+  `path` is the dotted parameter path, such as
+  `applications.valkey.password`. `description` is one line of at most
+  300 characters, the limit of RCP-32. `secret` is `true` for a value the
+  target sets as a ref (RCP-19). `option` names the option
+  `recipes.<name>.<option>` that needs the parameter, such as `route` for
+  the Gateway keycloak's route attaches to. A recipe that needs no
+  parameter has `required: []`.
+
+  The file is no class, and `check lint` does not lint it as one
+  (RCP-36). RCP-4 and RCP-4a apply to it as to a class file.
+
+  - Test: `check lint`; `check/tests/test_lint.py` (`Meta`)
+  - Since: this change
+
+- RCP-261: `check lint` MUST fail unless `recipe.yaml` matches the README.
+  Each path MUST appear in backticks in the section "Required parameters"
+  (RCP-40), and each backticked path there below `applications.`,
+  `components.` or `generators.` MUST be a path of the file. The section
+  MUST say "No parameter has to be set." exactly when `required` is
+  empty. The Include snippet MUST set each path, to `<ref>` exactly when
+  `secret` is `true`, and MUST include `recipes.<name>.<option>` for each
+  `option`.
+
+  The README is what a reader reads and the file what a program reads.
+  The rule keeps the two from drifting apart, so the section names each
+  path in full. authentik, netbox, semaphore and wordpress abbreviated
+  paths such as `.email` until this change.
+
+  - Test: `check lint`; `check/tests/test_lint.py` (`Meta`)
+  - Since: this change
+
+- RCP-262: `check lint` MUST prove each path of `required`. The Include
+  snippet as the recipe's only target MUST resolve with
+  `kapitan inventory` on omegaconf, and MUST fail with
+  `Interpolation key '<path>` once the path is removed from it. For each
+  `option`, the snippet without `recipes.<name>.<option>` and without the
+  paths of that option MUST resolve.
+
+  Kapitan resolves interpolations when it loads the inventory, before a
+  generator runs, so `kapitan inventory` stops where a compile of the
+  snippet would stop. It needs neither the generators nor the network.
+  The snippet's placeholders, such as `<ref>`, resolve as strings. The
+  included recipes lie next to the recipe as in the proof (RCP-49). An
+  error that names a key below the path counts too: keycloak's target
+  sets `applications.keycloak.issuer` as a whole mapping. With
+  `--compiled`, `check` runs no Kapitan (RCP-34) and skips this rule and
+  RCP-263.
+
+  - Test: `check lint`; `check/tests/test_check.py` (`Meta`)
+  - Since: this change
+
+- RCP-263: `check lint` MUST run `kapitan inventory` on `tests/target.yml`
+  with each backend of `backends`, and MUST fail when one of them does not
+  resolve it.
+
+  The proof compiles on omegaconf only. A further backend is checked to
+  resolve the test target, not to resolve it to the same values; DEC-191
+  compared the values once.
+
+  - Test: `check lint`; `check/tests/test_check.py` (`Meta`)
+  - Since: this change
 
 ## Proof
 
@@ -1468,6 +1598,105 @@ proof that requires `gateway-api`.
 
   - Test: manual: review; CI `check` job
   - Since: #15; implemented: #39
+
+## Miniflux
+
+`miniflux` is the first compose recipe (Compose sources). It maps
+`contrib/docker-compose/basic.yml` of miniflux/v2 at
+`238c5614e584ebc87894e7d9f10bc91373a0b2c2`, the commit of the tag 2.3.4.
+The file's health check of the service `miniflux` is commented out, so
+version 1.0.0 rendered no probe for miniflux. Its pod was ready as soon as
+the container ran.
+
+At a start, miniflux pings PostgreSQL, runs its migrations with
+`RUN_MIGRATIONS=1`, creates the admin account with `CREATE_ADMIN=1`, and
+only then listens on port 8080. While the database does not answer, it
+exits with status 1 and the kubelet restarts it (`internal/cli/cli.go`).
+`rollout status` therefore returned while miniflux did not listen. In the
+compose example of kadet-hub/examples#147 and in the job
+`check miniflux --level deploys on 1.37` of #101, `kubectl port-forward`
+in `tests/smoke` reached the pod in that state, got `connection refused`
+and ended.
+
+`/healthcheck` answers `OK` with status 200 once miniflux reaches its
+database, and 503 while it does not (`internal/http/server/healthcheck.go`).
+The commented check of the compose file, `miniflux -healthcheck auto`,
+requests that path on the first address of `LISTEN_ADDR`, below the path
+of `BASE_URL`, and fails after 3 seconds without an answer
+(`internal/cli/health_check.go`). The Docker page of the Miniflux
+documentation offers the same check for a compose file.
+
+DEC-200: `miniflux` has one probe, a readiness probe that runs
+`/usr/bin/miniflux -healthcheck auto` in the container, every 30 seconds
+with a timeout of 30 seconds and 3 failures. It is the check that the
+compose file comments out, mapped as Compose sources map a
+`healthcheck`, with the compose defaults for interval, timeout and
+retries, since the check sets none. The pod becomes ready once miniflux
+has migrated its database and answers, so `rollout status` waits for both.
+The check follows `LISTEN_ADDR` and `BASE_URL` of the container. An HTTP
+probe on `/healthcheck` was considered. It would make the same request from
+the kubelet without a second process, but a target that sets `BASE_URL`
+with a path would have to move the probe as well. The compose component of
+kadet-hub/examples#147, which turns the recipe's probes back into compose
+health checks, takes only command probes. `/readiness` answers like
+`/healthcheck` at the root regardless of `BASE_URL`, and the API
+documentation names it for Kubernetes, but no compose file uses it. A
+liveness probe on the check would restart miniflux whenever PostgreSQL
+does not answer, and compose never restarts an unhealthy container.
+
+DEC-201: `miniflux` keeps `RUN_MIGRATIONS=1` and `CREATE_ADMIN=1` on its
+container. The README tells a target with more than one replica to start
+with one, on an empty database and for an upgrade with new migrations.
+miniflux 2.3.4 takes no lock for either. It reads the
+schema version outside the transactions of its migrations
+(`internal/database/database.go`), and it creates the admin account after
+checking that it does not exist (`internal/cli/create_admin.go`). Several
+pods that start on an empty database therefore run the same migrations or
+create the same account. All but one fail, exit and restart, as the
+multi-environment example of kadet-hub/examples#150 saw once or twice per
+run. On kind 1.37, with the database ready before miniflux started, three
+replicas started at once restarted in 5 of 5 runs. Two of the three pods
+restarted each time, 12 restarts in all, each after a migration failed
+with `duplicate key value` or `already exists`, and all three pods became
+ready. One replica that was scaled to three once its pod was ready
+restarted in none of 5 runs. The Miniflux documentation names `miniflux
+-migrate` or `RUN_MIGRATIONS=1` as the step before the start
+(`content/docs/upgrade.md` of miniflux/website), and nothing for several
+instances. A Job that runs `miniflux -migrate` was considered. Pods
+without `RUN_MIGRATIONS` exit while the schema is behind
+(`IsSchemaUpToDate`), so they would restart until the Job finished, and
+the admin account would still race. Pods cannot wait for the Job without
+access to the API, which a compose recipe does not get (RCP-38). A
+StatefulSet, whose pods start one after another, was considered too. The
+Deployment of every installed version would keep running next to it, and
+miniflux keeps no state of its own.
+
+- RCP-280: `miniflux` MUST have the readiness probe of DEC-200 on the
+  container `miniflux`, and no liveness or startup probe.
+
+  - Test: RCP-281; CI `check` job, which waits for the rollout before
+    `tests/smoke`
+  - Since: #107
+
+- RCP-281: Before its first request, the `tests/smoke` of `miniflux` MUST
+  fail when the Deployment `miniflux` has no readiness probe that runs
+  `/usr/bin/miniflux -healthcheck auto`.
+
+  Without the probe the rest of the test passes whenever miniflux listens
+  by the time it connects, so the race shows only in some runs. On kind
+  1.37 with both images pulled, ten fresh namespaces per variant went
+  through what `check` does after the apply: `rollout status` of
+  `miniflux-db` and `miniflux`, then `tests/smoke` of version 1.0.0.
+  Without the probe, `miniflux -healthcheck auto` in the pod failed right
+  after the rollouts in 10 of 10 runs, and the smoke test failed in 1 with
+  `connection refused`. With the probe the check passed in 10 of 10 runs,
+  and so did the smoke test. The rollouts took 45 to 73 seconds with the
+  probe and 15 to 43 seconds without it, because the probe runs every 30
+  seconds.
+
+  - Test: manual (#107): `tests/smoke` against miniflux 1.0.0 on kind fails at
+    the probe; CI `check` job
+  - Since: #107
 
 ## Nextcloud
 
@@ -2635,10 +2864,11 @@ Both serve the same archive. The `Source` line takes the OCI form, because
 `check` pulls an OCI chart by its digest, and an HTTP repository has no
 digest a client checks (RCP-23).
 
-`tests/values.yaml` keeps the chart's defaults. The chart then renders a
-Deployment, its Service and ServiceAccount, and a ConfigMap with the
-module `http_2xx`, all named `<release>-prometheus-blackbox-exporter`. With
-the release name `blackbox-exporter` that is
+`tests/values.yaml` keeps the chart's defaults, except the pod's seccomp
+profile (DEC-205). The chart then renders a Deployment, its Service and
+ServiceAccount, and a ConfigMap with the module `http_2xx`, all named
+`<release>-prometheus-blackbox-exporter`. With the release name
+`blackbox-exporter` that is
 `blackbox-exporter-prometheus-blackbox-exporter`, which the recipe keeps as
 its component's name. A release of that name installed with the chart's
 defaults then keeps its object names when the recipe replaces it.
@@ -2652,6 +2882,24 @@ Prometheus Operator, which no recipe of this repository installs and
 `check` does not provide. The module configuration is the chart's `config`
 value as its template renders it, carried with the chart's license
 (RCP-42).
+
+DEC-205: The pod of `blackbox-exporter` sets `seccompProfile.type:
+RuntimeDefault` through the generator's `workload_security_context`, and
+`tests/values.yaml` sets the chart's `podSecurityContext` to the same. The
+chart's defaults give the container `runAsNonRoot`,
+`allowPrivilegeEscalation: false` and `capabilities.drop: [ALL]`, but no
+seccomp profile on the pod or the container. 11.20.2 is still the newest
+chart on 2026-11-05. Pod Security `restricted` requires the profile
+`RuntimeDefault` or `Localhost` on the pod or on every container. A
+namespace that enforces it therefore rejected the pods of
+blackbox-exporter 1.0.0, which the Argo CD example of
+kadet-hub/examples#144 ran into. `RuntimeDefault` is the seccomp filter of
+the container runtime. The pod level follows the chart, whose
+`podSecurityContext` value is empty by default and meant for such
+settings. The generator's `security_profile: restricted` was considered.
+It also sets the pod's `runAsNonRoot`, which the chart sets only on the
+container, so `tests/values.yaml` would have to differ from the chart's
+defaults in a second field.
 
 The recipe is at level `deploys`. check 0.14.0 fails every recipe at
 `migrates` (RCP-14).
@@ -2670,6 +2918,26 @@ The recipe is at level `deploys`. check 0.14.0 fails every recipe at
 
   - Test: CI `check` job, report line `smoke`
   - Since: #62
+
+- RCP-285: The pod of `blackbox-exporter` MUST set `seccompProfile.type:
+  RuntimeDefault`, and `tests/values.yaml` MUST set the chart's
+  `podSecurityContext` to the same (DEC-205).
+
+  - Test: `check blackbox-exporter`, which compares the Deployment with the
+    chart's; RCP-286
+  - Since: #106
+
+- RCP-286: The `tests/smoke` of `blackbox-exporter` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace.
+
+  PodSecurity admission checks the running pods of a namespace on that dry
+  run and warns about each violation, as for `memcached` (RCP-232). With
+  blackbox-exporter 1.0.0 on kind 1.37 it warned about the pod's
+  `seccompProfile` and nothing else.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #106
 
 ## Jellyfin
 
@@ -5207,7 +5475,7 @@ first command.
   - Since: #5 (commit SHA); digest: registry #397, README on the digest
     path: #89; the Include sections of the recipes
     with included recipes: #90; included recipes from the index: registry
-    #536, the Include sections: #95
+    #536, the Include sections: #95; forgejo: #102
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at
@@ -5538,8 +5806,9 @@ argument as a literal `${...}` and reads nothing.
 
 - RCP-36: `check lint` MUST apply its class file rules, RCP-17 to RCP-19
   among them, to every file of a recipe that can act as a class: each
-  `*.yml` and `*.yaml` below the recipe directory, except `tests/` and the
-  files a `copy` entry of the recipe names as input. Every `classes` entry
+  `*.yml` and `*.yaml` below the recipe directory, except `tests/`,
+  `recipe.yaml` (RCP-260) and the files a `copy` entry of the recipe names
+  as input. Every `classes` entry
   of a linted file MUST resolve to a linted file.
 
   The omegaconf backend loads any YAML file below the classes path that a
@@ -5971,7 +6240,7 @@ feature's design (OQ-6).
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
-| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68) |
+| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |
@@ -5979,6 +6248,7 @@ feature's design (OQ-6).
 | `.github/actions/tools/` | Pinned helm, kubectl, oras, gh, cloud-provider-kind (RCP-55) |
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
+| `<name>/recipe.yaml`, `check/lint.py`, `check/check.py` | Required parameters and backends (RCP-260 to RCP-263) |
 
 | Value | Setting |
 |---|---|
@@ -5989,7 +6259,7 @@ feature's design (OQ-6).
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
 | First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
 | First recipe from kadet-hub/examples | valkey, chart `valkey` 0.12.0 of valkey-io/valkey-helm, level `deploys` |
-| First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
+| First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, readiness probe `miniflux -healthcheck auto` (DEC-200, RCP-280), migrations without a lock (DEC-201), level `deploys` |
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e` (`kubernetes-versions-2026-11-02`): 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
@@ -6007,7 +6277,7 @@ feature's design (OQ-6).
 | keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.14.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
-| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults, blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71) |
+| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults and the pod's seccomp profile `RuntimeDefault` (DEC-205), blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71, RCP-285, RCP-286) |
 | paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.14.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.14.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-77, RCP-78) |

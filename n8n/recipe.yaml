@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.n8n.encryption_key
+    description: N8N_ENCRYPTION_KEY, which encrypts the stored credentials of workflows, so keep it for the life of the database.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of Valkey's user default, with which n8n connects to the queue.
+    secret: true

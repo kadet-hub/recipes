@@ -2,7 +2,7 @@
 # The exporter's /probe with the module http_2xx, called through its Service,
 # against CoreDNS's metrics endpoint on the Service kube-dns: /metrics answers
 # 200, so probe_success is 1. A path CoreDNS does not serve answers 404, and
-# probe_success is 0.
+# probe_success is 0. The pod passes Pod Security restricted (RCP-286).
 set -euo pipefail
 ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
 probe() {
@@ -17,4 +17,8 @@ done
 grep -qx 'probe_success 1' <<<"$out" || { echo "$out" >&2; exit 1; }
 out=$(probe "$target/not-served")
 grep -qx 'probe_success 0' <<<"$out" || { echo "$out" >&2; exit 1; }
-echo "http_2xx through the Service: $target/metrics probe_success 1, $target/not-served probe_success 0"
+# PodSecurity admission warns on a dry run of the label when a running pod violates the level.
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$ns" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+echo "http_2xx through the Service: $target/metrics probe_success 1, $target/not-served probe_success 0. The pod passes Pod Security restricted."

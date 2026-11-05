@@ -10,9 +10,11 @@ Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
 
 import argparse
 import concurrent.futures
+import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -28,7 +30,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
@@ -211,6 +213,59 @@ def build_project(recipe, work):
     shutil.copy(recipe / "tests/target.yml", project / "inventory/targets" / f"{recipe.name}.yml")
     (project / ".kapitan").write_text("global:\n  inventory-backend: omegaconf\n")
     return project
+
+
+def without(snippet, paths, cls=None):
+    """The Include snippet without the parameters at paths and without the class cls."""
+    out = copy.deepcopy(snippet)
+    out["classes"] = [c for c in out.get("classes") or [] if c != cls]
+    for path in paths:
+        *parents, key = path.split(".")
+        node = out["parameters"]
+        for k in parents:
+            node = node.get(k) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node.pop(key, None)
+    return out
+
+
+def meta_errors(recipe, work):
+    """RCP-262: the Include snippet resolves, and stops without each required path; RCP-263: tests/target.yml
+    resolves on each backend of recipe.yaml. Runs `kapitan inventory`, which needs no generator."""
+    meta = yaml.safe_load((recipe / lint.META).read_text())
+    project = build_project(recipe, work / "meta")
+    target = project / "inventory/targets" / f"{recipe.name}.yml"
+    kapitan = Path(sys.executable).parent / "kapitan"
+
+    def resolve(text, backend="omegaconf"):
+        """None when the target resolves, else Kapitan's output."""
+        target.write_text(text)
+        p = subprocess.run([str(kapitan), "inventory", "--inventory-backend", backend],
+                           cwd=project, capture_output=True, text=True, timeout=900)
+        return None if p.returncode == 0 else (p.stdout + p.stderr).strip() or f"exit {p.returncode} without output"
+
+    def last(out):
+        return out.splitlines()[-1].strip()[:300]
+
+    errors = []
+    tests_target = (recipe / "tests/target.yml").read_text()
+    for backend in meta["backends"]:
+        if (out := resolve(tests_target, backend)) is not None:
+            errors.append(f"tests/target.yml does not resolve on {backend}: {last(out)} (RCP-263)")
+    snippet = lint.include_snippet(recipe)
+    if (out := resolve(yaml.safe_dump(snippet))) is not None:
+        return errors + [f"the Include snippet does not resolve: {last(out)} (RCP-262)"]
+    for e in meta["required"]:
+        out = resolve(yaml.safe_dump(without(snippet, [e["path"]])))
+        if out is None or not re.search(rf"Interpolation key '{re.escape(e['path'])}['.]", out):
+            got = "resolves" if out is None else f"fails with {last(out)}"
+            errors.append(f"{e['path']} is not required: the Include snippet without it {got} (RCP-262)")
+    for option in sorted({e["option"] for e in meta["required"] if "option" in e}):
+        paths = [e["path"] for e in meta["required"] if e.get("option") == option]
+        if (out := resolve(yaml.safe_dump(without(snippet, paths, f"recipes.{recipe.name}.{option}")))) is not None:
+            errors.append(f"the Include snippet without the option {option} and {', '.join(paths)} does not resolve:"
+                          f" {last(out)} (RCP-262)")
+    return errors
 
 
 def compiled_files(out, name):
@@ -504,6 +559,8 @@ def deploy(cluster, objs, recipe, prereqs=()):
 
 def cmd_lint(recipe, work, compiled=None, rendered=None):
     errors = lint.lint_files(recipe)
+    if not errors and not compiled:
+        errors = meta_errors(recipe, work)  # with --compiled, check runs no Kapitan (RCP-34)
     if errors:
         return errors, []
     source, _ = lint.readme_fields(recipe)

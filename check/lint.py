@@ -31,6 +31,12 @@ FORBIDDEN_RESOLVER = re.compile(r"\$\{\s*(from_file|write|oc\.env|filename|paren
 SHA_COMMENT = re.compile(r"#.*SHA-256 ([0-9a-f]{64})")
 DESCRIPTION_LIMIT = 300
 DESCRIPTION_CHAR = re.compile(r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+# RCP-260: the file that declares the required parameters and the inventory backends.
+META = "recipe.yaml"
+BACKENDS = ("omegaconf", "reclass", "reclass-rs")
+PARAMETER_PATH = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$")
+SECTION_PATH = re.compile(r"`((?:applications|components|generators)(?:\.[A-Za-z0-9_-]+)+)`")
+NO_PARAMETER = "No parameter has to be set."
 
 
 def class_files(recipe):
@@ -39,7 +45,7 @@ def class_files(recipe):
     prefix = f"inventory/classes/recipes/{recipe.name}/"
     files = sorted(
         p for p in recipe.rglob("*")
-        if p.suffix in (".yml", ".yaml") and p.is_file() and p.relative_to(recipe).parts[0] != "tests"
+        if p.suffix in (".yml", ".yaml") and p.is_file() and p.relative_to(recipe).parts[0] not in ("tests", META)
     )
     data = set()
     for path in files:
@@ -90,6 +96,34 @@ def readme_fields(recipe):
         else ("design", image.groups()) if image else None,
         level.group(1) if level else None,
     )
+
+
+def section(recipe, heading):
+    """The body of the README section `## <heading>`, "" without one."""
+    for part in re.split(r"^## ", (Path(recipe) / "README.md").read_text(), flags=re.M)[1:]:
+        title, _, body = part.partition("\n")
+        if title.strip() == heading:
+            return body
+    return ""
+
+
+def include_snippet(recipe):
+    """The target of the README's Include section, its first yaml code block (RCP-261), or None."""
+    m = re.search(r"^```yaml\n(.*?)^```", section(recipe, "Include"), re.M | re.S)
+    try:
+        doc = yaml.safe_load(m.group(1)) if m else None
+    except yaml.YAMLError:
+        return None
+    return doc if isinstance(doc, dict) and isinstance(doc.get("parameters"), dict) else None
+
+
+def lookup(params, path):
+    """(value, True) at the dotted path of params, (None, False) when it is not set."""
+    for key in path.split("."):
+        if not isinstance(params, dict) or key not in params:
+            return None, False
+        params = params[key]
+    return params, True
 
 
 def requires(recipe):
@@ -152,6 +186,67 @@ def _requires_errors(recipe):
         if cycle:
             errors.append(f"README.md: requires itself through {cycle} (RCP-54)")
             break
+    return errors
+
+
+def _meta_errors(recipe):
+    """RCP-260: recipe.yaml's keys; RCP-261: its match with the README's Required parameters and Include snippet."""
+    path = recipe / META
+    if not path.is_file():
+        return [f"{META} is missing (RCP-260)"]
+    text = path.read_text()
+    try:
+        errors = _anchor_errors(META, text) + _flow_errors(META, text)
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        return [f"{META}: {e}"]
+    if not isinstance(doc, dict) or set(doc) != {"backends", "required"}:
+        return errors + [f"{META} has the keys backends and required and no other (RCP-260)"]
+    backends, required = doc["backends"], doc["required"]
+    names = [str(b) for b in backends] if isinstance(backends, list) else []
+    if "omegaconf" not in names or len(set(names)) != len(names) or not set(names) <= set(BACKENDS):
+        errors.append(f"{META}: backends lists omegaconf and may list reclass and reclass-rs, each once (RCP-260)")
+    if not isinstance(required, list):
+        return errors + [f"{META}: required is a list (RCP-260)"]
+    entries = []
+    for n, e in enumerate(required):
+        where = f"{META}: required[{n}]"
+        if not isinstance(e, dict) or not {"path", "description", "secret"} <= set(e) <= {"path", "description", "secret", "option"}:
+            errors.append(f"{where} has path, description, secret and, for an option, option (RCP-260)")
+            continue
+        if not isinstance(e["path"], str) or not PARAMETER_PATH.match(e["path"]):
+            errors.append(f"{where}: path {e['path']} is no dotted parameter path (RCP-260)")
+            continue
+        d = e["description"]
+        if not isinstance(d, str) or not d.strip() or len(d) > DESCRIPTION_LIMIT or DESCRIPTION_CHAR.search(d):
+            errors.append(f"{where}: description is one line of at most {DESCRIPTION_LIMIT} characters (RCP-260)")
+        if not isinstance(e["secret"], bool):
+            errors.append(f"{where}: secret is true or false (RCP-260)")
+        if "option" in e and not isinstance(e["option"], str):
+            errors.append(f"{where}: option is the name of an option (RCP-260)")
+        if e["path"] in [x["path"] for x in entries]:
+            errors.append(f"{where}: path {e['path']} is listed twice (RCP-260)")
+        entries.append(e)
+
+    paths = {e["path"] for e in entries}
+    body = section(recipe, "Required parameters")
+    named = set(SECTION_PATH.findall(body))
+    errors += [f"README.md: Required parameters does not name {p} in backticks (RCP-261)" for p in sorted(paths - named)]
+    errors += [f"README.md: Required parameters names {p}, which {META} does not list (RCP-261)" for p in sorted(named - paths)]
+    if (NO_PARAMETER in body) == bool(required):
+        errors.append(f'README.md: Required parameters says "{NO_PARAMETER}" exactly when {META} lists no parameter (RCP-261)')
+    snippet = include_snippet(recipe)
+    if snippet is None:
+        return errors + ["README.md: the Include section has no yaml block with a target (RCP-261)"]
+    classes = [str(c) for c in snippet.get("classes") or []]
+    for e in entries:
+        value, found = lookup(snippet["parameters"], e["path"])
+        if not found:
+            errors.append(f"README.md: the Include snippet does not set {e['path']} (RCP-261)")
+        elif (value == "<ref>") != (e["secret"] is True):
+            errors.append(f"README.md: the Include snippet sets {e['path']} to {value}, and {META} has secret: {e['secret']} (RCP-261)")
+        if "option" in e and f"recipes.{recipe.name}.{e['option']}" not in classes:
+            errors.append(f"README.md: the Include snippet does not include recipes.{recipe.name}.{e['option']} (RCP-261)")
     return errors
 
 
@@ -353,6 +448,7 @@ def lint_files(recipe):
     if headings[after : after + 1] != ["Required parameters"] or not sections[after][2].strip():
         errors.append('README.md has no section "Required parameters" with text directly after "Include" (RCP-40)')
     errors += _description_errors((recipe / "README.md").read_text())
+    errors += _meta_errors(recipe)
     if level not in LEVELS:
         errors.append(f"README.md has no line Level: `<{'|'.join(LEVELS)}>` (RCP-13)")
     elif level != "renders" and not (recipe / "tests/smoke").is_file():

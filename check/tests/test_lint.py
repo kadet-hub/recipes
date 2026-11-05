@@ -496,5 +496,85 @@ class LintIncludesAndRequires(unittest.TestCase):
         self.assertIn("requires itself through valkeyparent -> cert-manager -> miniflux -> valkeyparent (RCP-54)", self.errors())
 
 
+
+class Meta(unittest.TestCase):
+    """RCP-260, RCP-261: recipe.yaml of a copy of valkey, its keys and its match with the README."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.recipe = self.tmp / "valkey"
+        shutil.copytree(RECIPE.parent / "valkey", self.recipe)
+        self.meta = self.recipe / lint.META
+        self.readme = self.recipe / "README.md"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def errors(self):
+        return "\n".join(lint.lint_files(self.recipe))
+
+    def edit(self, path, old, new):
+        text = path.read_text()
+        self.assertIn(old, text)
+        path.write_text(text.replace(old, new, 1))
+
+    def test_valkey_passes(self):
+        self.assertEqual(lint.lint_files(self.recipe), [])
+
+    def test_missing_file_fails(self):
+        self.meta.unlink()
+        self.assertIn("recipe.yaml is missing (RCP-260)", self.errors())
+
+    def test_keys(self):
+        for text, error in [
+            ("backends:\n  - omegaconf\n", "has the keys backends and required and no other (RCP-260)"),
+            ("backends:\n  - omegaconf\nrequired: []\nlevel: deploys\n", "has the keys backends and required and no other"),
+            ("backends:\n  - reclass\nrequired: []\n", "backends lists omegaconf and may list reclass and reclass-rs, each once"),
+            ("backends:\n  - omegaconf\n  - kadet\nrequired: []\n", "backends lists omegaconf"),
+            ("backends:\n  - omegaconf\n  - omegaconf\nrequired: []\n", "backends lists omegaconf"),
+            ("backends:\n  - omegaconf\nrequired:\n  - path: applications.valkey.password\n    secret: true\n",
+             "required[0] has path, description, secret and, for an option, option (RCP-260)"),
+            ("backends:\n  - omegaconf\nrequired:\n  - path: applications..password\n    description: x\n    secret: true\n",
+             "path applications..password is no dotted parameter path"),
+            ("backends:\n  - omegaconf\nrequired:\n  - path: applications.valkey.password\n    description: x\n    secret: yes please\n",
+             "required[0]: secret is true or false"),
+            ("backends:\n  - omegaconf\nrequired:\n  - path: applications.valkey.password\n    description: \"a\\nb\"\n    secret: true\n",
+             "description is one line of at most 300 characters"),
+        ]:
+            with self.subTest(text):
+                self.meta.write_text(text)
+                self.assertIn(error, self.errors())
+
+    def test_anchor_fails(self):
+        self.meta.write_text("backends: &b\n  - omegaconf\nrequired: []\nx: *b\n")
+        self.assertIn("recipe.yaml:1: YAML anchor &b (RCP-4a)", self.errors())
+
+    def test_path_the_readme_does_not_name_fails(self):
+        self.edit(self.readme, "`applications.valkey.password` must be set", "The password must be set")
+        self.assertIn("Required parameters does not name applications.valkey.password in backticks (RCP-261)", self.errors())
+
+    def test_path_the_file_does_not_list_fails(self):
+        self.meta.write_text("backends:\n  - omegaconf\nrequired: []\n")
+        errors = self.errors()
+        self.assertIn("Required parameters names applications.valkey.password, which recipe.yaml does not list (RCP-261)", errors)
+        self.assertIn('says "No parameter has to be set." exactly when recipe.yaml lists no parameter (RCP-261)', errors)
+
+    def test_secret_follows_the_snippet(self):
+        self.edit(self.meta, "secret: true", "secret: false")
+        self.assertIn("the Include snippet sets applications.valkey.password to <ref>, and recipe.yaml has secret: False (RCP-261)",
+                      self.errors())
+
+    def test_path_the_snippet_does_not_set_fails(self):
+        self.edit(self.readme, "      password: <ref>\n", "      storage: 1Gi\n")
+        self.assertIn("the Include snippet does not set applications.valkey.password (RCP-261)", self.errors())
+
+    def test_option_the_snippet_does_not_include_fails(self):
+        self.edit(self.meta, "    secret: true\n", "    secret: true\n    option: tls\n")
+        self.assertIn("the Include snippet does not include recipes.valkey.tls (RCP-261)", self.errors())
+
+    def test_no_class(self):
+        self.assertNotIn(self.meta, lint.class_files(self.recipe))
+
+
 if __name__ == "__main__":
     unittest.main()

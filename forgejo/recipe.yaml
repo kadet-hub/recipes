@@ -1,0 +1,12 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.forgejo.admin.username
+    description: Login of the admin account, which the init container configure-gitea creates. Forgejo rejects admin.
+    secret: false
+  - path: applications.forgejo.admin.password
+    description: Password of the admin account, set again on every start.
+    secret: true
+  - path: applications.forgejo.secret_key
+    description: SECRET_KEY of app.ini, which encrypts stored secrets such as two-factor keys, written only while the claim holds no app.ini.
+    secret: true
