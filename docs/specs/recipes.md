@@ -5281,17 +5281,31 @@ default was considered. It needs Pod Security `baseline`, and the start
 script runs as root with the runtime's default capabilities until it
 switches users.
 
-DEC-165: `stirling-pdf` renders no initial account. Stirling-PDF 3.2.0
-turns the login on by default (`security.enableLogin` in
-`settings.yml.template`), and every API call needs a session or an API key.
-Without `SECURITY_INITIALLOGIN_USERNAME` and `_PASSWORD` the first start
-creates the user `admin` with the password `stirling`
-(`InitialSecuritySetup.java`), and the web UI asks for a new password at
-the first login. The chart renders no account either. The README asks to
-change the password before the Service is exposed. An initial account from
-a Secret through `envs` was considered. The Secret would be an object the
-chart does not render, and Stirling-PDF creates the account only once, so
-a changed parameter would not reach it.
+DEC-165: `stirling-pdf` creates the first admin from the required
+parameters `applications.stirling-pdf.admin.username` and `.password`,
+through the Secret `stirling-pdf-admin` that the recipe renders.
+`tests/values.yaml` sets the chart's `envs` `SECURITY_INITIALLOGIN_USERNAME`
+and `SECURITY_INITIALLOGIN_PASSWORD` from its keys `username` and
+`password`, so `check` accepts the Secret as a Referenced Secret
+(DEC-166). Stirling-PDF 3.2.0 turns the login on by default
+(`security.enableLogin` in `settings.yml.template`), and every API call
+needs a session or an API key. On its first start, while the database
+holds no user, it creates an admin from both variables when both are set,
+and otherwise the user `admin` with the password `stirling`
+(`initializeAdminUser` in `InitialSecuritySetup.java`). On kind with the
+variables set, the log named only the configured admin, and a login as
+`admin` with `stirling` got 401. Stirling-PDF does not write the variables
+into `settings.yml`. A later change of the parameters does not reach the
+account, which the README says.
+
+Stirling-PDF has no self-registration to switch off. `/api/v1/user/register`
+creates a disabled user, and it is not among the endpoints that
+`RequestUriUtils.isPublicAuthEndpoint` opens without a login, so it
+answered 401 without one. The default account, as the chart leaves it, was
+the first version of this recipe. A known password would hold every
+installation until its first login, also on a Service exposed before that.
+Plain `envs` values were considered. The target's ref would then end up in
+the Deployment, which DEC-38 rejects for gitea.
 
 The chart's Ingress, HTTPRoute, ServiceMonitor, PodDisruptionBudget,
 HorizontalPodAutoscaler and cluster mode, which needs PostgreSQL, Valkey,
@@ -5303,11 +5317,11 @@ moves the `Source` line through the `helm` datasource (RCP-16).
 
 - RCP-240: `stirling-pdf` MUST render the chart's Deployment, Service,
   ServiceAccount and claim `stirling-pdf-stirling-pdf-chart` with the
-  values of DEC-162 to DEC-164, and
+  values of DEC-162 to DEC-165, and
   `docker.io/stirlingtools/stirling-pdf:3.2.0` pinned to its index.
 
   - Test: `check stirling-pdf`; CI `check` job
-  - Since: #98
+  - Since: #98; DEC-165: #105
 
 - RCP-241: `stirling-pdf` MUST run as UID, GID and `fsGroup` 1001 under
   `security_profile: restricted`, with the init container
@@ -5321,12 +5335,14 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
   `status: UP` with the version of the image tag from
   `/api/v1/info/status` through the Service. It MUST get 401 from
-  `/api/v1/general/merge-pdfs` without a login. As `admin` it MUST merge
-  two one-page PDFs that it writes itself, and require from `qpdf --check`
+  `/api/v1/general/merge-pdfs` and from `/api/v1/user/register` without a
+  login, and from a login as `admin` with `stirling`. It MUST log in with
+  the username and password of the Secret `stirling-pdf-admin`, and as
+  that admin it MUST merge two one-page PDFs that it writes itself, and require from `qpdf --check`
   and `pdftotext` in the image a valid file of two pages with the first
   file's text on the first. It MUST change `ui.appNameNavbar` through
   `/api/v1/admin/settings`. Once the pod was deleted and its successor is
-  ready, it MUST read the new value from
+  ready, it MUST log in as that admin again and read the new value from
   `/api/v1/admin/settings/key/ui.appNameNavbar`.
 
   Stirling-PDF applies a changed setting only at its next start
@@ -5338,12 +5354,27 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   needs no PDF tool.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #98
+  - Since: #98; admin of the Secret and sign-up: #105
 
-- AC-145 (RCP-240 to RCP-242): `check stirling-pdf --level deploys` passes
-  in CI on each Kubernetes minor, with differences of the classes Selector
-  scheme, Derived name and Explicit default only, and its smoke test reads
-  the setting after the restart.
+- RCP-244: `stirling-pdf` MUST put `applications.stirling-pdf.admin.username`
+  and `.admin.password` into the keys `username` and `password` of the
+  Secret `stirling-pdf-admin`, MUST set `SECURITY_INITIALLOGIN_USERNAME`
+  and `SECURITY_INITIALLOGIN_PASSWORD` from them, and MUST leave both
+  parameters unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, the password as a ref (RCP-19, RCP-40).
+
+  - Test: CI `check` job, report lines `difference: Referenced Secret` and
+    `smoke`; manual: a compile of `tests/target.yml` without each
+    parameter stops with `Interpolation key` and its name
+  - Since: #105
+
+- AC-145 (RCP-240 to RCP-242, RCP-244): `check stirling-pdf --level
+  deploys` passes in CI on each Kubernetes minor, with differences of the
+  classes Selector scheme, Derived name, Explicit default and Referenced
+  Secret only, and its smoke test logs in as the admin of the Secret and
+  reads the setting after the restart.
 
 ## Migration
 
@@ -6266,4 +6297,4 @@ feature's design (OQ-6).
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
-| stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), default account `admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242) |
+| stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |

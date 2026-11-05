@@ -19,6 +19,15 @@ parameters:
       env:
         SYSTEM_ROOTURIPATH: /
         STORAGE_LOCAL_BASEPATH: /configs/storage
+        # The first start creates this admin instead of admin/stirling.
+        SECURITY_INITIALLOGIN_USERNAME:
+          secretKeyRef:
+            name: stirling-pdf-admin
+            key: username
+        SECURITY_INITIALLOGIN_PASSWORD:
+          secretKeyRef:
+            name: stirling-pdf-admin
+            key: password
       ports:
         http:
           container_port: 8080
@@ -84,3 +93,14 @@ parameters:
       persistent_volume_claims:
         stirling-pdf-stirling-pdf-chart:
           storage: 8Gi
+  generators:
+    kubernetes:
+      # The target sets admin.username and admin.password. A component
+      # Secret would also be mounted as a volume, which the chart does not.
+      secrets:
+        stirling-pdf-admin:
+          string_data:
+            username:
+              value: ${applications.stirling-pdf.admin.username}
+            password:
+              value: ${applications.stirling-pdf.admin.password}
