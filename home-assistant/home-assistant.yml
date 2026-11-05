@@ -1,0 +1,27 @@
+parameters:
+  components:
+    home-assistant:
+      application: home-assistant
+      type: statefulset
+      # The image starts as root, on the pod network and without privileged,
+      # so the namespace needs Pod Security baseline (DEC-131).
+      # renovate: Source
+      image: ghcr.io/home-assistant/home-assistant:2026.11.0@sha256:c6c1ca9931036bf3a2c4cc088d8db25dfea3b33935a5ecc83c40349462e2f69e
+      ports:
+        http:
+          service_port: 8123
+      service:
+        type: ClusterIP
+      # The container guide's stop timeout, time to close the database.
+      grace_period: 60
+      volume_mounts:
+        config:
+          mount_path: /config
+      volume_claims:
+        config:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
