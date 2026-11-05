@@ -5083,7 +5083,7 @@ the check of a new device for every installation, also once mail works.
   from `applications.ghost.url`.
 
   - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
-  - Since: this change
+  - Since: #119
 
 - RCP-291: `ghost` MUST include `recipes.mysql` and connect to the
   Service `mysql` with the database and user of `applications.mysql` and
@@ -5092,13 +5092,13 @@ the check of a new device for every installation, also once mail works.
   connections on port 3306.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #119
 
 - RCP-292: `ghost` MUST have the readiness probe of DEC-212 and no
   liveness or startup probe.
 
   - Test: manual: review; CI `check` job, which waits for the rollout
-  - Since: this change
+  - Since: #119
 
 - RCP-293: The `tests/smoke` of `ghost` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -5123,7 +5123,7 @@ the check of a new device for every installation, also once mail works.
   `sessions` in MySQL.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #119
 
 - RCP-294: Renovate MUST NOT need a release timestamp for the image of
   `ghost`.
@@ -5134,7 +5134,7 @@ the check of a new device for every installation, also once mail works.
   suffix `-alpine`, which keeps the variant.
 
   - Test: manual: Renovate dry run
-  - Since: this change
+  - Since: #119
 
 - AC-290 (RCP-290 to RCP-293): `check ghost --level deploys` passes in CI
   on each Kubernetes minor, its report lists the objects of `mysql` as
