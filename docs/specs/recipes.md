@@ -1426,6 +1426,105 @@ proof that requires `gateway-api`.
   - Test: manual: review; CI `check` job
   - Since: #15; implemented: #39
 
+## Miniflux
+
+`miniflux` is the first compose recipe (Compose sources). It maps
+`contrib/docker-compose/basic.yml` of miniflux/v2 at
+`238c5614e584ebc87894e7d9f10bc91373a0b2c2`, the commit of the tag 2.3.4.
+The file's health check of the service `miniflux` is commented out, so
+version 1.0.0 rendered no probe for miniflux. Its pod was ready as soon as
+the container ran.
+
+At a start, miniflux pings PostgreSQL, runs its migrations with
+`RUN_MIGRATIONS=1`, creates the admin account with `CREATE_ADMIN=1`, and
+only then listens on port 8080. While the database does not answer, it
+exits with status 1 and the kubelet restarts it (`internal/cli/cli.go`).
+`rollout status` therefore returned while miniflux did not listen. In the
+compose example of kadet-hub/examples#147 and in the job
+`check miniflux --level deploys on 1.37` of #101, `kubectl port-forward`
+in `tests/smoke` reached the pod in that state, got `connection refused`
+and ended.
+
+`/healthcheck` answers `OK` with status 200 once miniflux reaches its
+database, and 503 while it does not (`internal/http/server/healthcheck.go`).
+The commented check of the compose file, `miniflux -healthcheck auto`,
+requests that path on the first address of `LISTEN_ADDR`, below the path
+of `BASE_URL`, and fails after 3 seconds without an answer
+(`internal/cli/health_check.go`). The Docker page of the Miniflux
+documentation offers the same check for a compose file.
+
+DEC-200: `miniflux` has one probe, a readiness probe that runs
+`/usr/bin/miniflux -healthcheck auto` in the container, every 30 seconds
+with a timeout of 30 seconds and 3 failures. It is the check that the
+compose file comments out, mapped as Compose sources map a
+`healthcheck`, with the compose defaults for interval, timeout and
+retries, since the check sets none. The pod becomes ready once miniflux
+has migrated its database and answers, so `rollout status` waits for both.
+The check follows `LISTEN_ADDR` and `BASE_URL` of the container. An HTTP
+probe on `/healthcheck` was considered. It would make the same request from
+the kubelet without a second process, but a target that sets `BASE_URL`
+with a path would have to move the probe as well. The compose component of
+kadet-hub/examples#147, which turns the recipe's probes back into compose
+health checks, takes only command probes. `/readiness` answers like
+`/healthcheck` at the root regardless of `BASE_URL`, and the API
+documentation names it for Kubernetes, but no compose file uses it. A
+liveness probe on the check would restart miniflux whenever PostgreSQL
+does not answer, and compose never restarts an unhealthy container.
+
+DEC-201: `miniflux` keeps `RUN_MIGRATIONS=1` and `CREATE_ADMIN=1` on its
+container. The README tells a target with more than one replica to start
+with one, on an empty database and for an upgrade with new migrations.
+miniflux 2.3.4 takes no lock for either. It reads the
+schema version outside the transactions of its migrations
+(`internal/database/database.go`), and it creates the admin account after
+checking that it does not exist (`internal/cli/create_admin.go`). Several
+pods that start on an empty database therefore run the same migrations or
+create the same account. All but one fail, exit and restart, as the
+multi-environment example of kadet-hub/examples#150 saw once or twice per
+run. On kind 1.37, with the database ready before miniflux started, three
+replicas started at once restarted in 5 of 5 runs. Two of the three pods
+restarted each time, 12 restarts in all, each after a migration failed
+with `duplicate key value` or `already exists`, and all three pods became
+ready. One replica that was scaled to three once its pod was ready
+restarted in none of 5 runs. The Miniflux documentation names `miniflux
+-migrate` or `RUN_MIGRATIONS=1` as the step before the start
+(`content/docs/upgrade.md` of miniflux/website), and nothing for several
+instances. A Job that runs `miniflux -migrate` was considered. Pods
+without `RUN_MIGRATIONS` exit while the schema is behind
+(`IsSchemaUpToDate`), so they would restart until the Job finished, and
+the admin account would still race. Pods cannot wait for the Job without
+access to the API, which a compose recipe does not get (RCP-38). A
+StatefulSet, whose pods start one after another, was considered too. The
+Deployment of every installed version would keep running next to it, and
+miniflux keeps no state of its own.
+
+- RCP-280: `miniflux` MUST have the readiness probe of DEC-200 on the
+  container `miniflux`, and no liveness or startup probe.
+
+  - Test: RCP-281; CI `check` job, which waits for the rollout before
+    `tests/smoke`
+  - Since: this change
+
+- RCP-281: Before its first request, the `tests/smoke` of `miniflux` MUST
+  fail when the Deployment `miniflux` has no readiness probe that runs
+  `/usr/bin/miniflux -healthcheck auto`.
+
+  Without the probe the rest of the test passes whenever miniflux listens
+  by the time it connects, so the race shows only in some runs. On kind
+  1.37 with both images pulled, ten fresh namespaces per variant went
+  through what `check` does after the apply: `rollout status` of
+  `miniflux-db` and `miniflux`, then `tests/smoke` of version 1.0.0.
+  Without the probe, `miniflux -healthcheck auto` in the pod failed right
+  after the rollouts in 10 of 10 runs, and the smoke test failed in 1 with
+  `connection refused`. With the probe the check passed in 10 of 10 runs,
+  and so did the smoke test. The rollouts took 45 to 73 seconds with the
+  probe and 15 to 43 seconds without it, because the probe runs every 30
+  seconds.
+
+  - Test: manual: `tests/smoke` against miniflux 1.0.0 on kind fails at
+    the probe; CI `check` job
+  - Since: this change
+
 ## Nextcloud
 
 Nextcloud is the first parent. The stack is four recipes, written in this
@@ -5915,7 +6014,7 @@ feature's design (OQ-6).
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
 | First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
 | First recipe from kadet-hub/examples | valkey, chart `valkey` 0.12.0 of valkey-io/valkey-helm, level `deploys` |
-| First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, level `deploys` |
+| First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, readiness probe `miniflux -healthcheck auto` (DEC-200, RCP-280), migrations without a lock (DEC-201), level `deploys` |
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
 | Environment | `fork-pull-request`, required reviewer: a maintainer |
 | Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e` (`kubernetes-versions-2026-11-02`): 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
