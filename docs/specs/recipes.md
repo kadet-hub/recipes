@@ -4497,7 +4497,7 @@ are off by default and not part of the recipe. The ServiceAccount
 
   - Test: `check open-webui` (renders: the probe compared with the
     chart's; deploys: `rollout status`, then RCP-134)
-  - Since: tbd
+  - Since: #109
 
 - AC-81 (RCP-132 to RCP-134): `check open-webui --level deploys` passes in
   CI on each Kubernetes minor, its report lists the objects of `ollama`
