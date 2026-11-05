@@ -140,7 +140,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   would still read an existing empty directory of that name as the chart.
 
   - Test: `check/tests/test_convert.py` (`Cli.test_out_named_like_the_chart`)
-  - Since: #111
+  - Since: #112
 
 ## Mapping
 
