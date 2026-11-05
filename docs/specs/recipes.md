@@ -5540,7 +5540,7 @@ in the ConfigMap is text of the chart's `templates/configmap.yaml`, so
   `qdrant-storage` of 10Gi.
 
   - Test: `check qdrant`; CI `check` job
-  - Since: this change
+  - Since: #110
 
 - RCP-311: `qdrant` MUST put `applications.qdrant.api_key` into the key
   `api-key` of the Secret `qdrant-apikey`, MUST set
@@ -5551,13 +5551,13 @@ in the ConfigMap is text of the chart's `templates/configmap.yaml`, so
 
   - Test: `check lint` (RCP-262); CI `check` job, report lines
     `difference: Referenced Secret` and `smoke`
-  - Since: this change
+  - Since: #110
 
 - RCP-312: `qdrant` MUST run as UID 1000, GID 2000 and `fsGroup` 3000
   under Pod Security `restricted`, without an init container.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #110
 
 - RCP-313: The `tests/smoke` of `qdrant` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -5574,7 +5574,7 @@ in the ConfigMap is text of the chart's `templates/configmap.yaml`, so
   the restart show that the claim keeps the data.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #110
 
 - AC-310 (RCP-310 to RCP-313): `check qdrant --level deploys` passes in CI
   on each Kubernetes minor, with differences of the classes Selector
