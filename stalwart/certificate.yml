@@ -1,0 +1,29 @@
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/certmanager:1.0.2@sha256:ba7632e9e06a593fbe20e9fa6774139203d7df65992adff9db94779606888ad9
+        output_path: lib/certmanager
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/certmanager
+        output_path: manifests/
+        output_type: yml
+  generators:
+    certmanager:
+      certs:
+        # The target sets applications.stalwart.issuer, the name and kind of
+        # the issuer.
+        stalwart-tls:
+          spec:
+            secretName: stalwart-tls
+            # Stalwart refuses a certificate whose issuer is empty, as a
+            # self-signed one without a subject has it.
+            commonName: ${applications.stalwart.hostname}
+            issuerRef: ${applications.stalwart.issuer}
+            dnsNames:
+              - ${applications.stalwart.hostname}
+              - mta-sts.${applications.stalwart.domain}
+              - autoconfig.${applications.stalwart.domain}
+              - autodiscover.${applications.stalwart.domain}

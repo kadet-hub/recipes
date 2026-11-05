@@ -1,0 +1,177 @@
+parameters:
+  components:
+    stalwart:
+      application: stalwart
+      type: statefulset
+      # renovate: Source
+      image: docker.io/stalwartlabs/stalwart:v1.0.3@sha256:73c684a84c24f5b4206ec266a8deb8986fe44a9f623997e07f084388d943c8bd
+      security_profile: restricted
+      # The image runs as the user stalwart, UID 2000 in its /etc/passwd.
+      workload_security_context:
+        runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
+      # The binary carries the file capability cap_net_bind_service, and the
+      # kernel refuses to run it unless the bounding set has it.
+      security_context:
+        capabilities:
+          add:
+            - NET_BIND_SERVICE
+      # A user who knows this password has full access, in every mode.
+      env:
+        STALWART_RECOVERY_ADMIN:
+          secretKeyRef:
+            key: recovery-admin
+      secrets:
+        admin:
+          string_data:
+            recovery-admin:
+              value: ${applications.stalwart.admin.name}:${applications.stalwart.admin.password}
+      config_maps:
+        # Only the data store; stalwart-apply writes everything else.
+        config:
+          mount: /etc/stalwart
+          data:
+            config.json:
+              value: '{"@type":"RocksDb","path":"/var/lib/stalwart/"}'
+        # The init container dns fills in @DKIM_P@ (RCP-345).
+        dns:
+          data:
+            zone:
+              value: |
+                $TTL 3600
+                ${applications.stalwart.domain}. IN MX 10 ${applications.stalwart.hostname}.
+                ${applications.stalwart.domain}. IN TXT "v=spf1 mx -all"
+                ${applications.stalwart.dkim.selector}._domainkey.${applications.stalwart.domain}. IN TXT "v=DKIM1; k=rsa; p=" @DKIM_P@
+                _dmarc.${applications.stalwart.domain}. IN TXT "v=DMARC1; p=${applications.stalwart.dmarc.policy}; rua=mailto:postmaster@${applications.stalwart.domain}"
+                _mta-sts.${applications.stalwart.domain}. IN TXT "v=STSv1; id=${applications.stalwart.mta_sts.id}"
+                mta-sts.${applications.stalwart.domain}. IN CNAME ${applications.stalwart.hostname}.
+                _smtp._tls.${applications.stalwart.domain}. IN TXT "v=TLSRPTv1; rua=mailto:postmaster@${applications.stalwart.domain}"
+                _submissions._tcp.${applications.stalwart.domain}. IN SRV 0 1 465 ${applications.stalwart.hostname}.
+                _imaps._tcp.${applications.stalwart.domain}. IN SRV 0 1 993 ${applications.stalwart.hostname}.
+                autoconfig.${applications.stalwart.domain}. IN CNAME ${applications.stalwart.hostname}.
+                autodiscover.${applications.stalwart.domain}. IN CNAME ${applications.stalwart.hostname}.
+      init_containers:
+        # Prints the zone with the DKIM public key derived from the private
+        # key Stalwart signs with, and fails when the file holds no key.
+        dns:
+          image: ${components.stalwart.image}
+          command:
+            - bash
+            - -ec
+            - |
+              p=$(openssl pkey -in /etc/stalwart/dkim/private-key -pubout -outform DER | base64 -w0)
+              # A TXT string holds at most 255 characters.
+              sed "s|@DKIM_P@|$(fold -w 250 <<<"$p" | sed 's/.*/"&"/' | paste -sd ' ')|" /etc/stalwart/dns/zone |
+                tee /run/stalwart-dns/zone
+          volume_mounts:
+            dkim:
+              mount_path: /etc/stalwart/dkim
+              read_only: true
+            dns:
+              mount_path: /etc/stalwart/dns
+              read_only: true
+            zone:
+              mount_path: /run/stalwart-dns
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      additional_containers:
+        # Stalwart reads the certificate files only when it loads them, so a
+        # renewed certificate takes effect through this reload (RCP-349).
+        reload-tls:
+          image: ${components.stalwart.image}
+          command:
+            - bash
+            - -c
+            - |
+              trap 'exit 0' TERM
+              f=/etc/stalwart/tls/tls.crt
+              seen=$(sha256sum <"$f")
+              while sleep 60 & wait $!; do
+                now=$(sha256sum <"$f")
+                [ "$now" = "$seen" ] && continue
+                curl -fsS -k -u "$STALWART_RECOVERY_ADMIN" -H 'Content-Type: application/json' -o /dev/null \
+                  -d '{"using":["urn:ietf:params:jmap:core","urn:stalwart:jmap"],"methodCalls":[["x:Action/set",{"create":{"r":{"@type":"ReloadTlsCertificates"}}},"0"]]}' \
+                  https://127.0.0.1/jmap/ && seen=$now && echo "reloaded the renewed TLS certificate"
+              done
+          env:
+            STALWART_RECOVERY_ADMIN:
+              secretKeyRef:
+                name: stalwart
+                key: recovery-admin
+          volume_mounts:
+            tls:
+              mount_path: /etc/stalwart/tls
+              read_only: true
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+      # Secrets of the options certificate and dkim, or ones the target
+      # provides under these names (RCP-342, RCP-344).
+      volumes:
+        tls:
+          secret:
+            secretName: stalwart-tls
+        dkim:
+          secret:
+            secretName: stalwart-dkim
+            items:
+              - key: tls.key
+                path: private-key
+        zone:
+          emptyDir: {}
+      ports:
+        smtp:
+          service_port: 25
+        submissions:
+          service_port: 465
+        imaps:
+          service_port: 993
+        https:
+          service_port: 443
+        # Probes only; stalwart-apply refuses every other path on it.
+        http:
+          container_port: 8080
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /healthz/ready
+          initial_delay_seconds: 5
+        liveness:
+          type: http
+          port: http
+          path: /healthz/live
+          initial_delay_seconds: 30
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+      volume_mounts:
+        data:
+          mount_path: /var/lib/stalwart
+        tls:
+          mount_path: /etc/stalwart/tls
+          read_only: true
+        dkim:
+          mount_path: /etc/stalwart/dkim
+          read_only: true
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+      service:
+        type: ClusterIP
