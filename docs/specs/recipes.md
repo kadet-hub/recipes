@@ -3134,6 +3134,162 @@ instance and sets the values `tests/values.yaml` gives the chart.
   `applications.gitea.secret_key` stops the compile with
   `Interpolation key 'applications.gitea.secret_key' not found`.
 
+## Forgejo
+
+Forgejo is a self-hosted Git forge with a web UI and an API, a fork of
+Gitea. `forgejo` deploys it from the chart `forgejo` 17.3.2 of
+forgejo-helm/forgejo-helm, MIT, which the project publishes at
+`oci://code.forgejo.org/forgejo-helm/forgejo`. 17.3.2 was the newest
+release on 2026-11-05. The chart started as a fork of Gitea's chart and
+keeps its names: the values below `gitea`, the claim
+`gitea-shared-storage`, the init container `configure-gitea` and the
+`GITEA_*` variables of the containers. Settings of `app.ini` in the
+environment take the prefix `FORGEJO__`.
+
+The chart runs its `appVersion`, Forgejo 15.0.11, as
+`code.forgejo.org/forgejo/forgejo:15.0.11-rootless`, built for amd64,
+arm64 and arm/v6 (DEC-140). Forgejo is GPL-3.0-or-later. The image follows
+the chart, so Renovate moves neither the image's tag nor the chart's label
+`version: "15.0.11"`. The recipe renders that label from
+`applications.forgejo.labels` on every object the chart puts it on, and on
+the pod template it becomes part of the Services' selectors, as for gitea.
+
+The chart has no subchart besides Bitnami's library chart `common`, which
+renders nothing. Without a database setting Forgejo runs SQLite on the
+claim. `tests/values.yaml` points `gitea.config.database` at the included
+recipe `postgresql` (DEC-141): `postgresql-cluster-rw`, the database `app`
+and `SSL_MODE=require`, which encrypts the connection without verifying
+the server's certificate. `gitea.additionalConfigFromEnvs` takes the user
+and the password from the Secret `postgresql-cluster-app` as
+`FORGEJO__DATABASE__USER` and `FORGEJO__DATABASE__PASSWD`. The recipe reads
+these names from `applications.postgresql` (RCP-60). Cache, sessions and
+queues stay on the chart's defaults (DEC-142).
+
+The chart configures Forgejo as Gitea's chart configures Gitea. The init
+container `init-app-ini` writes `app.ini` on the claim on every start,
+from the Secret `forgejo-inline-config` and then from the
+`FORGEJO__<SECTION>__<KEY>` variables of its environment, which win.
+`configure-gitea` then migrates the database and creates the admin
+account, or sets its password (`gitea.admin.passwordMode: keepUpdated`).
+The scripts both run come from the Secrets `forgejo` and `forgejo-init`,
+which the recipe renders with the chart's text (RCP-42). The pod template
+carries the chart's `checksum/config` of these Secrets, written as
+`tests/values.yaml` renders it.
+
+The chart renders the admin account's Secret `forgejo-admin` itself from
+`gitea.admin.username` and `.password`. Without a password it generates
+one and keeps it through a `lookup` of the existing Secret, which a
+compile cannot do. The recipe renders the same Secret from parameters
+(RCP-220), so `tests/values.yaml` sets both values and, unlike gitea's
+(DEC-38), needs no `extraDeploy`. `init-app-ini` generates `SECRET_KEY`,
+`INTERNAL_TOKEN`, `JWT_SECRET` and `LFS_JWT_SECRET` into a new `app.ini`
+and keeps what an existing one holds. The recipe takes only `SECRET_KEY`
+from a parameter (DEC-143).
+
+The Services `forgejo-http` on port 3000 and `forgejo-ssh` on port 22 are
+of type `ClusterIP` with a cluster IP, where Gitea's chart renders them
+headless. Forgejo's built-in SSH server listens on 2222 in the rootless
+image. The chart's `ROOT_URL` is `http://git.example.com`, from the default
+host of its Ingress, also with the Ingress off. A target sets the address
+users reach Forgejo at as `FORGEJO__SERVER__ROOT_URL` and its neighbours in
+the environment of `init-app-ini`. The Deployment has the chart's strategy
+`Recreate`, its readiness probe `GET /api/healthz` and its liveness probe
+on the TCP port. The chart renders `securityContext: {}` on every container
+without one, as the generator does, and `runAsUser: 1000` on
+`configure-gitea`.
+
+The chart's Ingress, Gateway API routes, OpenShift Route, ServiceAccount,
+PodDisruptionBudget, ServiceMonitor, LDAP and OAuth sources and commit
+signing are off by default and not part of the recipe. The chart renders
+no Forgejo Actions runner. Its Helm test `forgejo-test-connection` is left
+out (RCP-25).
+
+DEC-140: `forgejo` runs Forgejo 15.0.11 of the 15.0 LTS line, the chart's
+`appVersion`, and not 17.0.1, the newest release on 2026-11-05. Forgejo's
+release schedule ends 15.0 on 15 July 2027 and 17.0 on 28 January 2027
+(https://forgejo.org/docs/latest/admin/release-schedule/). 15.0.11, 16.0.7
+and 17.0.1 were released on the same day, 2026-10-26. The chart's
+maintainers closed Renovate's pull requests to Forgejo 16 and 17 without
+merging them (forgejo-helm/forgejo-helm#1638, #1800), so its templates are
+released for 15.0. Running 17.0.1 by `image.tag`, as gitea runs ahead of
+its chart (DEC-37), was considered. Its line ends six months earlier, and
+the chart was not released for it.
+
+DEC-141: `forgejo` runs Forgejo on the included recipe `postgresql` and
+not on the chart's default SQLite. The chart's README recommends PostgreSQL
+or MySQL for long-term use with five or more active users and names
+CloudNativePG first among the operators for it. SQLite was considered. It
+needs no second service, but the database would then live on the claim
+with the repositories, without the backup path that `postgresql` has
+(DEC-18).
+
+DEC-142: `forgejo` keeps the chart's defaults for cache, sessions and
+queues: memory for the first two and a LevelDB queue on the claim. The
+chart has no Redis subchart and no value for one. Its README calls
+external Valkey a choice for medium to large instances that needs no data
+migration later, and advises against the defaults in production because
+one pod holds cache and sessions in its memory. Including `valkey`, as
+gitea does (DEC-36), was considered. Sessions would then outlive a
+restart of the pod, but the recipe would run a service that the chart
+does not deploy and its maintainers recommend only for larger instances. A
+target that wants Valkey includes `recipes.valkey` and sets the
+`FORGEJO__CACHE__*`, `FORGEJO__SESSION__*` and `FORGEJO__QUEUE__*`
+variables of `init-app-ini`.
+
+DEC-143: `forgejo` takes `SECRET_KEY` from `applications.forgejo.secret_key`
+and leaves `INTERNAL_TOKEN` to `init-app-ini`. Forgejo encrypts stored
+secrets, such as two-factor keys, with `SECRET_KEY`, and the database
+lives apart from the claim, so a new claim with a new key could not
+decrypt them. `INTERNAL_TOKEN` authenticates Forgejo's own commands, such
+as its Git hooks, against its internal API, and they read it from the same
+`app.ini`, so a new one breaks nothing. Forgejo 18 removes it
+(codeberg.org/forgejo/forgejo#14148, named in the chart's
+`scripts/config_environment.sh`). Taking both, as gitea does
+(RCP-90), was considered. It would add a required parameter that the next
+LTS line drops.
+
+- RCP-220: `forgejo` MUST take the admin account's login and password and
+  `SECRET_KEY` from `applications.forgejo.admin.username`,
+  `.admin.password` and `.secret_key`, and MUST leave them unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as refs for all but the login (RCP-19).
+  `configure-gitea` sets the admin password on every start. `init-app-ini`
+  writes the key only into a new `app.ini`, so a later change in the target
+  does not reach Forgejo.
+
+  - Test: CI `lint` job; manual: a compile of `tests/target.yml` without
+    each of the three parameters stops with `Interpolation key` and its
+    name
+  - Since: this change
+
+- RCP-221: The `tests/smoke` of `forgejo` MUST require that `/api/healthz`
+  reports `pass` for `database:ping` and that the web UI answers, both
+  through the endpoints of the Service `forgejo-http`, and that
+  `/api/v1/version` reports the version of the image tag the Deployment
+  runs. The login of `forgejo-admin` MUST be an admin. As that account it
+  MUST create a repository through `POST /api/v1/user/repos`, push one
+  commit over HTTP through `forgejo-http` from a pod of its own, and read
+  the commit and the file back through the API. It MUST delete the Forgejo
+  pod and read both back again from the pod that replaces it.
+
+  The push runs Forgejo's hooks, which call its internal API. The test pod
+  runs Forgejo's image, which carries `git`. Forgejo reports its version
+  with the Gitea version it is compatible with, such as
+  `15.0.11+gitea-1.22.0`, so the test compares the part before `+`. The
+  repository lives on the claim and its metadata in PostgreSQL, so the
+  read after the deletion shows that both outlive the pod.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-135 (RCP-220, RCP-221): `check forgejo --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `postgresql` as
+  included and `cnpg` as installed, and its smoke test reads back the
+  commit it pushed after the pod's deletion. `tests/target.yml` without
+  `applications.forgejo.secret_key` stops the compile with
+  `Interpolation key 'applications.forgejo.secret_key' not found`.
+
 ## authentik
 
 authentik is an identity provider. Applications sign their users in
@@ -5433,6 +5589,7 @@ feature's design (OQ-6).
 | n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-85, RCP-86) |
 | jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.14.0, level `deploys` (RCP-76) |
 | gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-90, RCP-91) |
+| forgejo | chart `forgejo` 17.3.2 of forgejo-helm/forgejo-helm, Forgejo 15.0.11 LTS, the chart's `appVersion` (DEC-140), includes postgresql (DEC-141), cache, sessions and queue on the chart's defaults (DEC-142), `SECRET_KEY` required (DEC-143), `kubernetes` generator 1.14.0, level `deploys` (RCP-220, RCP-221) |
 | immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-103, RCP-104) |
 | authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.14.0, level `deploys` (RCP-95, RCP-96) |
 | vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.14.0, level `deploys` (RCP-110 to RCP-112) |
