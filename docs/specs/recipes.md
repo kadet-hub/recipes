@@ -5453,6 +5453,152 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## Zulip
+
+Zulip is a team chat whose messages are organized by channel and topic.
+One container of `ghcr.io/zulip/zulip-server` runs nginx, the Django
+application, the Tornado event server and the queue workers under
+supervisord. It keeps its data in PostgreSQL, queues events in RabbitMQ,
+caches in memcached and counts rate limits in Redis, and stores uploads
+and generated secrets on its claim at `/data`. Zulip and its chart are
+Apache-2.0.
+
+DEC-313: `zulip` is a chart recipe on the chart `zulip` 2.3.0 of
+zulip/docker-zulip, tag `helm-2.3.0`, which Zulip publishes at
+`oci://ghcr.io/zulip/helm-charts/zulip`. It runs
+`ghcr.io/zulip/zulip-server:12.3-0`, the chart's `appVersion`, pinned to
+its index for amd64 and arm64. On 2026-11-05 2.3.0 was the newest chart
+and 12.3-0 the newest image tag. The repository's `compose.yaml` was
+considered as the source. DEC-10 puts the chart first, and Zulip's
+documentation for Kubernetes starts from the chart.
+
+DEC-314: The chart's Bitnami subcharts give way to the included recipes
+`postgresql`, `rabbitmq`, `memcached` and `valkey` (DEC-20).
+`tests/values.yaml` switches the four subcharts off and points
+`externalPostgresql`, `externalRabbitmq`, `externalMemcached` and
+`externalRedis` at their Services, with each password as a `valueFrom` of
+the included recipe's Secret, which the chart takes for these values. The
+subcharts run images of `bitnamilegacy`, and the PostgreSQL subchart runs
+`zulip/zulip-postgresql` 14. Keeping them was considered. They would run a
+second PostgreSQL, RabbitMQ and Redis next to the recipes that this
+repository proves, and the legacy images get no updates.
+
+Zulip's own PostgreSQL image adds hunspell dictionaries and a stop word
+list for its full-text search. The first migration of 12.3
+(`zerver/migrations/0001_squashed_0569.py`) falls back to PostgreSQL's
+`pg_catalog.english` when the server lacks them and `REMOTE_POSTGRES_HOST`
+is set, and logs a warning, as it did on kind. The CloudNativePG image
+lacks them, so search on `zulip` stems words less well than on Zulip's
+image. Zulip's documentation names the same trade-off for managed
+databases. The
+migration creates the schema `zulip` and sets the owner's `search_path`,
+which the owner of the database `app` may do.
+
+The RabbitMQ Cluster Operator generates the default user's name as well as
+its password, in the Secret `rabbitmq-default-user`. The chart's
+`externalRabbitmq.user` takes only a string, so `tests/values.yaml` leaves
+it empty and sets `SETTING_RABBITMQ_USERNAME` in `zulip.environment` from
+the Secret's key `username`. The user reaches the vhost `/`, Zulip's
+default.
+
+The included recipe `memcached` has no authentication (DEC-153). The
+chart's schema requires a memcached password, so `tests/values.yaml` sets
+`externalMemcached.password` to the empty string. Zulip then sets
+`MEMCACHED_USERNAME`, but the python-binary-memcached client authenticates
+only when a password is set as well. On kind memcached reported
+`auth_cmds 0` and items written by Zulip.
+
+DEC-315: `zulip` creates the organization and its owner on the first start
+from the required parameters `applications.zulip.administrator` and
+`applications.zulip.owner_password`. The chart runs every script of
+`postSetup.scripts` on each start, after the migrations, from the ConfigMap
+`zulip-post-setup-scripts`. The script `create-organization.sh` of
+`tests/values.yaml` runs `manage.py create_realm` when `manage.py
+list_realms` shows no organization at the root domain, and passes the
+password through `--password-file`, so it does not appear in a process
+list. The file belongs to the user `zulip`, because the command runs as
+that user and could not open `/dev/stdin` of the root shell. The owner's
+login is the server administrator's address, which Zulip requires as
+`SETTING_ZULIP_ADMINISTRATOR`. A second address parameter was considered.
+One organization on its own server has one person who answers both.
+
+`create_realm` commits the organization in a durable transaction before
+`do_create_user` sets the owner's password (`zerver/actions/create_realm.py`
+of 12.3), and Zulip rejects a password that is shorter than 8 characters
+or that zxcvbn guesses in fewer than 10000 attempts
+(`check_password_strength` in `zproject/backends.py`). On kind a password
+of twelve `a` left the organization `Zulip` without an owner, and the
+script skipped it on every later start. The script therefore runs Zulip's
+strength check first and stops before `create_realm` on a weak password,
+so the next start tries again. Wrapping both steps in one transaction was
+considered. The durable transaction of `do_create_realm` cannot be nested.
+
+A new organization requires an invitation to join (`invite_required`
+defaults to true in `zerver/models/realms.py` of 12.3), and
+`OPEN_REALM_CREATION` stays at its default, off, so a new organization
+needs a link from `manage.py generate_realm_creation_link`. The chart's
+documented way, a creation link opened in a browser after the install, was
+considered. Until someone opens it the server has no organization and no
+admin, and the defaults for applications with accounts ask for the first
+admin from parameters (DEC-165).
+
+DEC-316: `applications.zulip.secret_key` is required and sets
+`SECRETS_secret_key` from the Secret `zulip`. Zulip's chart documentation
+lists it among the settings a values file must set. Without it the image
+generates one into `zulip-secrets.conf` on the claim. Leaving it to the
+image was considered. A restored or replaced claim would then log every
+user out, and the key would not be in the target's refs.
+
+DEC-317: Zulip serves plain HTTP on port 80, the chart's default with
+`CERTIFICATES` unset, and the recipe renders no Ingress or route, as the
+chart's `ingress.enabled` defaults to false. TLS ends at a proxy the target
+sets up, whose addresses go into `LOADBALANCER_IPS`. Zulip answers a
+request without proxy headers only from the loopback. On kind a request
+through the Service from another pod got 500, with or without
+`X-Forwarded-For`, and `errors.log` named `ProxyMisconfigurationError`.
+`tests/smoke` therefore reaches the Service through `kubectl
+port-forward`, as the chart's CI does. A proxy that `LOADBALANCER_IPS`
+names is not proven.
+
+The chart renders no hook and no Role. The ServiceAccount `zulip` keeps
+the API default `automountServiceAccountToken: true`, as on the chart side.
+`tests/target.yml` runs one PostgreSQL instance and one RabbitMQ node, so
+the proof fits a CI runner. The recipe is at level `deploys`.
+
+- RCP-393: `zulip` MUST render the chart's StatefulSet, Service,
+  ServiceAccount, claim `zulip-data` and ConfigMap
+  `zulip-post-setup-scripts` with the values of DEC-314 to DEC-316, and the
+  Secret `zulip` with the keys `secret-key` and `owner-password`.
+
+  - Test: `check zulip`; CI `check` job
+  - Since: this change
+
+- RCP-394: `create-organization.sh` MUST create the organization at the
+  root domain with the owner `applications.zulip.administrator` and the
+  password `applications.zulip.owner_password` when none exists, and MUST
+  leave an existing organization unchanged. It MUST create nothing when
+  Zulip's strength check rejects the password.
+
+  - Test: `zulip/tests/smoke`, the owner's login before and after the pod
+    is replaced; manual: on kind, a password of twelve `a` left no
+    organization and the log line `ZULIP_OWNER_PASSWORD is too weak for
+    Zulip.`, and after the Secret got a strong password the next start
+    created the organization with the owner (#PR)
+  - Since: this change
+
+- RCP-395: The `tests/smoke` of `zulip` MUST reach Zulip through the
+  Service `zulip`, log in as the owner, and have a member created with
+  `manage.py create_user` and the owner each read the other's message in
+  the channel `general`. It MUST require that a signup without an
+  invitation and a new organization without a creation link are refused.
+  After it deletes the Zulip pod and the PostgreSQL primary, it MUST log
+  in as the owner again and read both messages. It MUST also require that
+  Zulip's queue workers consume RabbitMQ, that memcached holds items
+  without a SASL authentication, and that `manage.py check_redis` passes.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -6375,3 +6521,4 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
