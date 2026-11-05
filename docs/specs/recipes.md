@@ -953,7 +953,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   cert-manager 1.18 or later with that gate on, and its README says so.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103; a pod's `false`: #PR
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103; a pod's `false`: #116
 
 DEC-166: `check` accepts a Secret that only the recipe renders when pods
 of the chart side read it by name (Referenced Secret, RCP-243). A chart
@@ -5553,7 +5553,7 @@ renders no hook, and its ServiceAccount has no role.
   DEC-254, and `ghcr.io/mlflow/mlflow:v3.18.0-full` pinned to its index.
 
   - Test: `check mlflow`; CI `check` job
-  - Since: #PR
+  - Since: #116
 
 - RCP-331: `mlflow` MUST set `MLFLOW_AUTH_ADMIN_PASSWORD` and
   `MLFLOW_FLASK_SERVER_SECRET_KEY` from the keys `admin-password` and
@@ -5566,7 +5566,7 @@ renders no hook, and its ServiceAccount has no role.
 
   - Test: `check lint` (RCP-262); CI `check` job, report lines
     `difference: Referenced Secret` and `smoke`
-  - Since: #PR
+  - Since: #116
 
 - RCP-332: `mlflow` MUST keep the users of basic auth in
   `/mlflow/basic_auth.db` and the artifacts below `/mlflow/artifacts`, both
@@ -5574,7 +5574,7 @@ renders no hook, and its ServiceAccount has no role.
   tracking server.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #PR
+  - Since: #116
 
 - RCP-333: The `tests/smoke` of `mlflow` MUST, from a pod of the mlflow
   image and through the Service `mlflow-mlflow` on port 5000, get 401 for
@@ -5589,14 +5589,14 @@ renders no hook, and its ServiceAccount has no role.
   artifact from the claim and the admin from the user store on the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #PR
+  - Since: #116
 
 - RCP-334: `applications.mlflow.allowed_hosts` MUST default to the names
   `mlflow-mlflow`, `mlflow-mlflow.<namespace>`, `mlflow-mlflow.<namespace>.svc`
   and `mlflow-mlflow.<namespace>.svc.cluster.local`, each on port 5000.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #PR
+  - Since: #116
 
 - AC-330 (RCP-330 to RCP-334): `check mlflow --level deploys` passes in CI
   on each Kubernetes minor, with differences of the classes Selector
