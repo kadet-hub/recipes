@@ -1160,7 +1160,7 @@ wheels = [
 [[package]]
 name = "recipes-check"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "kapitan", extra = ["omegaconf", "reclass-rs"] },
     { name = "omegaconf" },

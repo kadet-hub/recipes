@@ -41,10 +41,10 @@ parameters:
       password: <ref>
 ```
 
-Pin `postgresql` and `valkey` in the fetch inventory next to this recipe, each as an `oci` dependency at the
-digest this version's index record lists under `includes`, with
-`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
-kadet-hub.org shows the whole fetch inventory.
+Pin only this recipe in the fetch inventory. The consumer workflow adds
+`postgresql` and `valkey` at the digests this version's index record lists
+under `includes`. Kapitan's `--fetch` reads no index, so for a local
+compile pull them by digest as the recipe's page on kadet-hub.org shows.
 
 ## Required parameters
 

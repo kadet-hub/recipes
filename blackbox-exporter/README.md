@@ -2,7 +2,8 @@
 
 The Prometheus blackbox exporter 0.29.1 with the module `http_2xx`, rendered
 by the kadet-hub `kubernetes` generator 1.14.0 from the prometheus-community
-Helm chart `prometheus-blackbox-exporter` 11.20.2 with its default values.
+Helm chart `prometheus-blackbox-exporter` 11.20.2 with its default values
+and the pod's seccomp profile `RuntimeDefault`.
 
 Source: `oci://ghcr.io/prometheus-community/charts/prometheus-blackbox-exporter:11.20.2@sha256:dff2a707004310c712745e884f548c4c63e6af43be14b831673b519b530c0fe8`
 
@@ -49,6 +50,7 @@ No parameter has to be set.
 | `service.type` | `<c>.service.type` |
 | `podAnnotations` | `<c>.pod_annotations` |
 | `nodeSelector`, `tolerations`, `affinity` | `<c>.node_selector`, `<c>.tolerations`, `<c>.affinity` |
+| `podSecurityContext` | `<c>.workload_security_context` |
 | `securityContext` | `<c>.security_context` |
 
 The pod annotation `checksum/config` is the chart's hash of its ConfigMap
@@ -70,7 +72,11 @@ list in the target.
 ## Proof
 
 `check blackbox-exporter --level deploys` with `tests/values.yaml` and
-`tests/target.yml`, on kind for each Kubernetes minor CI tests. The four
+`tests/target.yml`, on kind for each Kubernetes minor CI tests.
+`tests/values.yaml` sets the chart's `podSecurityContext` to the seccomp
+profile `RuntimeDefault`, which the chart leaves unset and Pod Security
+`restricted` requires. blackbox-exporter 1.0.0 had no seccomp profile, so
+a namespace that enforces `restricted` rejected its pod. The four
 objects differ in three ways. The Deployment and the Service select on
 `name`, the chart on `app.kubernetes.io/name` and `instance`, and both
 select the same pods. The container is named after the component, the
@@ -82,7 +88,9 @@ unset, while the pod opts out as in the chart. The chart binds no role.
 and the API server's service proxy. The target is CoreDNS's metrics
 endpoint on the Service `kube-dns` in `kube-system`: `/metrics` gives
 `probe_success 1`, and a path CoreDNS does not serve gives
-`probe_success 0`.
+`probe_success 0`. A server-side dry run of the label
+`pod-security.kubernetes.io/enforce=restricted` on the namespace must
+return no warning about the running pod.
 
 ## Replacing a Helm release
 

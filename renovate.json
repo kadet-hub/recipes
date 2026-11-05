@@ -33,7 +33,8 @@
       "managerFilePatterns": [
         "/^\\.github/workflows/[^/]+\\.yml$/",
         "/^\\.github/actions/[^/]+/action\\.yml$/",
-        "check/check.py"
+        "check/check.py",
+        "check/convert.py"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>\\S+)\\n\\s*[A-Z_]+: (?<currentValue>[^\"\\s:@]+)\\n",

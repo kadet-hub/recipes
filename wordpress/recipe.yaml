@@ -1,0 +1,33 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.mariadb.password
+    description: Password with which WordPress connects to the included recipe mariadb as the user app.
+    secret: true
+  - path: applications.mariadb.root_password
+    description: Password of the user root of mariadb.
+    secret: true
+  - path: applications.wordpress.auth_key
+    description: AUTH_KEY of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.secure_auth_key
+    description: SECURE_AUTH_KEY of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.logged_in_key
+    description: LOGGED_IN_KEY of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.nonce_key
+    description: NONCE_KEY of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.auth_salt
+    description: AUTH_SALT of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.secure_auth_salt
+    description: SECURE_AUTH_SALT of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.logged_in_salt
+    description: LOGGED_IN_SALT of wp-config.php, a long random string.
+    secret: true
+  - path: applications.wordpress.nonce_salt
+    description: NONCE_SALT of wp-config.php, a long random string.
+    secret: true

@@ -49,6 +49,13 @@ not contain characters a URL reserves, such as `@`, `/`, `:` or `?`.
 | published port `80` | `components.miniflux.ports.http.service_port` |
 | size of the volume `miniflux-db` | `components.miniflux-db.volume_claims.miniflux-db.spec.resources.requests.storage`, default `1Gi` |
 
+miniflux runs its migrations and creates the admin account at every
+start, without a lock. Several replicas that start together on an empty
+database run them at the same time, and all but one exit and restart.
+Start with one replica, the default, and raise
+`components.miniflux.replicas` once its pod is ready. Do the same for an
+upgrade to a miniflux version with new migrations.
+
 The Service `miniflux` is a ClusterIP Service on port 80. The compose file
 publishes that port on the host. Here an Ingress or Gateway in the target
 exposes it.
@@ -65,19 +72,25 @@ The service `db` is renamed to `miniflux-db`, also as the host in
 | `${MINIFLUX_IMAGE:-miniflux/miniflux:latest}` | `miniflux/miniflux:2.3.4@sha256:72e49f513a63104506aab98ba8cfc3a409d4fde23550a583dec07ec941f1e94e`, which `latest` was at migration |
 | `postgres:latest` | `postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6`, which `latest` was at migration |
 | `healthcheck` of `db` | readiness probe `pg_isready -U miniflux` every 10s with the compose default timeout of 30s. `start_period` is dropped. |
+| commented-out `healthcheck` of `miniflux` | readiness probe `/usr/bin/miniflux -healthcheck auto` with the compose defaults, every 30s with a timeout of 30s |
 | port 5432 of `db` | declared, because miniflux connects to it. Compose needs no declaration for that. |
 | volume `miniflux-db` at `/var/lib/postgresql` | volume claim template `miniflux-db`, `ReadWriteOnce`, `1Gi` |
 | `depends_on` with `condition: service_healthy` | not rendered. miniflux restarts until the Service `miniflux-db` has a ready endpoint. |
 | `restart: always`, `container_name` | not rendered. Pods restart with `restartPolicy: Always` and are named by their workload. |
 
-The commented-out healthcheck of `miniflux` is not part of the file's
-configuration and is not migrated.
+The healthcheck of `miniflux` is commented out in the compose file. The
+recipe runs it as the readiness probe, so the pod is ready once miniflux
+has migrated its database and answers `/healthcheck`, and
+`kubectl rollout status` waits until then. The check follows `LISTEN_ADDR`
+and the path of `BASE_URL`. miniflux 1.0.0 had no probe, and its pod was
+ready before miniflux listened.
 
 ## Proof
 
 `check miniflux --level deploys` with `tests/target.yml`, which sets the
 passwords of the compose file, on kind for each Kubernetes minor CI tests. A
 compose file has no Kubernetes objects to compare with, so the recipe is
-proven by deploying it (RCP-38). `tests/smoke` runs `pg_isready` in the
+proven by deploying it (RCP-38). `tests/smoke` requires the readiness probe
+`miniflux -healthcheck auto` on the Deployment, runs `pg_isready` in the
 database pod, expects `OK` from `/healthcheck` on the Service's port 80, and
 creates a category through the API with the admin account and reads it back.
