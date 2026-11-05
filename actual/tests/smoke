@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# What the compose file of Actual sets up (RCP-39, RCP-302): from a pod of its
+# own, through the Service actual on port 5006, the server answers /health and
+# /info, takes its password once through /account/bootstrap, logs in with it,
+# stores a budget file uploaded through the sync API, and keeps password and
+# file on the claim actual-data across a restart of its pod.
+set -euo pipefail
+password=aaaaaaaaaaaaaaaa
+url=http://actual:5006
+image=$(kubectl get statefulset actual -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image#*:}
+tag=${tag%@*}
+# The image brings node, whose fetch is the client, so the test pod needs no
+# other image.
+kubectl run actual-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod actual-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/actual-smoke --for=condition=Ready --timeout=300s >/dev/null
+fail() { echo "$1" >&2; kubectl logs actual-0 --tail=40 >&2; exit 1; }
+
+# "first" sets the password and uploads the file, "again" finds both.
+client=$(cat <<'EOF'
+const [mode, url, password, tag] = process.argv.slice(1);
+const fail = (msg) => { console.error(msg); process.exit(1); };
+const fileId = "smoke-budget";
+// What the client uploads is a zip of db.sqlite and metadata.json. The server
+// stores the body as it is, so fixed bytes stand in for it.
+const budget = Buffer.from("PK\u0003\u0004 smoke budget of the kadet-hub recipe actual\n");
+const call = async (path, init = {}) => {
+  const res = await fetch(url + path, init);
+  const body = Buffer.from(await res.arrayBuffer());
+  let json;
+  try { json = JSON.parse(body.toString()); } catch { json = undefined; }
+  return { status: res.status, body, json };
+};
+const post = (path, body, headers = {}) =>
+  call(path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+
+(async () => {
+  // The Service gets the ready pod as its endpoint a moment after the pod is
+  // ready, and refuses connections until then.
+  let health;
+  for (let i = 0; i < 30 && health?.json?.status !== "UP"; i++) {
+    health = await call("/health").catch(() => undefined);
+    if (health?.json?.status !== "UP") await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (health?.json?.status !== "UP") fail(`/health through the Service: ${health?.body ?? "no answer"}`);
+  const info = await call("/info");
+  if (info.json?.build?.version !== tag) fail(`/info names ${info.json?.build?.version}, the image tag is ${tag}`);
+
+  const boot = await call("/account/needs-bootstrap");
+  if (boot.json?.data?.bootstrapped !== (mode === "again")) fail(`bootstrapped is ${boot.json?.data?.bootstrapped} on the ${mode} run`);
+  if (mode === "first") {
+    const anonymous = await call("/sync/list-user-files");
+    if (anonymous.status !== 401) fail(`/sync/list-user-files without a token: ${anonymous.status}`);
+    const set = await post("/account/bootstrap", { password });
+    if (set.json?.status !== "ok") fail(`bootstrap: ${set.body}`);
+    const again = await post("/account/bootstrap", { password: "b" });
+    if (again.status !== 400 || again.json?.reason !== "already-bootstrapped") fail(`second bootstrap: ${again.status} ${again.body}`);
+    const wrong = await post("/account/login", { password: "b" });
+    if (wrong.json?.reason !== "invalid-password") fail(`login with a wrong password: ${wrong.status} ${wrong.body}`);
+  }
+  const login = await post("/account/login", { password });
+  const token = login.json?.data?.token;
+  if (!token) fail(`login: ${login.body}`);
+  const auth = { "x-actual-token": token };
+
+  if (mode === "first") {
+    const upload = await call("/sync/upload-user-file", {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/encrypted-file", "x-actual-file-id": fileId, "x-actual-name": "Smoke", "x-actual-format": "2" },
+      body: budget,
+    });
+    if (upload.json?.status !== "ok") fail(`upload: ${upload.status} ${upload.body}`);
+  }
+  const files = await call("/sync/list-user-files", { headers: auth });
+  const file = files.json?.data?.find((f) => f.fileId === fileId);
+  if (!file || file.name !== "Smoke" || file.deleted) fail(`list-user-files: ${files.body}`);
+  const download = await call("/sync/download-user-file", { headers: { ...auth, "x-actual-file-id": fileId } });
+  if (download.status !== 200 || !download.body.equals(budget)) fail(`download-user-file: ${download.status}, ${download.body.length} bytes`);
+  console.log(`${mode}: logged in, file ${fileId} listed and downloaded unchanged`);
+})().catch((e) => fail(e.stack));
+EOF
+)
+
+kubectl exec actual-smoke -- node -e "$client" first "$url" "$password" "$tag" || fail "first run through the Service actual"
+
+# The new pod reads the password hash and the file from the claim actual-data.
+kubectl delete pod actual-0 --wait >/dev/null
+kubectl wait pod/actual-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/actual-0 --for=condition=Ready --timeout=300s >/dev/null
+kubectl exec actual-smoke -- node -e "$client" again "$url" "$password" "$tag" || fail "run after the restart"
+echo "Actual answered through the Service actual, took its password through the API, and kept password and budget file across a restart"
