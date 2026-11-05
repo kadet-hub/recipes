@@ -5459,10 +5459,9 @@ LiteLLM's proxy serves one OpenAI-compatible API, such as
 `/v1/chat/completions` and `/v1/models`, and routes each model name to a
 provider: Ollama, vLLM or a hosted API. It is meant as the gateway of a
 retrieval stack with Ollama, Qdrant and Open WebUI. `litellm` deploys it
-from the chart
-`litellm-helm`, which BerriAI/litellm keeps below `helm/litellm-helm` and
-pushes with every release to `oci://ghcr.io/berriai/litellm-helm`,
-versioned like the release. LiteLLM and the chart are MIT, except the
+from the chart `litellm-helm`, which BerriAI/litellm keeps below
+`helm/litellm-helm` and pushes with every release to
+`oci://ghcr.io/berriai/litellm-helm`, versioned like the release. LiteLLM and the chart are MIT, except the
 directory `enterprise/` of the repository.
 
 With its defaults the chart renders the Deployment, Service and ConfigMap
@@ -5563,8 +5562,8 @@ default and not part of the recipe. The chart's Helm tests are left out
 
   - Test: `check litellm`; CI `check` job; manual: a compile of
     `tests/target.yml` without the option, and `check` with the smoke test
-    without its database part (this change)
-  - Since: this change
+    without its database part (#114)
+  - Since: #114
 
 - RCP-316: `litellm` MUST put `applications.litellm.master_key` into the
   key `masterkey` of the Secret `litellm-masterkey` and set
@@ -5572,7 +5571,7 @@ default and not part of the recipe. The chart's Helm tests are left out
   as `model_list` of `config.yaml`, and MUST leave both parameters unset.
 
   - Test: `check lint` (RCP-262); CI `check` job
-  - Since: this change
+  - Since: #114
 
 - RCP-317: The option `postgresql` of `litellm` MUST include
   `recipes.postgresql` and set `DATABASE_URL` from the key `uri` of the
@@ -5580,7 +5579,7 @@ default and not part of the recipe. The chart's Helm tests are left out
 
   - Test: `check litellm`, whose `tests/target.yml` includes the option;
     CI `check` job, report lines `included postgresql`
-  - Since: this change
+  - Since: #114
 
 - RCP-318: The `tests/smoke` of `litellm` MUST require from
   `/health/readiness` through the Service a healthy proxy with its
@@ -5598,7 +5597,7 @@ default and not part of the recipe. The chart's Helm tests are left out
   shows that the keys live in PostgreSQL and not in the pod.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #114
 
 - AC-315 (RCP-315 to RCP-318): `check litellm --level deploys` passes in
   CI on each Kubernetes minor, its report lists the objects of
