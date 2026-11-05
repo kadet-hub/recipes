@@ -19,12 +19,26 @@ email=$(kubectl get deployment langfuse-web \
   -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LANGFUSE_INIT_USER_EMAIL")].value}')
 
 proxy() { kubectl get --raw "/api/v1/namespaces/$ns/$1"; }
+# Web and worker restart with a growing back-off until PostgreSQL is ready.
+# The worker has no readiness probe, as in the chart, so its rollout is done
+# once its container runs. Each answer is therefore awaited.
+answers() {
+  for _ in $(seq 120); do
+    proxy "$1" 2>/dev/null | jq -e --arg status "$2" '.status == $status' >/dev/null && return
+    sleep 5
+  done
+  return 1
+}
 health() {
-  proxy services/langfuse-web:http/proxy/api/public/health | jq -e '.status == "OK"' >/dev/null
-  proxy services/langfuse-web:http/proxy/api/public/ready | jq -e '.status == "OK"' >/dev/null
-  local pod
-  pod=$(kubectl get pods -l name=langfuse-worker -o jsonpath='{.items[0].metadata.name}')
-  proxy "pods/$pod:3030/proxy/api/health" | jq -e '.status == "ok"' >/dev/null
+  answers services/langfuse-web:http/proxy/api/public/health OK
+  answers services/langfuse-web:http/proxy/api/public/ready OK
+  local pod=
+  for _ in $(seq 60); do
+    pod=$(kubectl get pods -l name=langfuse-worker -o jsonpath='{.items[0].metadata.name}')
+    [[ $pod ]] && break
+    sleep 5
+  done
+  answers "pods/$pod:3030/proxy/api/health" ok
 }
 health
 

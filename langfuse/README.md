@@ -166,8 +166,8 @@ pods. SeaweedFS' Service and anti-affinity select on the subchart's labels,
 which the recipe puts on its pod. The pods and the ServiceAccount
 `langfuse` set `automountServiceAccountToken: true`, the API default.
 Containers carry an empty `securityContext` and are named after their
-component. The Secret `langfuse` exists only in the recipe, and the chart's
-pods read exactly its keys. `tests/target.yml` runs one PostgreSQL
+component. The Secrets `langfuse` and `langfuse-clickhouse-auth` exist only
+in the recipe, and the chart's pods read exactly their keys. `tests/target.yml` runs one PostgreSQL
 instance.
 
 `tests/smoke` requires `OK` from `/api/public/health` and

@@ -5511,8 +5511,11 @@ content of `master.toml` are text of the subchart's templates, so
   and SeaweedFS were deleted and their successors are ready, it MUST read
   the same span and file, log in again and send and read a second span.
 
-  The web server answers the span only after it stored the file in the
-  bucket and queued its job in Valkey. The worker takes the job and
+  The worker has no readiness probe, as in the chart, so its rollout is
+  done once its container runs, also while it restarts until PostgreSQL is
+  ready. The test waits up to ten minutes for each health answer. The web
+  server answers the span only after it stored the file in the bucket and
+  queued its job in Valkey. The worker takes the job and
   writes the span to ClickHouse, where the read finds it, so the read
   needs all four stores. The login needs the user in PostgreSQL.
 
