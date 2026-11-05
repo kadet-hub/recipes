@@ -5560,14 +5560,14 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   index.
 
   - Test: `check mattermost`; CI `check` job
-  - Since: this change
+  - Since: #122
 
 - RCP-371: `mattermost` MUST connect to the Cluster of `postgresql` with a
   connection string without a password and `sslmode=require`, and MUST set
   `PGPASSWORD` from the key `password` of `<cluster>-app`.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #122
 
 - RCP-372: The `tests/smoke` of `mattermost` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -5586,14 +5586,14 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   seconds.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #122
 
 - RCP-373: The README of `mattermost` MUST say how to create the first
   admin with `mmctl --local`, and that until then the first sign-up
   becomes a system admin.
 
   - Test: manual: review
-  - Since: this change
+  - Since: #122
 
 - AC-370 (RCP-370 to RCP-372): `check mattermost --level deploys` passes
   in CI on each Kubernetes minor, with differences of the classes Selector
