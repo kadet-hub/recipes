@@ -1,5 +1,7 @@
-# The chart's defaults with its claim at /configs, the image from Docker Hub
-# and the pod under Pod Security restricted as stirlingpdfuser.
+# The chart's defaults with its claim at /configs, the image from Docker Hub,
+# the pod under Pod Security restricted as stirlingpdfuser, and the initial
+# admin from the Secret the recipe renders, which the chart reads as a user
+# creates it next to the chart (RCP-243).
 image:
   registry: docker.io
 persistence:
@@ -17,3 +19,14 @@ containerSecurityContext:
   capabilities:
     drop:
       - ALL
+envs:
+  - name: SECURITY_INITIALLOGIN_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: stirling-pdf-admin
+        key: username
+  - name: SECURITY_INITIALLOGIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: stirling-pdf-admin
+        key: password
