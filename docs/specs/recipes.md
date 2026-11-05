@@ -5133,7 +5133,7 @@ first command.
   - Since: #5 (commit SHA); digest: registry #397, README on the digest
     path: #89; the Include sections of the recipes
     with included recipes: #90; included recipes from the index: registry
-    #536, the Include sections: #95
+    #536, the Include sections: #95; forgejo: #102
 
 - RCP-16: Renovate MUST open a pull request when the chart a recipe is
   derived from has a new release. The pull request runs `check` at
