@@ -655,6 +655,8 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
         for i in result["only_recipe"]:
             failed = True
             say(f"only in the recipe: {i}")
+        for i in result["referenced_secrets"]:
+            say(f"difference: {compare.REFERENCED_SECRET}: {i} only in the recipe, read by the chart's pods")
         for d in result["differences"]:
             failed |= not d.cls
             say(f"difference: {d}")
