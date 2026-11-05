@@ -932,14 +932,14 @@ What the table does not map is a gap, and so is each of these:
   project `name`, an `env_file` the repository does not contain, the
   SELinux option and the settings directory, all for searxng.
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
-  for pihole (DEC-29). Revised in this change: `init`, which was a gap,
+  for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
   (DEC-120, DEC-121).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
-    `cap_add`: #68; `init`, wait for the database: this change
+    `cap_add`: #68; `init`, wait for the database: #91
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -4482,7 +4482,7 @@ Secret `<cluster>-ca` in the pod.
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     `gh api repos/umami-software/umami/git/ref/tags/<tag>`
-  - Since: this change
+  - Since: #91
 
 - RCP-191: `umami` MUST include `recipes.postgresql` and set
   `DATABASE_URL` from the key `uri` of the Secret `<cluster>-app`. It MUST
@@ -4498,7 +4498,7 @@ Secret `<cluster>-ca` in the pod.
   - Test: CI `check` job, report line `smoke`; manual: a compile of
     `tests/target.yml` without each of the two parameters stops with
     `Interpolation key` and its name
-  - Since: this change
+  - Since: #91
 
 - RCP-192: `umami` MUST run as UID 1001 and GID 65533 under
   `security_profile: restricted` (DEC-122), with the init container of
@@ -4506,7 +4506,7 @@ Secret `<cluster>-ca` in the pod.
   or startup probe.
 
   - Test: `check lint`; CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #91
 
 - RCP-193: The `tests/smoke` of `umami` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -4531,7 +4531,7 @@ Secret `<cluster>-ca` in the pod.
   before the restart.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #91
 
 - AC-120 (RCP-190 to RCP-193): `check umami --level deploys` passes in CI
   on each Kubernetes minor, its report lists the objects of `postgresql`
