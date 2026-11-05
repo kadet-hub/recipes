@@ -54,7 +54,9 @@ signin() {
 read_memo() { get --header "Authorization: Bearer $1" "$url/api/$memo" | jq -r .content; }
 
 reachable
-get "$url/" | grep -q '<title>Memos</title>' || fail "/ serves no web UI"
+# Read the page whole: grep -q in a pipe ends before wget, and pipefail then fails it.
+ui=$(get "$url/") || fail "/ does not answer"
+grep -q '<title>Memos</title>' <<<"$ui" || fail "/ serves no web UI"
 profile=$(get "$url/api/instance/profile") || fail "/api/instance/profile does not answer"
 jq -e --arg v "$version" --arg i "$instance_url" '.version == $v and .instanceUrl == $i
   and .accessMode == "INSTANCE_ACCESS_MODE_PUBLIC" and .needsSetup' <<<"$profile" >/dev/null ||
