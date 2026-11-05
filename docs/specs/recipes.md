@@ -1163,14 +1163,14 @@ What the table does not map is a gap, and so is each of these:
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
-  (DEC-120, DEC-121). Revised in this change: the bind mount of a file
+  (DEC-120, DEC-121). Revised in #118: the bind mount of a file
   the image carries, for ejabberd (DEC-301).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; file the image
-    carries: this change
+    carries: #118
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -5550,7 +5550,7 @@ an admin account with a password published in `CONTAINER.md`.
 
   - Test: `check lint`; CI `check` job, report line `compose`; manual:
     the image's label
-  - Since: this change
+  - Since: #118
 
 - RCP-381: `ejabberd` MUST set `REGISTER_ADMIN_PASSWORD` from the Secret
   `ejabberd`, whose value is `applications.ejabberd.admin_password`, which
@@ -5564,13 +5564,13 @@ an admin account with a password published in `CONTAINER.md`.
 
   - Test: CI `check` job; manual: a compile of `tests/target.yml` without
     the parameter stops with `Interpolation key` and its name
-  - Since: this change
+  - Since: #118
 
 - RCP-382: The container of `ejabberd` MUST run as UID and GID 9000 under
   `restricted` and MUST add no capability other than `NET_BIND_SERVICE`.
 
   - Test: CI `check` job, the rollout of `ejabberd`; manual: review
-  - Since: this change
+  - Since: #118
 
 - RCP-383: The `tests/smoke` of `ejabberd` MUST, from a pod of its own and
   through the Service `ejabberd`, get stream features on 5222 that require
@@ -5590,7 +5590,7 @@ an admin account with a password published in `CONTAINER.md`.
   the messages are on the claim.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #118
 
 - AC-380 (RCP-37, RCP-380 to RCP-383): `check ejabberd --level deploys`
   passes in CI on each Kubernetes minor, and its smoke test finds both
