@@ -1,0 +1,86 @@
+parameters:
+  components:
+    stirling-pdf-stirling-pdf-chart:
+      application: stirling-pdf
+      image: docker.io/stirlingtools/stirling-pdf:3.2.0@sha256:10164ffe04961b02ebc9fa4da12064eeacb8d3bc3e09ceb059f78ce7aaa83207
+      # One pod owns the embedded database on the claim, so the old pod
+      # stops before the new one starts.
+      update_strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
+      security_profile: restricted
+      # The image's user stirlingpdfuser, UID and GID 1001 in its /etc/passwd.
+      workload_security_context:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      env:
+        SYSTEM_ROOTURIPATH: /
+        STORAGE_LOCAL_BASEPATH: /configs/storage
+      ports:
+        http:
+          container_port: 8080
+          service_port: 8080
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /api/v1/info/status
+          initial_delay_seconds: 10
+          failure_threshold: 60
+        liveness:
+          type: http
+          port: http
+          path: /api/v1/info/status
+          initial_delay_seconds: 5
+        readiness:
+          type: http
+          port: http
+          path: /api/v1/info/status
+          initial_delay_seconds: 5
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - sleep
+              - "10"
+      grace_period: 60
+      # The chart leaves the ServiceAccount's token at the API default, true,
+      # and opts out in the pod.
+      service_account:
+        create: true
+        automount_service_account_token: true
+      # The image's start script links into /usr/local/bin, which only root
+      # can write, so the container mounts a writable copy there.
+      init_containers:
+        prepare-non-root:
+          image: ${components.stirling-pdf-stirling-pdf-chart.image}
+          # From templates/deployment.yaml of the stirling-pdf-chart chart
+          # 4.0.0, MIT (stirling-pdf.yml.LICENSE).
+          command:
+            - sh
+            - -c
+            - |
+              cp -rP /usr/local/bin/. /writable-bin/
+          volume_mounts:
+            usr-local-bin:
+              mount_path: /writable-bin
+      volume_mounts:
+        storage-volume:
+          mount_path: /configs
+        usr-local-bin:
+          mount_path: /usr/local/bin
+      volumes:
+        storage-volume:
+          persistentVolumeClaim:
+            claimName: stirling-pdf-stirling-pdf-chart
+        usr-local-bin:
+          emptyDir: {}
+      persistent_volume_claims:
+        stirling-pdf-stirling-pdf-chart:
+          storage: 8Gi
