@@ -309,6 +309,14 @@
       "groupName": "vaultwarden"
     },
     {
+      "description": "RCP-16: umami's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "umami-software/umami",
+        "ghcr.io/umami-software/umami"
+      ],
+      "groupName": "umami"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",

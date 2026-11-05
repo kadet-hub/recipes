@@ -1,0 +1,56 @@
+parameters:
+  components:
+    umami:
+      application: umami
+      # renovate: upstream
+      image: ghcr.io/umami-software/umami:3.4.1@sha256:e69d1a7932e9dab0fc523edc7be1f3a53f3c261f57856fc2167ae74a8fc022e8
+      security_profile: restricted
+      # The image's user nextjs, UID 1001 and GID 65533 in its /etc/passwd,
+      # as numbers, so the kubelet can verify runAsNonRoot.
+      workload_security_context:
+        runAsUser: 1001
+        runAsGroup: 65533
+      ports:
+        http:
+          container_port: 3000
+          service_port: 3000
+      service:
+        type: ClusterIP
+      env:
+        DATABASE_URL:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: uri
+        APP_SECRET:
+          secretKeyRef:
+            key: APP_SECRET
+        TWO_FACTOR_ENCRYPTION_KEY:
+          secretKeyRef:
+            key: TWO_FACTOR_ENCRYPTION_KEY
+      secrets:
+        credentials:
+          string_data:
+            APP_SECRET:
+              value: ${applications.umami.app_secret}
+            TWO_FACTOR_ENCRYPTION_KEY:
+              value: ${applications.umami.two_factor_encryption_key}
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - curl http://localhost:3000/api/heartbeat
+          period_seconds: 5
+          timeout_seconds: 5
+          failure_threshold: 5
+      # The start script exits when the database does not answer, so umami
+      # starts once the Cluster's read-write Service accepts connections, as
+      # compose starts it once db is healthy.
+      init_containers:
+        wait-for-database:
+          image: ${components.umami.image}
+          command:
+            - sh
+            - -c
+            - until nc -z -w 2 ${applications.postgresql.cluster}-rw 5432; do sleep 2; done

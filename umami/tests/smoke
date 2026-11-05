@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# RCP-193: the pods under Pod Security restricted, then from a pod of the
+# umami image and through the Service umami on port 3000 the heartbeat, the
+# login as admin, a website, a page view sent as the tracker sends it and
+# read back from the stats, and the same stats with the same session after
+# the Deployment restarted its pod.
+set -euo pipefail
+url=http://umami:3000
+image=$(kubectl get deployment umami -o jsonpath='{.spec.template.spec.containers[?(@.name=="umami")].image}')
+# umami answers a user agent that isbot matches with beep: boop and stores
+# nothing, so the page view comes from Firefox on Linux.
+agent='Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0'
+domain=smoke.example.com
+password=smoke-password
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+# The init container waited for the database, so umami did not restart.
+restarts=$(kubectl get pod -l name=umami -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')
+[[ $restarts == 0 ]] || { echo "umami restarted $restarts times" >&2; exit 1; }
+
+# The image brings curl, so the test pod needs no other image.
+kubectl run umami-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod umami-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/umami-smoke --for=condition=Ready --timeout=120s >/dev/null
+run() { kubectl exec umami-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs deployment/umami --tail=40 >&2; exit 1; }
+# The Service gets the ready pod as its endpoint a moment after the pod is ready.
+reachable() {
+  for _ in $(seq 30); do
+    [[ $(run curl -fsS "$url/api/heartbeat" 2>/dev/null) == '{"ok":true}' ]] && return
+    sleep 2
+  done
+  fail "/api/heartbeat does not answer through the Service umami"
+}
+# The response body on one line, the status code on the next.
+login() {
+  run curl -sS -H 'Content-Type: application/json' -w '\n%{http_code}' \
+    --data "$(jq -nc --arg p "$1" '{username: "admin", password: $p}')" "$url/api/auth/login"
+}
+api() { run curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' "$@"; }
+pageviews() {
+  api "$url/api/websites/$website/stats?startAt=$(((start - 3600) * 1000))&endAt=$(((start + 3600) * 1000))" |
+    jq -r .pageviews
+}
+
+start=$(date +%s)
+reachable
+[[ $(login wrong-password | tail -1) == 401 ]] || fail "a wrong password did not get 401"
+token=$(login umami | head -1 | jq -er .token) || fail "admin cannot log in with the password umami"
+api "$url/api/2fa/status" | jq -e .isConfigured >/dev/null || fail "two-factor authentication has no key"
+website=$(api --data "$(jq -nc --arg d "$domain" '{name: "Smoke", domain: $d}')" "$url/api/websites" | jq -er .id)
+# The tracker script's request for a page view.
+event=$(jq -nc --arg w "$website" --arg d "$domain" '{type: "event", payload: {website: $w,
+  hostname: $d, language: "en-US", screen: "1920x1080", title: "Smoke", url: "/smoke", referrer: ""}}')
+run curl -fsS -A "$agent" -H 'Content-Type: application/json' --data "$event" "$url/api/send" |
+  jq -e .sessionId >/dev/null || fail "/api/send did not take the page view"
+[[ $(pageviews) == 1 ]] || fail "the stats of the website show no page view"
+# The README's way to change the default password. It ends the sessions
+# signed with the old one.
+api --data "$(jq -nc --arg p "$password" '{currentPassword: "umami", newPassword: $p}')" \
+  "$url/api/me/password" >/dev/null
+token=$(login "$password" | head -1 | jq -er .token) || fail "admin cannot log in with the new password"
+
+kubectl rollout restart deployment/umami >/dev/null
+kubectl rollout status deployment/umami --timeout=300s >/dev/null
+reachable
+# The new pod accepts the session only when APP_SECRET comes from the Secret.
+[[ $(pageviews) == 1 ]] || fail "the page view or the session did not outlast the restart"
+[[ $(login umami | tail -1) == 401 ]] || fail "the default password still logs in after the restart"
+# check reports the last line.
+echo "umami stored a page view from /api/send for $domain and reported it through the stats API, also after a restart with the session and the new password of admin. The pods pass Pod Security restricted."
