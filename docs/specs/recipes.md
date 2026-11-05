@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.15.0 implements renders and deploys, for charts
+Status: Draft. check 0.16.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -6078,7 +6078,7 @@ feature's design (OQ-6).
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
-| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68) |
+| `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
 | `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |

@@ -12,3 +12,4 @@ as its first commit.
 | Spec | Area |
 |---|---|
 | [recipes.md](recipes.md) | Recipes: layout, proof, migration, distribution (`RCP-`) |
+| [converter.md](converter.md) | `kadet-convert`: a chart and values to a `kubernetes` generator inventory, proven with `check` (`CNV-`) |
