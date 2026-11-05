@@ -2,6 +2,7 @@
 # open sign-up and with Pod Security restricted.
 image:
   repository: docker.io/mattermost/mattermost-team-edition
+  # renovate: upstream docker.io/mattermost/mattermost-team-edition
   tag: 12.0.2
 mysql:
   enabled: false
