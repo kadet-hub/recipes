@@ -4417,9 +4417,9 @@ file as it is, Navidrome 0.64.2 exits at its first start. SQLite needs a
 temporary file for the migration
 `20241024125533_fix_sort_tags_collation_and_index.sql`, and Docker leaves
 `/tmp` of a read-only container read-only too. `docker run --read-only` of
-the pinned image on an empty volume stopped with `Failed to apply new
-migrations` and `disk I/O error: permission denied`, as root and as UID
-1000. With `--tmpfs /tmp` it started. On kind the recipe without the
+the pinned image on an empty volume stopped with
+`Failed to apply new migrations` and `disk I/O error: permission denied`,
+as root and as UID 1000. With `--tmpfs /tmp` it started. On kind the recipe without the
 `emptyDir` restarted on the same error, and with it the pod became ready. The `emptyDir` takes the place of the `tmpfs` that a
 compose file would add. Dropping `read_only` was considered. The compose
 file asks for a read-only root filesystem, and on kind the server ran with
@@ -4449,9 +4449,10 @@ privilege: it listens on port 4533, and on kind it wrote only to its
 volumes. On kind the pod passed the level `restricted`.
 
 DEC-218: `navidrome` renders no admin account. The first visitor of the web
-UI creates it, as with the compose file. Navidrome's `POST
-/auth/createAdmin` creates the first user as an admin without a login while
-no user exists, and answers 403 afterwards (`server/auth.go` of v0.64.2).
+UI creates it, as with the compose file. Navidrome's
+`POST /auth/createAdmin` creates the first user as an admin without a
+login while no user exists, and answers 403 afterwards (`server/auth.go`
+of v0.64.2).
 Its other route below `/auth` is `login` (`server/server.go`), so Navidrome
 has no self-registration. The setting `ND_DEVAUTOCREATEADMINPASSWORD`
 creates the user `admin` with a given password when the database is new. It
