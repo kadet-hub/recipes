@@ -5053,7 +5053,7 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   `docker.io/stirlingtools/stirling-pdf:3.2.0` pinned to its index.
 
   - Test: `check stirling-pdf`; CI `check` job
-  - Since: #98; DEC-165: this change
+  - Since: #98; DEC-165: #105
 
 - RCP-241: `stirling-pdf` MUST run as UID, GID and `fsGroup` 1001 under
   `security_profile: restricted`, with the init container
@@ -5086,7 +5086,7 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   needs no PDF tool.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #98; admin of the Secret and sign-up: this change
+  - Since: #98; admin of the Secret and sign-up: #105
 
 - RCP-244: `stirling-pdf` MUST put `applications.stirling-pdf.admin.username`
   and `.admin.password` into the keys `username` and `password` of the
@@ -5100,7 +5100,7 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   - Test: CI `check` job, report lines `difference: Referenced Secret` and
     `smoke`; manual: a compile of `tests/target.yml` without each
     parameter stops with `Interpolation key` and its name
-  - Since: this change
+  - Since: #105
 
 - AC-145 (RCP-240 to RCP-242, RCP-244): `check stirling-pdf --level
   deploys` passes in CI on each Kubernetes minor, with differences of the
