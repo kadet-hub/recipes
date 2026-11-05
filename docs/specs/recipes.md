@@ -5541,6 +5541,38 @@ creates accounts in the pod or in the web admin. The example's password as
 the recipe's default was considered. Every target that kept it would run
 an admin account with a password published in `CONTAINER.md`.
 
+DEC-304: `ejabberd` stops ejabberd in a preStop hook with
+`ejabberdctl stop && ejabberdctl stopped`, which the compose example does
+not have (ejabberd). The image's entrypoint is `tini -- ejabberdctl
+foreground`, and `ejabberdctl` starts the Erlang VM as its child without
+`exec`. tini hands SIGTERM to that shell, which exits, and tini then exits
+too, which kills the VM before Mnesia writes its log to the claim. In CI on
+Kubernetes 1.36 the account registered last was missing after the pod was
+deleted (run 42110904623), and `docker stop` of the image lost every account
+registered since the start. With the hook the node stops in 2 to 3 seconds
+and the accounts are there after the restart. Keeping the image's stop was
+considered. Every rollout, eviction and node drain would lose recent
+accounts and messages.
+
+DEC-305: `ejabberd` requires the Erlang cookie as a parameter and sets it
+as `ERLANG_COOKIE`, which the compose example does not set (ejabberd).
+`ejabberdctl` writes the variable to `~/.erlang.cookie` before it starts
+an Erlang node. Without it, the server node and the node of `ejabberdctl
+started`, which the image forks at every start, both start without a
+cookie file. ejabberd names the provisional file of its ctl socket after a
+hash of the cookie (`get_provisional_udsocket_path` in
+`src/ejabberd_listener.erl`). In 2 of 15 fresh starts of the image on
+Docker the listener then failed with `enoent` and the container exited, and
+on kind it restarted. The image runs `CTL_ON_CREATE` only while
+`database/schema.DAT` is missing, and the failed start had already written
+it, so the admin account was never registered. With the variable set, 25
+of 25 fresh starts registered the admin. The node accepts Erlang
+distribution on the pod's address, and the cookie is its only
+authentication, so it is a ref like the password. Retrying the
+registration at every start was considered. It would put the password into
+`CTL_ON_START`, which the container logs, and would not keep ejabberd from
+exiting on its first start.
+
 - RCP-380: The `Source` line of `ejabberd` MUST name `CONTAINER.md` of
   processone/ejabberd at the commit of the release tag that the image's
   `org.opencontainers.image.revision` names, with the file's SHA-256.
@@ -5554,13 +5586,15 @@ an admin account with a password published in `CONTAINER.md`.
 
 - RCP-381: `ejabberd` MUST set `REGISTER_ADMIN_PASSWORD` from the Secret
   `ejabberd`, whose value is `applications.ejabberd.admin_password`, which
-  the recipe leaves unset. It MUST set `EJABBERD_MACRO_HOST` to
+  the recipe leaves unset, and `ERLANG_COOKIE` from the same Secret, whose
+  value is `applications.ejabberd.erlang_cookie`, which the recipe leaves
+  unset too. It MUST set `EJABBERD_MACRO_HOST` to
   `applications.ejabberd.host` and `EJABBERD_MACRO_ADMIN` to
   `admin@<host>`.
 
-  Without the password the compile stops with
-  `Interpolation key 'applications.ejabberd.admin_password' not found`
-  (RCP-19, RCP-40). The host defaults to the example's `example.com`.
+  Without either parameter the compile stops with `Interpolation key` and
+  its name (RCP-19, RCP-40). The host defaults to the example's
+  `example.com`.
 
   - Test: CI `check` job; manual: a compile of `tests/target.yml` without
     the parameter stops with `Interpolation key` and its name
@@ -5570,6 +5604,13 @@ an admin account with a password published in `CONTAINER.md`.
   `restricted` and MUST add no capability other than `NET_BIND_SERVICE`.
 
   - Test: CI `check` job, the rollout of `ejabberd`; manual: review
+  - Since: #118
+
+- RCP-384: `ejabberd` MUST stop ejabberd in a preStop hook and wait until
+  the node has stopped.
+
+  - Test: `tests/smoke`, which requires every account after the pod's
+    deletion; CI `check` job
   - Since: #118
 
 - RCP-383: The `tests/smoke` of `ejabberd` MUST, from a pod of its own and
@@ -5592,11 +5633,11 @@ an admin account with a password published in `CONTAINER.md`.
   - Test: CI `check` job, report line `smoke`
   - Since: #118
 
-- AC-380 (RCP-37, RCP-380 to RCP-383): `check ejabberd --level deploys`
+- AC-380 (RCP-37, RCP-380 to RCP-384): `check ejabberd --level deploys`
   passes in CI on each Kubernetes minor, and its smoke test finds both
   messages in the archives after the restart. `tests/target.yml` without
-  `applications.ejabberd.admin_password` stops the compile with
-  `Interpolation key` and that key.
+  `applications.ejabberd.admin_password` or `erlang_cookie` stops the
+  compile with `Interpolation key` and that key.
 
 ## Migration
 
@@ -6520,4 +6561,4 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
-| ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-383) |
+| ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
