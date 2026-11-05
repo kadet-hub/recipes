@@ -1503,7 +1503,7 @@ miniflux keeps no state of its own.
 
   - Test: RCP-281; CI `check` job, which waits for the rollout before
     `tests/smoke`
-  - Since: this change
+  - Since: #107
 
 - RCP-281: Before its first request, the `tests/smoke` of `miniflux` MUST
   fail when the Deployment `miniflux` has no readiness probe that runs
@@ -1521,9 +1521,9 @@ miniflux keeps no state of its own.
   probe and 15 to 43 seconds without it, because the probe runs every 30
   seconds.
 
-  - Test: manual: `tests/smoke` against miniflux 1.0.0 on kind fails at
+  - Test: manual (#107): `tests/smoke` against miniflux 1.0.0 on kind fails at
     the probe; CI `check` job
-  - Since: this change
+  - Since: #107
 
 ## Nextcloud
 
