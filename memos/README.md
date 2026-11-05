@@ -52,17 +52,30 @@ the parameter the compile stops with
 ## The admin account
 
 The recipe creates no account (DEC-173). The first account that signs up,
-in the web UI or through the API, becomes the admin. Anyone who reaches the
-Service can then still sign up as a regular user, until the admin turns
-off user registration in the instance settings. Until the target exposes
-the Service, only the cluster reaches it. Create the admin account and
-decide on registration first, as here from a pod in the namespace.
+in the web UI or through the API, becomes the admin. After that Memos
+refuses every sign-up without a login, and the admin creates further
+accounts in the web UI. Until the target exposes the Service, only the
+cluster reaches the sign-up, so create the admin account first, as here
+from a pod in the namespace.
 
 ```sh
 curl -fsS -H 'Content-Type: application/json' \
   --data '{"username": "admin", "password": "<password>"}' \
   http://memos:5230/api/users
 ```
+
+The recipe closes the registration with Memos' declarative configuration
+(`content/docs/configuration/declarative-configuration.mdx` of the
+documentation). The ConfigMap `memos` mounts `instance.json` at
+`/etc/memos/config`, and Memos applies it at every start. The file sets
+`disallowUserRegistration` of the setting group `GENERAL` to `true`, so
+the web UI and the API refuse to change that field. It leaves the group's
+other fields, such as the instance's title, to the web UI. To open the
+registration, set the value of
+`components.memos.config_maps.config.data.instance.json` in the target
+with `false`. Memos stops at startup when a declaration it applied
+disappears from the files, so a target that drops it adds a `removed`
+entry for `instance/settings/GENERAL`.
 
 ## Settings
 
@@ -101,6 +114,7 @@ reference is rewritten.
 | `container_name: memos` | not rendered |
 | `restart: unless-stopped` | not rendered |
 | not in the compose file | UID and GID 10001 with `fsGroup` 10001 under `restricted` (DEC-172) |
+| not in the compose file | ConfigMap `memos` with `instance.json` at `/etc/memos/config`, registration closed (DEC-173) |
 
 ## Proof
 
@@ -118,7 +132,7 @@ there, through the Service `memos` on port 5230, it
 - requires from `/api/instance/profile` the image's version, the instance
   URL, the public access policy and that the instance needs its setup
 - creates the first account through `/api/users` without a login and
-  requires the role `ADMIN`
+  requires the role `ADMIN`, then gets 403 there for a second account
 - gets 400 from `/api/auth/signin` for a wrong password, signs in, creates
   a private memo with the access token and reads it back, and gets 401 for
   the memo without a token

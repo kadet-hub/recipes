@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # RCP-253: the pod under Pod Security restricted, then from a pod of the
 # memos image and through the Service memos on port 5230 the health check,
-# the web UI and the instance profile, the first account as admin, a private
-# memo written and read back with its token, and the same account and memo
-# after the pod was replaced.
+# the web UI and the instance profile, the first account as admin, a second
+# sign-up refused, a private memo written and read back with its token, and
+# the same account and memo after the pod was replaced.
 set -euo pipefail
 url=http://memos:5230
 username=smoke
@@ -64,6 +64,10 @@ jq -e --arg v "$version" --arg i "$instance_url" '.version == $v and .instanceUr
 user=$(post /api/users "$(jq -nc --arg u "$username" --arg p "$password" '{username: $u, password: $p}')") ||
   fail "/api/users did not create the first account"
 [[ $(jq -r .role <<<"$user") == ADMIN ]] || fail "the first account is not the admin: $user"
+# The declarative configuration closed the registration for everyone after the admin.
+code=$(status --header 'Content-Type: application/json' --post-data \
+  "$(jq -nc --arg p "$password" '{username: "second", password: $p}')" "$url/api/users")
+[[ $code == 403 ]] || fail "a second account without a login got $code, not 403"
 code=$(status --header 'Content-Type: application/json' --post-data \
   "$(jq -nc --arg u "$username" '{passwordCredentials: {username: $u, password: "bbbbbbbb"}}')" "$url/api/auth/signin")
 [[ $code == 400 ]] || fail "a wrong password got $code, not 400"
@@ -83,4 +87,4 @@ get "$url/api/instance/profile" | jq -e '.needsSetup == false' >/dev/null || fai
 token=$(signin) || fail "$username cannot sign in after the restart"
 [[ $(read_memo "$token") == "$content" ]] || fail "$memo is gone after the restart"
 # check reports the last line.
-echo "memos made the first account admin, stored a private memo and read it back through the Service memos, also after a restart. The pod passes Pod Security restricted."
+echo "memos made the first account admin, refused a second sign-up, stored a private memo and read it back through the Service memos, also after a restart. The pod passes Pod Security restricted."

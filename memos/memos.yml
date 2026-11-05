@@ -23,6 +23,39 @@ parameters:
         MEMOS_DRIVER: sqlite
         # The example's https://memos.example.com stands for the target's URL (DEC-171).
         MEMOS_INSTANCE_URL: ${applications.memos.instance_url}
+      # Not in the compose file: Memos' declarative configuration closes the
+      # registration once the first account, the admin, exists. ignoreChanges
+      # leaves the other fields of GENERAL to the web UI (DEC-173).
+      config_maps:
+        config:
+          mount: /etc/memos/config
+          data:
+            instance.json:
+              value: |
+                {
+                  "instanceSettings": [
+                    {
+                      "name": "instance/settings/GENERAL",
+                      "generalSetting": {
+                        "disallowUserRegistration": true
+                      }
+                    }
+                  ],
+                  "lifecycle": [
+                    {
+                      "resource": "instance/settings/GENERAL",
+                      "ignoreChanges": [
+                        "generalSetting.customProfile",
+                        "generalSetting.disallowPasswordAuth",
+                        "generalSetting.disallowChangeUsername",
+                        "generalSetting.disallowChangeNickname",
+                        "generalSetting.weekStartDayOffset",
+                        "generalSetting.additionalStyle",
+                        "generalSetting.additionalScript"
+                      ]
+                    }
+                  ]
+                }
       volume_mounts:
         data:
           mount_path: /var/opt/memos
