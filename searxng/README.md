@@ -35,9 +35,10 @@ parameters:
       password: <ref>
 ```
 
-Fetch `valkey` at the same commit as this recipe, with a `git` dependency
-of its own with `subdir: valkey` and
-`output_path: inventory/classes/recipes/valkey`.
+Pin `valkey` in the fetch inventory next to this recipe, as an `oci` dependency at the
+digest this version's index record lists under `includes`, with
+`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
+kadet-hub.org shows the whole fetch inventory.
 
 ## Required parameters
 

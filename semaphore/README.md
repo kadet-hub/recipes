@@ -45,9 +45,10 @@ parameters:
       runner_token: <ref>
 ```
 
-Fetch `postgresql` at the same commit as this recipe, with a `git`
-dependency of its own with `subdir: postgresql` and
-`output_path: inventory/classes/recipes/postgresql`.
+The recipe includes `recipes.postgresql`. Pin `postgresql` in the fetch inventory next to this recipe, as an `oci` dependency at the
+digest this version's index record lists under `includes`, with
+`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
+kadet-hub.org shows the whole fetch inventory.
 
 ## Required parameters
 

@@ -17,7 +17,9 @@ authenticated code execution through SVG uploads, probably affects. The
 recipe runs `ghcr.io/immich-app/immich-server` and
 `ghcr.io/immich-app/immich-machine-learning` v3.3.5, built for amd64 and
 arm64. `postgresql` requires `cnpg`, so install `cnpg` first, in a target
-of its own.
+of its own. Applied together with its PostgreSQL Cluster, the server
+restarts until the database answers. Applying the Cluster first and
+waiting for it to be ready avoids that.
 
 ## Include
 
@@ -36,10 +38,10 @@ parameters:
 
 The recipe includes `recipes.postgresql` with its options
 `recipes.postgresql.pgvector` and `recipes.postgresql.earthdistance`, and
-`recipes.valkey`. Fetch `postgresql` and
-`valkey` at the same commit as this recipe, each with a `git` dependency of
-its own with `subdir: <recipe>` and
-`output_path: inventory/classes/recipes/<recipe>`.
+`recipes.valkey`. Pin `postgresql` and `valkey` in the fetch inventory next to this recipe, each as an `oci` dependency at the
+digest this version's index record lists under `includes`, with
+`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
+kadet-hub.org shows the whole fetch inventory.
 
 ## Required parameters
 
@@ -83,9 +85,10 @@ to VectorChord later needs an image with VectorChord, `vchord.so` in
 superuser, which `postgresql` does not render. Immich then rebuilds its
 vector indexes `clip_index` and `face_index`.
 
-Machine learning downloads its models from Hugging Face into `/cache`
-when a job first needs them, again on every new pod. A claim for `/cache`
-keeps them. GPU images and hardware acceleration are not tested.
+Machine learning downloads its models into `/cache` when a job first
+needs them, again on every new pod: CLIP and face models from Hugging Face,
+OCR models from ModelScope, about 2.2 GB together, at the unpinned `main`
+revision. A claim for `/cache` keeps them. GPU images and hardware acceleration are not tested.
 
 The chart's Ingress, its ServiceMonitors behind `immich.metrics.enabled`
 and the configuration file behind `immich.configuration` are off by

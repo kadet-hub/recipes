@@ -53,9 +53,10 @@ parameters:
       nonce_salt: <ref>
 ```
 
-The recipe includes `recipes.mariadb`. Fetch `mariadb` at the same commit
-as this recipe, with a `git` dependency of its own with `subdir: mariadb`
-and `output_path: inventory/classes/recipes/mariadb`.
+The recipe includes `recipes.mariadb`. Pin `mariadb` in the fetch inventory next to this recipe, as an `oci` dependency at the
+digest this version's index record lists under `includes`, with
+`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
+kadet-hub.org shows the whole fetch inventory.
 
 ## Required parameters
 

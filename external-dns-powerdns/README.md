@@ -55,9 +55,10 @@ parameters:
       api_key: <ref>
 ```
 
-Fetch `powerdns` at the same commit as this recipe, with a second `git`
-dependency with `subdir: powerdns` and
-`output_path: inventory/classes/recipes/powerdns`.
+The recipe includes `recipes.powerdns`. Pin `powerdns` in the fetch inventory next to this recipe, as an `oci` dependency at the
+digest this version's index record lists under `includes`, with
+`output_path: inventory/classes/recipes/<recipe>`. The recipe's page on
+kadet-hub.org shows the whole fetch inventory.
 
 ## Required parameters
 
