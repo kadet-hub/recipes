@@ -1,0 +1,18 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.librechat.creds_key
+    description: CREDS_KEY, 64 hexadecimal digits, which encrypts stored credentials such as user-provided API keys.
+    secret: true
+  - path: applications.librechat.creds_iv
+    description: CREDS_IV, 32 hexadecimal digits, the initialization vector for CREDS_KEY.
+    secret: true
+  - path: applications.librechat.jwt_secret
+    description: JWT_SECRET, which signs the access tokens of logins.
+    secret: true
+  - path: applications.librechat.jwt_refresh_secret
+    description: JWT_REFRESH_SECRET, which signs the refresh tokens of logins.
+    secret: true
+  - path: applications.mongodb.password
+    description: Password of MongoDB's user root, with which LibreChat connects. Letters and digits only, since it goes into MONGO_URI unencoded.
+    secret: true

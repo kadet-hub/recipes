@@ -1,0 +1,39 @@
+classes:
+  - recipes.librechat
+parameters:
+  namespace: librechat
+  kapitan:
+    vars:
+      target: librechat
+  applications:
+    librechat:
+      # 64 and 32 hexadecimal digits, as LibreChat's AES-256-CBC needs.
+      creds_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      creds_iv: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      jwt_secret: cccccccccccccccccccccccccccccccc
+      jwt_refresh_secret: dddddddddddddddddddddddddddddddd
+    mongodb:
+      password: smokepassword
+  # The OpenAI-compatible stub that tests/smoke starts, with its model and a
+  # key, which the stub does not check.
+  generators:
+    kubernetes:
+      configs:
+        librechat-librechat-configenv:
+          data:
+            OPENAI_REVERSE_PROXY:
+              value: http://librechat-stub:8080/cgi-bin/v1
+            OPENAI_MODELS:
+              value: stub
+      secrets:
+        librechat-credentials-env:
+          string_data:
+            OPENAI_API_KEY:
+              value: eeeeeeeeeeeeeeee
+  components:
+    librechat-librechat:
+      env:
+        OPENAI_API_KEY:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: OPENAI_API_KEY
