@@ -5453,6 +5453,108 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## Actual
+
+Actual is a personal finance app. Its sync server serves the web UI, keeps
+the budget files that clients upload and passes their changes between
+devices. actualbudget/actual, MIT, carries the server's compose file at
+`packages/sync-server/docker-compose.yml` and builds the image
+`docker.io/actualbudget/actual-server`. The project publishes no chart, and
+its Docker guide starts from that file (`packages/docs/docs/install/docker.md`).
+`actual` takes the file at commit `1766241e3f4b3c578e424c4fa15f1eb83c0da17d`,
+the tag `v26.11.0` of release 26.11.0 of 2026-11-02, the newest on
+2026-11-05, SHA-256
+`bdf050bf6247938005c871b20d2c27647e09843a21631ef5ca430dfc4e5982a6`. The file
+runs `docker.io/actualbudget/actual-server:latest`, which on 2026-11-05 was
+the same index as `26.11.0`, for amd64 and arm64. The image carries no
+`org.opencontainers.image.revision` label. Every advisory of
+actualbudget/actual published by 2026-11-05 names 26.11.0 or an earlier
+release as fixed.
+
+The file's one service, `actual_server`, becomes the StatefulSet `actual`.
+Its relative bind mount `./actual-data`, which the repository does not
+contain, becomes the claim `actual-data` at `/data` (DEC-21). The server
+keeps the password hash, its sessions and the list of budget files in
+`server-files/account.sqlite` there, and the files themselves in
+`user-files`. The published port `5006:5006` becomes port 5006 of the
+Service `actual`. The service's health check runs
+`node scripts/health-check.js` every 60 seconds with a timeout of 10 seconds
+and 3 retries. It becomes the readiness probe
+`sh -c 'node scripts/health-check.js'`. The script gets `/health` on the
+server's port and fails unless the answer is `UP`
+(`src/scripts/health-check.ts`). The image runs as root, so the target's
+namespace needs the Pod Security level `baseline`.
+
+Every line below the file's `environment` is a comment, so the recipe
+renders no variable. The file asks its reader to remove the key when no
+option is set. Docker Compose 5.6.1 refuses the file as it is, with
+`services.actual_server.environment must be a mapping`.
+
+DEC-220: `actual` renders no server password. The first visitor of the web
+UI sets it, as with the compose file (Actual). Actual 26.11.0 takes the
+password through `POST /account/bootstrap`, which needs no login while no
+password is set (`src/app-account.js`), or from the script
+`reset-password.js`, which reads it from a terminal (`src/util/prompt.ts`).
+Its configuration reads no password from the environment or a file. Its
+only `_FILE` variables are those of the OpenID client secret and a GitHub
+token (`src/load-config.js`). A Job or init container that sets the
+password from a parameter was considered. It would call the bootstrap
+endpoint or Actual's internal modules, which the compose file does not, and
+a changed parameter would not reach a server whose password is set. The
+Service is `ClusterIP`, so until the target exposes it only the cluster
+reaches the bootstrap, and the README asks for the password before the
+exposure. Actual has no self-registration. Further users exist only with
+OpenID, and with its default `ACTUAL_USER_CREATION_MODE` of `manual` an
+OpenID login creates a user only while the server has none
+(`src/accounts/openid.ts`).
+
+- RCP-300: The `Source` line of `actual` MUST name
+  `packages/sync-server/docker-compose.yml` of actualbudget/actual at the
+  commit of the release tag that the image's tag names, with the file's
+  SHA-256.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23). Without a revision label on the image, the release tag ties
+  the file to the image, as for `uptime-kuma` (RCP-120). Renovate moves tag
+  and commit of the `Source` line and the image in one pull request
+  (RCP-16), and the SHA-256 by hand.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    `gh api repos/actualbudget/actual/git/ref/tags/<tag>`
+  - Since: #111
+
+- RCP-301: `actual` MUST mount the claim `actual-data` at `/data` and MUST
+  have the readiness probe `sh -c 'node scripts/health-check.js'` every 60
+  seconds with a timeout of 10 seconds and 3 failures, and no liveness
+  probe.
+
+  - Test: RCP-302; CI `check` job, which waits for the rollout before
+    `tests/smoke`
+  - Since: #111
+
+- RCP-302: The `tests/smoke` of `actual` MUST, from a pod of its own and
+  through the Service `actual` on port 5006, require `UP` from `/health`
+  and the image tag from `/info`, find the server without a password and
+  get 401 from `/sync/list-user-files` without a login. It MUST set the
+  password through `/account/bootstrap`, get `already-bootstrapped` from a
+  second call and `invalid-password` from a login with another password,
+  log in, upload a budget file through `/sync/upload-user-file`, and find
+  it in `/sync/list-user-files` and unchanged from
+  `/sync/download-user-file`. Once the pod `actual-0` was deleted and its
+  successor is ready, it MUST log in with the same password and download
+  the same file.
+
+  The server writes an upload to `user-files` as it is
+  (`upload-user-file` in `src/app-sync.ts`) and reads none of it, so a
+  fixed byte string stands in for the zip of `db.sqlite` and
+  `metadata.json` that the web UI uploads. The test runs `node` in a pod
+  of the same image, because the image has neither curl nor wget. After
+  the restart, the login needs the hash in `account.sqlite` and the
+  download the file in `user-files`, both on the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #111
+
 ## LibreChat
 
 LibreChat is a chat UI for language models of many providers, such as
@@ -6535,4 +6637,5 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.14.0, level `deploys` (RCP-335 to RCP-339) |
