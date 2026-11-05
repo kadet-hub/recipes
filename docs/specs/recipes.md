@@ -5453,6 +5453,153 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## Mattermost
+
+Mattermost is a team chat server with channels, direct messages, file
+sharing and a REST API. Its free edition is Team Edition, which Mattermost
+builds from the open source part of mattermost/mattermost and publishes as
+the image `docker.io/mattermost/mattermost-team-edition`. Team Edition has
+no OpenID Connect. Mattermost's documentation offers OpenID Connect only on
+its commercial plans, and the open source part carries GitLab as its only
+SSO provider (`server/channels/app/oauthproviders/` of v12.0.2). The recipe
+therefore has no OIDC parameters.
+
+DEC-290: `mattermost` is a chart recipe on the chart
+`mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm,
+Apache-2.0, from the HTTP repository `https://helm.mattermost.com`. The
+chart's README marks it as no longer supported and points new deployments
+to the Mattermost Operator. Mattermost's release automation still
+publishes a chart version with every server release. 6.6.111 of
+2026-11-05 moved its `appVersion` to 12.0.2, as the commits before it did
+for each release since 11.9.0. The repository publishes no OCI artifact,
+so the `Source` line takes the HTTP form of RCP-23.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The Mattermost Operator, chart `mattermost-operator` 1.0.5 | It runs Mattermost from the custom resource `Mattermost` of `installation.mattermost.com/v1beta1`. No kadet-hub generator renders that kind, so the application recipe would stop on a gap (RCP-7) until one exists. |
+| The chart `mattermost` 2.8.1 of the same repository, without the operator | It runs Enterprise Edition, follows the ESR releases (11.7) and renders no claim for files, which it expects in S3. |
+| The image as a designed recipe | DEC-10 puts the project's chart first. |
+
+DEC-291: `mattermost` runs Mattermost 12.0.2, the chart's `appVersion`.
+The chart writes the image as `mattermost/mattermost-team-edition` with
+the tag `12.0.2@sha256:<digest>`. `check` drops the digest only on the
+recipe's side (RCP-9), and a class file names the registry (RCP-66), so
+`tests/values.yaml` sets `image.repository` to
+`docker.io/mattermost/mattermost-team-edition` and `image.tag` to `12.0.2`.
+The recipe pins the digest the chart pins, an index with an image for
+amd64 only. 12.1.0 was a pre-release on 2026-11-05. Renovate moves the
+image and the tag in `tests/values.yaml` with Mattermost's releases
+(RCP-16), as for semaphore, because the chart only follows the image.
+
+DEC-292: The database is the included recipe `postgresql` (DEC-4,
+DEC-12). The chart passes Mattermost the connection string in `MM_CONFIG`
+from its Secret `<fullname>-mattermost-dbsecret`, which it builds from
+`externalDB.externalConnectionString`. CloudNativePG generates the
+password and keeps it only in the Secret `postgresql-cluster-app`. The
+connection string in `tests/values.yaml` leaves the password out,
+`app@postgresql-cluster-rw:5432/app?sslmode=require&connect_timeout=10`,
+and `extraEnvVars` sets `PGPASSWORD` from that Secret. lib/pq 1.12.3,
+Mattermost's PostgreSQL driver (`server/go.mod` of v12.0.2), reads the
+variable for a password the string does not name. `sslmode=require`
+encrypts the connection without verifying the server's certificate,
+because CloudNativePG signs it with its own CA. The recipe reads the
+names from `applications.postgresql` (RCP-60). The key `uri` of
+`postgresql-cluster-app` as `MM_CONFIG` was considered. The chart reads
+`MM_CONFIG` only from its own Secret.
+
+With a connection string in `MM_CONFIG`, Mattermost keeps its
+configuration in the database. The chart's Secret `<fullname>-config`
+adds `MM_<SECTION>_<SETTING>` variables, which override that configuration
+and lock the setting in the System Console.
+
+DEC-293: `mattermost` runs as the image's user `mattermost`, UID, GID and
+`fsGroup` 2000 in its `/etc/passwd`, with `allowPrivilegeEscalation: false`
+and all capabilities dropped, by `securityContext` and
+`containerSecurityContext` in `tests/values.yaml`. That passes Pod
+Security `restricted`. The image has no shell. Mattermost writes its logs
+and server plugins below `/mattermost` in the container, so the root
+filesystem stays writable. The chart's default sets no security context
+and was considered. The image would still run as 2000, but the namespace
+would need `baseline`.
+
+DEC-294: `tests/values.yaml` sets `MM_TEAMSETTINGS_ENABLEOPENSERVER` to
+`"false"` in the chart's `config`. Mattermost's default is the same. The
+variable locks the setting, so a System Console change cannot open
+sign-up while the target says otherwise. Without open sign-up, accounts
+come from the admin or from an invitation.
+
+DEC-295: `mattermost` creates no admin account, and its README says how
+to create the first one with `mmctl` in local mode, which the image turns
+on with `MM_SERVICESETTINGS_ENABLELOCALMODE`. Mattermost has no setting
+for an initial account. Until the first account exists, Mattermost makes
+the first account created through sign-up a system admin, also with open
+sign-up off (`CreateUserFromSignup` in `server/channels/app/user.go` of
+v12.0.2). The Service is of type `ClusterIP`, and the README asks for the
+admin before the target exposes it.
+
+| Alternative | Why it was not taken |
+|---|---|
+| An init container through `extraInitContainers` that runs `mattermost import bulk` with the admin as a user line of a Secret | On an empty database the import first runs Mattermost's app migrations, and the first of them saves the configuration. The import opens the configuration store read-only (`InitDBCommandContextCobra` in `server/cmd/mattermost/commands/init.go`), so it stopped on kind with `configuration store is read-only`, and the pod never started. |
+| A Job through the chart's `extraDeploy` that creates the admin through the API | The API server generates a Job's selector and pod labels from the Job's UID, `batch.kubernetes.io/controller-uid`. The two sides of `check` would never compare equal unless RCP-9 dropped those labels. |
+| `MM_TEAMSETTINGS_ENABLEUSERCREATION: "false"` against the first sign-up | It also refuses every invitation (`CreateUserWithInviteId`, `CreateUserWithToken`). |
+
+The chart renders the claims `mattermost-mattermost-team-edition` for
+files, 10Gi, and `mattermost-mattermost-team-edition-plugins` for the web
+app's plugins, 1Gi, with ReadWriteOnce. The recipe keeps the chart's names
+for a release named `mattermost`, so a release replaced by the recipe
+keeps its claims. The Service is `mattermost-team-edition` on port 8065.
+The chart's Ingress, its HTTPRoute and its MySQL subchart are off by
+default or by `tests/values.yaml` and not part of the recipe. Its Helm
+test `Pod/mattermost-mattermost-team-edition-test` is left out (RCP-25).
+The ConfigMap with the test's script is no hook, so the recipe renders it
+with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
+
+- RCP-370: `mattermost` MUST render the chart's Deployment, Service,
+  Secrets, claims and test ConfigMap with the values of DEC-291 to DEC-294
+  and `docker.io/mattermost/mattermost-team-edition:12.0.2` pinned to its
+  index.
+
+  - Test: `check mattermost`; CI `check` job
+  - Since: this change
+
+- RCP-371: `mattermost` MUST connect to the Cluster of `postgresql` with a
+  connection string without a password and `sslmode=require`, and MUST set
+  `PGPASSWORD` from the key `password` of `<cluster>-app`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-372: The `tests/smoke` of `mattermost` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
+  `status: OK` from `/api/v4/system/ping` through the Service. It MUST
+  create the admin with `mmctl --local` as the README says. Through the
+  API it MUST read the image tag as `Version` with `BuildEnterpriseReady`
+  `false` from the client configuration, and get 403 for a sign-up without
+  an invitation. As the admin it MUST create a team, a channel and a
+  second user, and post a message with a file. The second user MUST read
+  the message and the file, and read both again once the pod was deleted
+  and its successor is ready.
+
+  The message comes from PostgreSQL and the file from the claim, so the
+  read after the restart needs both. On kind the smoke test ran in 28
+  seconds.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- RCP-373: The README of `mattermost` MUST say how to create the first
+  admin with `mmctl --local`, and that until then the first sign-up
+  becomes a system admin.
+
+  - Test: manual: review
+  - Since: this change
+
+- AC-370 (RCP-370 to RCP-372): `check mattermost --level deploys` passes
+  in CI on each Kubernetes minor, with differences of the classes Selector
+  scheme, Explicit default and Derived name only, and its smoke test reads
+  the message and the file after the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -6375,3 +6522,4 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| mattermost | chart `mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm from its HTTP repository, unsupported upstream (DEC-290), Team Edition 12.0.2 (DEC-291), includes postgresql with `PGPASSWORD` (DEC-292), UID 2000 under `restricted` (DEC-293), open sign-up off (DEC-294), first admin by `mmctl --local` from the README (DEC-295), `kubernetes` generator 1.14.0, level `deploys` (RCP-370 to RCP-373) |
