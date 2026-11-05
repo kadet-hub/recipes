@@ -42,14 +42,20 @@ parameters:
               memory: 16Mi
             limits:
               memory: 64Mi
+        # PowerDNS's default SOA names the primary a.misconfigured.dns.server.invalid.,
+        # which becomes ns1.<zone>. with the rest of the SOA kept, also in a zone that
+        # exists (RCP-194, RCP-195).
         zone:
           image: ${components.powerdns.image}
           command:
             - sh
             - -ec
-            - >-
-              pdnsutil zone list ${applications.powerdns.zone} >/dev/null 2>&1 ||
-              pdnsutil zone create ${applications.powerdns.zone} ns1.${applications.powerdns.zone}
+            - |
+              z=${applications.powerdns.zone}
+              pdnsutil zone list $z >/dev/null 2>&1 || pdnsutil zone create $z ns1.$z
+              pdnsutil zone list $z |
+                sed -n "s/^[^\t]*\t\([0-9]*\)\tIN\tSOA\ta\.misconfigured\.dns\.server\.invalid\. /\1 ns1.$z. /p" |
+                while read -r ttl soa; do pdnsutil rrset replace $z $z SOA "$ttl" "$soa"; done
           volume_mounts:
             data:
               mount_path: /var/lib/powerdns

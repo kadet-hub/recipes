@@ -1,0 +1,25 @@
+classes:
+  - recipes.postgresql
+  - .forgejo
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    forgejo:
+      # The target sets admin.username, admin.password and secret_key.
+      admin:
+        email: gitea@local.domain
+      # The chart's version label, the tag of the image in forgejo.yml.
+      labels:
+        version: 15.0.11
+      # The mount path of the chart's script Secrets.
+      scripts: /usr/sbin

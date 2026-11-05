@@ -1,0 +1,26 @@
+# Forgejo 15.0.11, the chart's appVersion, on the PostgreSQL of the included
+# recipe postgresql, with the admin account and the SECRET_KEY of
+# tests/target.yml.
+gitea:
+  admin:
+    username: forgejo_admin
+    password: aaaaaaaaaaaaaaaa
+  config:
+    database:
+      DB_TYPE: postgres
+      HOST: postgresql-cluster-rw:5432
+      NAME: app
+      SSL_MODE: require
+    security:
+      SECRET_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  additionalConfigFromEnvs:
+    - name: FORGEJO__DATABASE__USER
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-cluster-app
+          key: username
+    - name: FORGEJO__DATABASE__PASSWD
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-cluster-app
+          key: password
