@@ -1359,12 +1359,12 @@ this as a constraint.
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
   would compare it. The `next` compile (RCP-24) runs unchanged. Revised in
-  this change: read access that the project's documentation asks for, for
+  #113: read access that the project's documentation asks for, for
   homepage (DEC-228).
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
     `renders`: `check/tests/test_check.py`
-  - Since: #14; `renders`: #45; RCP-308: this change
+  - Since: #14; `renders`: #45; RCP-308: #113
 
 - RCP-308: `check lint` MUST accept an RBAC object in a designed recipe
   only when it reads. Every rule of a Role or ClusterRole MUST grant no
@@ -1383,7 +1383,7 @@ this as a constraint.
 
   - Test: `check lint`; `check/tests/test_lint.py`
     (`LintDesign.test_read_only_rbac`)
-  - Since: this change
+  - Since: #113
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
@@ -5596,7 +5596,7 @@ proxy in front of a public deployment. The README names the variables.
   unset.
 
   - Test: `check lint` (RCP-23, RCP-262); RCP-309
-  - Since: this change
+  - Since: #113
 
 - RCP-306: `homepage` MUST write `applications.homepage.settings`,
   `.services`, `.bookmarks` and `.widgets` with the resolver `yaml` to the
@@ -5605,7 +5605,7 @@ proxy in front of a public deployment. The README names the variables.
   MUST mount each key at `/app/config/<key>`.
 
   - Test: RCP-309
-  - Since: this change
+  - Since: #113
 
 - RCP-307: The option `recipes.homepage.kubernetes` MUST render the
   ServiceAccount, ClusterRole and ClusterRoleBinding of DEC-228 with the
@@ -5615,7 +5615,7 @@ proxy in front of a public deployment. The README names the variables.
 
   - Test: `check lint` (RCP-308); RCP-309; manual: review of the rules
     against `docs/installation/k8s.md` at the tag
-  - Since: this change
+  - Since: #113
 
 - RCP-309: The `tests/smoke` of `homepage` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -5638,7 +5638,7 @@ proxy in front of a public deployment. The README names the variables.
   client sends the `Host` header it is given.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #113
 
 ## Migration
 
