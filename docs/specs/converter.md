@@ -106,7 +106,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   version and the SHA-256 of the archive it rendered.
 
   - Test: CI `convert` job, report section `Source`
-  - Since: this change
+  - Since: #100
 
 - CNV-2: The converter MUST NOT run, fetch or open anything that a chart or
   its values name, except `helm pull` of the chart given and
@@ -117,7 +117,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   `helm dependency build`.
 
   - Test: manual: review of the subprocess calls in `check/convert.py`
-  - Since: this change
+  - Since: #100
 
 - CNV-3: The converter MUST render twice and report every field outside
   hooks that differs between the two renders.
@@ -127,7 +127,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   learns which values to replace.
 
   - Test: `check/tests/test_convert.py` (`Render.test_generated_fields`)
-  - Since: this change
+  - Since: #100
 
 ## Mapping
 
@@ -154,7 +154,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   them as not mapped until it maps them.
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_unmapped_kind`)
-  - Since: this change
+  - Since: #100
 
 - CNV-5: The report MUST list every field of an object that the converter
   cannot map, with its path, as not mappable.
@@ -169,7 +169,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   truthy (DEC-188).
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
-  - Since: this change
+  - Since: #100
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
@@ -184,7 +184,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   which the generator sets to exclude its own namespace.
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_api_defaults`)
-  - Since: this change
+  - Since: #100
 
 - CNV-7: A string from the chart that contains `${` MUST compile to itself.
 
@@ -206,7 +206,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
 
   - Test: `check/tests/test_convert.py` (`Escape.test_resolver_or_backslashes`,
     `Escape.test_kapitan_reads_text_back`, with the Kapitan of the lock)
-  - Since: this change
+  - Since: #100
 
 - CNV-8: The converter MUST write one `rbac` entry per Role or ClusterRole
   with the bindings that bind it, an entry of its own for a binding whose
@@ -218,7 +218,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   needs 15 renames.
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_rbac`)
-  - Since: this change
+  - Since: #100
 
 - CNV-9: The converter MUST write each CRD as rendered into a file of its
   own below `vendor/` of the converted class and compile it with a `copy`
@@ -228,7 +228,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   with the chart's.
 
   - Test: `check/tests/test_convert.py` (`Output.test_crds`)
-  - Since: this change
+  - Since: #100
 
 ## Secrets
 
@@ -247,7 +247,7 @@ would be committed with it.
   one holds the base64 value, as the generator's README asks.
 
   - Test: `check/tests/test_convert.py` (`Output.test_secret_data`)
-  - Since: this change
+  - Since: #100
 
 ## Values
 
@@ -268,7 +268,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   CNV-14.
 
   - Test: CI `convert` job
-  - Since: this change
+  - Since: #100
 
 - CNV-12: The converter MUST write `value-map.json` with every scalar value
   of the effective values and its class: reached, with the inventory
@@ -282,7 +282,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 
   - Test: `check/tests/test_convert.py` (`ValueMap.test_classes`); CI
     `convert` job, report section `Values`
-  - Since: this change
+  - Since: #100
 
 ## Proof and report
 
@@ -290,7 +290,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   `helm.sh/hook` and list each as `<Kind>/<name>` (DEC-187).
 
   - Test: CI `convert` job, report section `Left out`
-  - Since: this change
+  - Since: #100
 
 - CNV-14: The converter MUST prove the output as DEC-182 says, on two
   fresh kind clusters `<prefix>-<release>-chart` and
@@ -303,7 +303,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   cert-manager's 11 objects, all equal after the dry run.
 
   - Test: CI `convert` job
-  - Since: this change
+  - Since: #100
 
 - CNV-15: The report MUST put each object into exactly one class: exact;
   equal up to accepted classes, naming them; mapped with differences,
@@ -311,7 +311,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   MUST state for each RBAC subject whether its permissions are equal.
 
   - Test: CI `convert` job, report sections `Objects` and `Permissions`
-  - Since: this change
+  - Since: #100
 
 - CNV-16: The converter MUST exit 0 when every object is mapped and the
   proof found every object and permission equal or accepted, 1 when an
@@ -324,7 +324,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   `OrderedReady`. With `--no-proof` only unmapped objects give 1.
 
   - Test: CI `convert` job
-  - Since: this change
+  - Since: #100
 
 - CNV-17: Where a workload's selector differs from the chart's, the report
   MUST say that `kubectl apply` over a running Helm release fails on it.
@@ -335,7 +335,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   `--cascade=orphan` first, as the recipe READMEs describe.
 
   - Test: CI `convert` job, report section `Objects`
-  - Since: this change
+  - Since: #100
 
 ## Output
 
@@ -348,7 +348,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   verification of RCP-27.
 
   - Test: CI `convert` job
-  - Since: this change
+  - Since: #100
 
 ## Distribution and CI
 
@@ -361,7 +361,7 @@ listed as below a switch that is off when an `enabled`, `create` or
   `test` job with the others.
 
   - Test: CI `convert` job
-  - Since: this change
+  - Since: #100
 
 ## Alternatives
 
