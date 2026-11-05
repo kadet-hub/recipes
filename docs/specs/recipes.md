@@ -1081,6 +1081,47 @@ probe on port 53, the CI run on main of 2026-11-04 marked the pod ready on
 Kubernetes 1.37 before the API listened, and `tests/smoke` got `Connection
 refused` from it. Changed in #83.
 
+`pdnsutil zone create` writes the SOA from the setting
+`default-soa-content`. Its default,
+`a.misconfigured.dns.server.invalid hostmaster.@ 0 10800 3600 604800 3600`,
+names a placeholder primary in the reserved top-level domain `.invalid`.
+powerdns 1.0.0 and 1.0.1 and the kadet-hub/examples recipe created their
+zones with that primary. The init container `zone` replaces it with
+`ns1.<zone>.` through `pdnsutil rrset replace`, on the zone it has just
+created and on a zone an earlier version created. TTL, hostmaster, serial
+and timers stay. The serial does not rise, because the recipe sets up no
+secondary that would need it to transfer the change. An SOA with another
+primary was set by the operator and stays as it is. Changed in #92.
+
+Setting `default-soa-content` to `ns1.@ hostmaster.@ ...` was considered.
+pdnsutil 5.1 reads settings only from its configuration file, so the init
+container would have to write one, and the setting does not change a zone
+that exists.
+
+The zone has no address record for `ns1.<zone>`. Clients reach PowerDNS at
+an address the target decides, such as the cluster IP of the Service
+`powerdns` or a load balancer, and a Service created anew gets another
+cluster IP. The recipe has no address it could write, and its README names
+this as a constraint.
+
+- RCP-194: The init container `zone` of `powerdns` MUST create the zone
+  `applications.powerdns.zone` with an SOA record whose primary is
+  `ns1.<zone>.` and whose hostmaster is `hostmaster.<zone>.`.
+
+  - Test: `powerdns/tests/smoke` reads the SOA through the Service
+    `powerdns`; CI `check` job of `powerdns` and `external-dns-powerdns`
+  - Since: #92
+
+- RCP-195: When the SOA of the zone `applications.powerdns.zone` names the
+  primary `a.misconfigured.dns.server.invalid.`, the init container `zone`
+  MUST replace that primary with `ns1.<zone>.` and keep the rest of the
+  record. It MUST NOT change an SOA with another primary.
+
+  - Test: manual: on kind, the claim of powerdns 1.0.1 started with this
+    version, then an SOA with another primary set through the API and the
+    pod restarted (#92)
+  - Since: #92
+
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
   object, every selector selecting pods, then one fresh kind cluster, with
@@ -5414,6 +5455,7 @@ feature's design (OQ-6).
 | Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e` (`kubernetes-versions-2026-11-02`): 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
+| powerdns | `docker.io/powerdns/pdns-auth-51` 5.1.5, SQLite on the claim `data`, zone `applications.powerdns.zone` with the SOA primary `ns1.<zone>.` set by the init container `zone` (RCP-194, RCP-195), `kubernetes` generator 1.14.0, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.14.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
