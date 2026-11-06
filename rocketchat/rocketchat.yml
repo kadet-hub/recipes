@@ -22,7 +22,7 @@ parameters:
       pod_annotations:
         # The chart's checksum of its Secret with tests/values.yaml. It does
         # not follow a change of the recipe.
-        checksum/secret: 6b89eb4e331d32af7c3280c040301d3708fec9f7aa60a58fef43f95a162a28c6
+        checksum/secret: 64fd85052afd90ca388af234a161d1c168b6ebff8ef4d366042f9861d6f3cecb
       env:
         DEPLOY_PLATFORM: helm-chart
         INSTANCE_IP:
@@ -87,10 +87,10 @@ parameters:
       secrets:
         rocketchat-rocketchat:
           string_data:
-            # The user root of the included recipe mongodb, through its
-            # Service to the one member of its replica set.
+            # The user rocketchat of the included recipe mongodb's option
+            # users, through its Service to the one member of its replica set.
             mongo-uri:
-              value: mongodb://root:${applications.mongodb.password}@mongodb:27017/rocketchat?authSource=admin&directConnection=true
+              value: mongodb://rocketchat:${applications.mongodb.users.rocketchat.value}@mongodb:27017/rocketchat?directConnection=true
         rocketchat:
           string_data:
             admin-password:

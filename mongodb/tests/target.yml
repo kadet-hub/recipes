@@ -1,5 +1,6 @@
 classes:
   - recipes.mongodb
+  - recipes.mongodb.users
 parameters:
   namespace: mongodb
   kapitan:
@@ -8,3 +9,6 @@ parameters:
   applications:
     mongodb:
       password: smoke-password
+      users:
+        app:
+          value: bbbbbbbbbbbb

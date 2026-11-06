@@ -13,3 +13,6 @@ parameters:
       admin_password: aaaaaaaaaaaa
     mongodb:
       password: aaaaaaaaaaaa
+      users:
+        rocketchat:
+          value: bbbbbbbbbbbb

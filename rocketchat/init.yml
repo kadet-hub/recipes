@@ -1,6 +1,7 @@
 classes:
   - recipes.mongodb
   - recipes.mongodb.replica-set
+  - recipes.mongodb.users
   - .rocketchat
 parameters:
   kapitan:
@@ -15,4 +16,4 @@ parameters:
         output_path: manifests/
         output_type: yml
   # The target sets applications.rocketchat.host, .admin_email and
-  # .admin_password.
+  # .admin_password, and applications.mongodb.users.rocketchat.value.

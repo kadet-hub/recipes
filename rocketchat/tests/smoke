@@ -7,9 +7,14 @@
 # admin's message. Registration is refused. After the MongoDB and the
 # Rocket.Chat pod are deleted, the member is primary again and both messages
 # are there.
+# RCP-405: Rocket.Chat's connections authenticate as the user rocketchat,
+# whose change stream delivers the admin's message. It sees only its database
+# and gets Unauthorized elsewhere. After the MongoDB pod is deleted, it has
+# readWrite on rocketchat as its only role.
 set -euo pipefail
 admin_password=$(kubectl get secret rocketchat -o jsonpath='{.data.admin-password}' | base64 -d)
 root_password=$(kubectl get secret mongodb -o jsonpath='{.data.password}' | base64 -d)
+app_password=$(kubectl get secret mongodb-users -o jsonpath='{.data.rocketchat}' | base64 -d)
 member_password=smoke-test-member-password
 deployment=deployment/rocketchat-rocketchat
 pf=
@@ -42,10 +47,17 @@ mongosh() {
   kubectl exec statefulset/mongodb -c mongodb -- mongosh --quiet --host mongodb --port 27017 \
     -u root --password="$root_password" --authenticationDatabase admin --eval "$1"
 }
+# The same as the user rocketchat, with which Rocket.Chat connects.
+app_mongosh() {
+  kubectl exec statefulset/mongodb -c mongodb -- mongosh --quiet --host mongodb --port 27017 \
+    -u rocketchat --password="$app_password" --authenticationDatabase rocketchat --eval "$1"
+}
 
 admin=$(login admin "$admin_password")
 api "$admin" "$url/me" | jq -e '.roles | index("admin")' >/dev/null
-[[ $(api "$admin" "$url/statistics?refresh=true" | jq -r .mongoVersion) == 9.0.* ]]
+# The version comes from buildinfo. The storage engine only serverStatus
+# reports, which needs clusterMonitor, a role the user rocketchat lacks.
+[[ $(api "$admin" "$url/statistics?refresh=true" | jq -r '.mongoVersion + " " + .mongoStorageEngine') == 9.0.*' unknown' ]]
 primary() { [[ $(mongosh 'rs.status().set + " " + rs.status().members.map(m => m.stateStr).join()') == "rs0 PRIMARY" ]]; }
 primary
 # Rocket.Chat logs this at startup when MongoDB runs without a replica set.
@@ -53,18 +65,32 @@ if grep -q 'Error in InstanceStatus change stream' <<<"$(kubectl logs "$deployme
   echo "Rocket.Chat could not open its change stream" >&2
   exit 1
 fi
+# Each connection from Rocket.Chat's pod that authenticated, did so as rocketchat.
+ip=$(kubectl get pod -l name=rocketchat-rocketchat -o jsonpath='{.items[0].status.podIP}')
+[[ $(mongosh "print(db.getSiblingDB('admin').aggregate([{\$currentOp: {allUsers: true, idleConnections: true}},
+  {\$match: {client: {\$regex: '^$ip:'}}}, {\$unwind: '\$effectiveUsers'},
+  {\$group: {_id: {\$concat: ['\$effectiveUsers.user', '@', '\$effectiveUsers.db']}}}]).toArray().map(u => u._id).join())") == rocketchat@rocketchat ]]
+# What the user rocketchat sees of the databases, then what it is refused.
+access=$(app_mongosh 'const denied = [
+    () => db.getSiblingDB("local").oplog.rs.findOne(),
+    () => db.getSiblingDB("admin").smoke.insertOne({}),
+    () => db.adminCommand({serverStatus: 1}),
+    () => db.getSiblingDB("rocketchat").createUser({user: "smoke", pwd: "smoke", roles: []}),
+  ].map(f => { try { f(); return "allowed" } catch (e) { return e.codeName } })
+  print(db.adminCommand({listDatabases: 1, nameOnly: true}).databases.map(d => d.name).join() + " " + denied.join())')
+[[ $access == "rocketchat Unauthorized,Unauthorized,Unauthorized,Unauthorized" ]]
 
 api "$admin" -X POST "$url/users.create" -d "$(jq -nc --arg p "$member_password" \
   '{username: "member", email: "member@example.com", name: "Member", password: $p}')" |
   jq -e .success >/dev/null
 member=$(login member "$member_password")
-start=$(mongosh 'EJSON.stringify(db.hello().operationTime)')
+start=$(app_mongosh 'EJSON.stringify(db.hello().operationTime)')
 send "$admin" "from the admin"
 grep -q "from the admin" <<<"$(general "$member")"
 send "$member" "from the member"
 grep -q "from the member" <<<"$(general "$admin")"
 # The change stream replays from the time before the admin's message.
-[[ $(mongosh "const s = db.getSiblingDB('rocketchat').rocketchat_message.watch([{\$match: {'fullDocument.msg': 'from the admin'}}],
+[[ $(app_mongosh "const s = db.getSiblingDB('rocketchat').rocketchat_message.watch([{\$match: {'fullDocument.msg': 'from the admin'}}],
   {startAtOperationTime: EJSON.parse('$start')}); let c = null; for (let i = 0; i < 10 && !c; i++) c = s.tryNext(); print(c ? c.operationType : 'none')") == insert ]]
 
 register=$(curl -sS -X POST "$url/users.register" -H 'Content-Type: application/json' \
@@ -76,6 +102,7 @@ kubectl delete pod/mongodb-0 --wait=true >/dev/null
 kubectl wait pod/mongodb-0 --for=create --timeout=300s >/dev/null
 kubectl wait pod/mongodb-0 --for=condition=Ready --timeout=600s >/dev/null
 primary
+[[ $(mongosh 'EJSON.stringify(db.getSiblingDB("rocketchat").getUser("rocketchat").roles)') == '[{"role":"readWrite","db":"rocketchat"}]' ]]
 kubectl delete pod -l name=rocketchat-rocketchat --wait=true >/dev/null
 kubectl rollout status "$deployment" --timeout=900s >/dev/null
 forward
@@ -83,4 +110,4 @@ admin=$(login admin "$admin_password")
 messages=$(general "$admin")
 grep -q "from the admin" <<<"$messages"
 grep -q "from the member" <<<"$messages"
-echo "admin and member exchanged messages in general on MongoDB 9.0 as replica set rs0 with its member primary, Rocket.Chat's change stream opened and one on its messages delivered the admin's, registration refused, messages kept after replacing the MongoDB and Rocket.Chat pods"
+echo "admin and member exchanged messages in general on MongoDB 9.0 as replica set rs0 with its member primary, Rocket.Chat's change stream opened and one on its messages delivered the admin's, registration refused, messages kept after replacing the MongoDB and Rocket.Chat pods; Rocket.Chat connected as the user rocketchat, which saw only its database, got Unauthorized for the oplog, a write in admin, serverStatus and createUser, left Rocket.Chat's storage engine unknown, and kept readWrite on rocketchat as its only role after the restart"

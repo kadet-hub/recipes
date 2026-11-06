@@ -11,5 +11,8 @@ required:
     description: Password of the user admin, which the first start creates.
     secret: true
   - path: applications.mongodb.password
-    description: Password of MongoDB's user root, with which Rocket.Chat connects; letters and digits only, as it is part of a URL.
+    description: Password of MongoDB's user root.
+    secret: true
+  - path: applications.mongodb.users.rocketchat.value
+    description: Password of MongoDB's user rocketchat, with which Rocket.Chat connects; letters and digits only, as it is part of a URL.
     secret: true
