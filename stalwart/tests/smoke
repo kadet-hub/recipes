@@ -6,6 +6,8 @@
 # answers. Every address is in example.test (RFC 2606), so nothing leaves the
 # cluster.
 set -euo pipefail
+eml=$(mktemp)
+trap 'rm -f "$eml"; kubectl delete pod stalwart-smoke stalwart-smoke-ban --ignore-not-found --wait=false >/dev/null' EXIT
 domain=example.test
 host=mail.$domain
 image=$(kubectl get statefulset stalwart -o jsonpath='{.spec.template.spec.containers[?(@.name=="stalwart")].image}')
@@ -76,8 +78,6 @@ fetch() { # subject: the stored message of b
   cx curl -fsS $tls "imaps://$host:993/INBOX;UID=$uid" --user "b@$domain:$b_password"
 }
 send smoke-plain "hello from a"
-eml=$(mktemp)
-trap 'rm -f "$eml"' EXIT
 fetch smoke-plain >"$eml"
 grep -q 'hello from a' "$eml"
 
@@ -238,6 +238,5 @@ done
 [[ $state != "$uid "* && $state == *' True' ]]
 fetch smoke-plain | grep -q 'hello from a'
 
-kubectl delete pod stalwart-smoke stalwart-smoke-ban --wait=false >/dev/null
 # check reports the last line.
 echo "a sent to b over 465 with TLS and AUTH, b read it over 993 with TLS, its DKIM signature verified against the record PowerDNS answers, no relay without AUTH, no AUTH without TLS, S/MIME encryption at rest for b, a ban after 100 failed logins, a renewed certificate served without a restart, and the mail again after stalwart-0 restarted"
