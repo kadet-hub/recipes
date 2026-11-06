@@ -7208,7 +7208,9 @@ defaults to false. The recipe is at level `deploys`.
   user, that a change stream as that user delivers the admin's message,
   that `listDatabases` names only `rocketchat` to it, and that it gets
   `Unauthorized` for a read in the database `local`, a write in `admin`,
-  `serverStatus` and `createUser`. After it deletes the MongoDB pod, it
+  `serverStatus` and `createUser`. It MUST require that Rocket.Chat's
+  statistics report the storage engine `unknown`, the sign that its own
+  `serverStatus` failed. After it deletes the MongoDB pod, it
   MUST require the user with `readWrite` on `rocketchat` as its only role.
 
   - Test: CI `check` job of `rocketchat`, report line `smoke`

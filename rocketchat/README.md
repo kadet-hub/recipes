@@ -218,7 +218,8 @@ Every connection from Rocket.Chat's pod that authenticated in MongoDB did
 so as `rocketchat`, which `$currentOp` shows. The change stream on the
 messages runs as that user. `listDatabases` names only `rocketchat` to it,
 and it gets `Unauthorized` for a read of `local.oplog.rs`, a write in
-`admin`, `serverStatus` and `createUser`. After the MongoDB pod is
+`admin`, `serverStatus` and `createUser`. Rocket.Chat's statistics report
+MongoDB 9.0 with the storage engine `unknown`. After the MongoDB pod is
 deleted, the user still has `readWrite` on `rocketchat` as its only role.
 
 ## Replacing a Helm release

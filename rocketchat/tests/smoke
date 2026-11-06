@@ -55,7 +55,9 @@ app_mongosh() {
 
 admin=$(login admin "$admin_password")
 api "$admin" "$url/me" | jq -e '.roles | index("admin")' >/dev/null
-[[ $(api "$admin" "$url/statistics?refresh=true" | jq -r .mongoVersion) == 9.0.* ]]
+# The version comes from buildinfo. The storage engine only serverStatus
+# reports, which needs clusterMonitor, a role the user rocketchat lacks.
+[[ $(api "$admin" "$url/statistics?refresh=true" | jq -r '.mongoVersion + " " + .mongoStorageEngine') == 9.0.*' unknown' ]]
 primary() { [[ $(mongosh 'rs.status().set + " " + rs.status().members.map(m => m.stateStr).join()') == "rs0 PRIMARY" ]]; }
 primary
 # Rocket.Chat logs this at startup when MongoDB runs without a replica set.
@@ -108,4 +110,4 @@ admin=$(login admin "$admin_password")
 messages=$(general "$admin")
 grep -q "from the admin" <<<"$messages"
 grep -q "from the member" <<<"$messages"
-echo "admin and member exchanged messages in general on MongoDB 9.0 as replica set rs0 with its member primary, Rocket.Chat's change stream opened and one on its messages delivered the admin's, registration refused, messages kept after replacing the MongoDB and Rocket.Chat pods; Rocket.Chat connected as the user rocketchat, which saw only its database and got Unauthorized for the oplog, a write in admin, serverStatus and createUser, and kept readWrite on rocketchat as its only role after the restart"
+echo "admin and member exchanged messages in general on MongoDB 9.0 as replica set rs0 with its member primary, Rocket.Chat's change stream opened and one on its messages delivered the admin's, registration refused, messages kept after replacing the MongoDB and Rocket.Chat pods; Rocket.Chat connected as the user rocketchat, which saw only its database, got Unauthorized for the oplog, a write in admin, serverStatus and createUser, left Rocket.Chat's storage engine unknown, and kept readWrite on rocketchat as its only role after the restart"
