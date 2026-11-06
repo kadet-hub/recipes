@@ -37,6 +37,8 @@ BACKENDS = ("omegaconf", "reclass", "reclass-rs")
 PARAMETER_PATH = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$")
 SECTION_PATH = re.compile(r"`((?:applications|components|generators)(?:\.[A-Za-z0-9_-]+)+)`")
 NO_PARAMETER = "No parameter has to be set."
+# RCP-308: the verbs a designed recipe's roles may grant.
+READ_VERBS = {"get", "list", "watch"}
 
 
 def class_files(recipe):
@@ -548,9 +550,39 @@ def lint_output(name, objects, chart_names):
     return errors
 
 
-def lint_compose_output(objects):
-    """RCP-38: what a compose recipe proves without a reference to compare with."""
-    errors = [
+def read_only_rbac_errors(objects):
+    """RCP-308: the RBAC of a designed recipe only reads, and binds only roles the recipe renders."""
+    rbac = [o for o in objects if o.get("kind") in compare.RBAC_KINDS]
+    # A ClusterRole is cluster-scoped, so a namespace in its metadata does not count.
+    roles = {(o["kind"], (o.get("metadata") or {}).get("namespace") if o["kind"] == "Role" else None,
+              (o.get("metadata") or {}).get("name"))
+             for o in rbac if o["kind"] in ("Role", "ClusterRole")}
+    errors = []
+    for o in rbac:
+        meta = o.get("metadata") or {}
+        if o["kind"] in ("Role", "ClusterRole"):
+            if "aggregationRule" in o:
+                errors.append(f"{compare.ident(o)}: aggregationRule, a designed recipe grants only the rules it lists (RCP-308)")
+            for rule in o.get("rules") or []:
+                if extra := sorted(set(rule.get("verbs") or []) - READ_VERBS):
+                    errors.append(f"{compare.ident(o)}: verbs {', '.join(extra)}, a designed recipe only reads (RCP-308)")
+                named = [*(rule.get("apiGroups") or []), *(rule.get("resources") or [])]
+                if bad := sorted({n for n in named if n == "*" or n.split("/")[0] == "secrets"}):
+                    errors.append(f"{compare.ident(o)}: {', '.join(bad)}, a designed recipe reads no Secret (RCP-308)")
+                if rule.get("nonResourceURLs"):
+                    errors.append(f"{compare.ident(o)}: nonResourceURLs, a designed recipe reads only resources (RCP-308)")
+        else:
+            ref = o.get("roleRef") or {}
+            namespace = meta.get("namespace") if ref.get("kind") == "Role" else None
+            if (ref.get("kind"), namespace, ref.get("name")) not in roles:
+                errors.append(f"{compare.ident(o)}: binds {ref.get('kind')}/{ref.get('name')}, which the recipe does not render (RCP-308)")
+    return errors
+
+
+def lint_compose_output(objects, read_only_rbac=False):
+    """RCP-38: what a compose recipe proves without a reference to compare with. A designed recipe
+    may read the API (RCP-308)."""
+    errors = read_only_rbac_errors(objects) if read_only_rbac else [
         f"{compare.ident(o)}: RBAC object, the source grants no API access (RCP-38)"
         for o in objects if o.get("kind") in compare.RBAC_KINDS
     ]
@@ -561,10 +593,10 @@ def lint_compose_output(objects):
 
 
 def lint_design_output(objects, source):
-    """RCP-44: a designed recipe is linted as a compose one (RCP-38); RCP-23: it runs its Source image,
+    """RCP-44: a designed recipe is linted as a compose one (RCP-38), with read-only RBAC (RCP-308); RCP-23: it runs its Source image,
     in a container or, through an operator, as spec.image or spec.<part>.image of a custom resource (RCP-58)."""
     image = "{}:{}@{}".format(*source)
-    errors = lint_compose_output(objects)
+    errors = lint_compose_output(objects, read_only_rbac=True)
     images = {c.get("image") for o in objects for _, t in compare.pod_templates(o) for c in (t.get("spec") or {}).get("containers") or []}
     specs = [o.get("spec") or {} for o in objects]
     images |= {s.get("image") for s in specs} | {p.get("image") for s in specs for p in s.values() if isinstance(p, dict)}
