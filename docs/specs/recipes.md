@@ -6713,7 +6713,7 @@ primary, and after 90 failed tries the container starts again.
 
   - Test: `rocketchat/tests/smoke`; manual: a compile of
     `mongodb/tests/target.yml`, which leaves the option out
-  - Since: #RC
+  - Since: #129
 
 - RCP-401: The postStart hook of the option MUST initiate the replica set
   with the one member `localhost:27017` when it is not initiated, MUST
@@ -6722,7 +6722,7 @@ primary, and after 90 failed tries the container starts again.
 
   - Test: `rocketchat/tests/smoke`, the member primary before and after
     its pod is replaced; CI `check` job of `rocketchat`
-  - Since: #RC
+  - Since: #129
 
 `tests/target.yml` of `mongodb` leaves the option out, so `check mongodb`
 keeps proving the server without a replica set. `check rocketchat` proves
@@ -6834,7 +6834,7 @@ defaults to false. The recipe is at level `deploys`.
   `admin-password`.
 
   - Test: `check rocketchat`; CI `check` job
-  - Since: #RC
+  - Since: #129
 
 - RCP-403: The `tests/smoke` of `rocketchat` MUST reach Rocket.Chat
   through the Service `rocketchat-rocketchat`, log in as `admin` with the
@@ -6848,7 +6848,7 @@ defaults to false. The recipe is at level `deploys`.
   member as primary and both messages again.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #RC
+  - Since: #129
 
 - AC-400 (RCP-400 to RCP-403): `check rocketchat --level deploys` passes
   in CI on each Kubernetes minor. On kind, with `rocketchat` compiled
