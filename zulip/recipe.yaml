@@ -1,0 +1,18 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.zulip.host
+    description: Host name users reach Zulip at, SETTING_EXTERNAL_HOST.
+    secret: false
+  - path: applications.zulip.administrator
+    description: Email address of the server administrator, SETTING_ZULIP_ADMINISTRATOR, and the login of the organization's owner.
+    secret: false
+  - path: applications.zulip.secret_key
+    description: Django's SECRET_KEY, which signs sessions, so a new key logs every user out.
+    secret: true
+  - path: applications.zulip.owner_password
+    description: Password of the organization's owner, which the first start creates.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of Valkey's user default, with which Zulip connects to Redis.
+    secret: true

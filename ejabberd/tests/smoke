@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# What the compose example of CONTAINER.md sets up (RCP-39, RCP-383): from a
+# pod of its own, through the Service ejabberd, ports 5222, 5269, 5280 and
+# 5443 answer, in-band registration is refused, alice and bob exchange
+# messages in a room and directly over BOSH, the admin account of the Secret
+# ejabberd reads the room's history through the API, and after the pod is
+# deleted the accounts log in again and find the messages in their archives.
+set -euo pipefail
+image=$(kubectl get statefulset ejabberd -o jsonpath='{.spec.template.spec.containers[0].image}')
+host=$(kubectl get statefulset ejabberd \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EJABBERD_MACRO_HOST")].value}')
+admin_password=$(kubectl get secret ejabberd -o jsonpath='{.data.REGISTER_ADMIN_PASSWORD}' | base64 -d)
+# Test passwords of the two accounts the admin creates.
+password=aaaaaaaa
+room=smoke@conference.$host
+
+# The image brings curl and nc, so the test pod needs no other image. A pod
+# of its own connects from outside the loopback network, from which
+# ejabberd.yml lets anyone register an account.
+kubectl run ejabberd-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod ejabberd-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/ejabberd-smoke --for=condition=Ready --timeout=120s >/dev/null
+
+fail() { echo "$*" >&2; exit 1; }
+
+# The HTTP API admits the admin only from loopback (api_permissions in
+# ejabberd.yml), so it runs in the ejabberd pod.
+api() {
+  kubectl exec -i ejabberd-0 -- curl -sSk --fail-with-body -u "admin@$host:$admin_password" \
+    -H "Host: $host" -H 'Content-Type: application/json' --data @- "https://127.0.0.1:5443/api/$1" ||
+    fail "API call $1 failed"
+}
+# The image registers the admin from CTL_ON_CREATE once ejabberd has
+# started, which can be after the readiness probe passed.
+wait_for_admin() {
+  for _ in $(seq 30); do
+    jq -nc --arg h "$host" '{host: $h}' | api registered_users 2>/dev/null | grep -q '"admin"' && return
+    sleep 2
+  done
+  fail "the admin account does not answer the API"
+}
+
+# A BOSH client in POSIX sh. post and start keep the request ID in the shell
+# and leave the answer in $out, so they never run in a subshell.
+bosh_lib=$(cat <<'EOF'
+set -eu
+URL=https://ejabberd:5443/bosh
+J="xmlns='jabber:client'"
+rid=$(( $(od -An -N3 -tu4 /dev/urandom | tr -d ' ') + 1000 ))
+sid=
+all=
+post() {
+  rid=$((rid + 1))
+  out=$(curl -sSk --max-time 30 -H 'Content-Type: text/xml; charset=utf-8' --data-binary \
+    "<body rid='$rid' sid='$sid' xmlns='http://jabber.org/protocol/httpbind'${2:-}>$1</body>" "$URL")
+  all="$all$out"
+}
+start() {
+  sid=
+  post '' " to='$DOMAIN' xml:lang='en' wait='5' hold='1' ver='1.6' xmpp:version='1.0' xmlns:xmpp='urn:xmpp:xbosh'"
+  sid=$(printf '%s' "$out" | sed -n "s/.* sid='\([^']*\)'.*/\1/p")
+  [ -n "$sid" ] || { echo "no BOSH session: $out" >&2; exit 1; }
+}
+login() {
+  start
+  post "<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>$(printf '\0%s\0%s' "$1" "$2" | base64 | tr -d '\n')</auth>"
+  case $out in *"<success"*) ;; *) echo "login $1: $out" >&2; exit 1;; esac
+  post '' " to='$DOMAIN' xml:lang='en' xmpp:restart='true' xmlns:xmpp='urn:xmpp:xbosh'"
+  post "<iq $J type='set' id='bind'><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'><resource>smoke</resource></bind></iq>"
+  case $out in *"<jid>"*) ;; *) echo "bind $1: $out" >&2; exit 1;; esac
+  post "<presence $J/>"
+}
+EOF
+)
+# xmpp <script>: runs the script with the BOSH client in the test pod and
+# prints every answer of the session.
+xmpp() {
+  printf '%s\n%s\nprintf "%%s" "$all"\n' "$bosh_lib" "$1" |
+    kubectl exec -i ejabberd-smoke -- env DOMAIN="$host" ROOM="$room" PASSWORD="$password" sh -s
+}
+
+# Port 5222, client connections: the stream features ask for STARTTLS.
+out=$( (printf "<?xml version='1.0'?><stream:stream to='%s' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>" "$host"; sleep 3) |
+  kubectl exec -i ejabberd-smoke -- nc -w 5 ejabberd 5222)
+grep -q "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'><required/>" <<<"$out" || fail "port 5222: $out"
+# Port 5269, server-to-server connections: a stream from another domain gets features.
+out=$( (printf "<?xml version='1.0'?><stream:stream to='%s' from='other.example' xmlns='jabber:server' xmlns:stream='http://etherx.jabber.org/streams' xmlns:db='jabber:server:dialback' version='1.0'>" "$host"; sleep 3) |
+  kubectl exec -i ejabberd-smoke -- nc -w 5 ejabberd 5269)
+grep -q "<stream:features>" <<<"$out" || fail "port 5269: $out"
+# Port 5280: the web admin asks for credentials.
+status=$(kubectl exec ejabberd-smoke -- curl -sS -o /dev/null -w '%{http_code}' http://ejabberd:5280/admin/)
+[[ $status == 401 ]] || fail "port 5280: /admin/ answered $status"
+
+# Port 5443: an unauthenticated BOSH session asks to register an account.
+out=$(xmpp "start; post \"<iq \$J type='set' id='reg'><query xmlns='jabber:iq:register'><username>mallory</username><password>\$PASSWORD</password></query></iq>\"")
+grep -q "<forbidden xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>" <<<"$out" || fail "registration was not refused: $out"
+
+# The admin creates the accounts and a persistent room with its archive.
+wait_for_admin
+for user in alice bob; do
+  jq -nc --arg u "$user" --arg h "$host" --arg p "$password" '{user: $u, host: $h, password: $p}' | api register >/dev/null
+done
+jq -nc --arg h "$host" '{name: "smoke", service: "conference.\($h)", host: $h,
+  options: [{name: "persistent", value: "true"}, {name: "mam", value: "true"}]}' | api create_room_with_opts >/dev/null
+
+xmpp "login alice \$PASSWORD
+post \"<presence \$J to='\$ROOM/alice'><x xmlns='http://jabber.org/protocol/muc'/></presence>\"
+post \"<message \$J to='\$ROOM' type='groupchat'><body>hello room from alice</body></message>\"
+post \"<message \$J to='bob@\$DOMAIN' type='chat'><body>hello bob from alice</body></message>\"" >/dev/null
+# bob was offline, so the direct message waits for his presence. Joining the
+# room sends him its history.
+out=$(xmpp "login bob \$PASSWORD
+post ''
+post \"<presence \$J to='\$ROOM/bob'><x xmlns='http://jabber.org/protocol/muc'/></presence>\"
+post ''
+post \"<message \$J to='\$ROOM' type='groupchat'><body>hello alice from bob</body></message>\"")
+grep -q '<body>hello bob from alice</body>' <<<"$out" || fail "bob got no direct message: $out"
+grep -q '<body>hello room from alice</body>' <<<"$out" || fail "bob got no room message: $out"
+
+out=$(jq -nc --arg h "$host" '{name: "smoke", service: "conference.\($h)"}' | api get_room_history)
+for body in 'hello room from alice' 'hello alice from bob'; do
+  grep -q "<body>$body</body>" <<<"$out" || fail "the admin does not see '$body' in the room: $out"
+done
+
+# The database is on the claim: delete the pod and wait for the new one.
+uid=$(kubectl get pod ejabberd-0 -o jsonpath='{.metadata.uid}')
+kubectl delete pod ejabberd-0 >/dev/null
+for _ in $(seq 60); do
+  new=$(kubectl get pod ejabberd-0 -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
+  [[ -n $new && $new != "$uid" ]] && break
+  sleep 2
+done
+# The readiness probe runs once a minute, as the image's HEALTHCHECK does.
+kubectl wait pod/ejabberd-0 --for=condition=Ready --timeout=300s >/dev/null
+wait_for_admin
+
+out=$(jq -nc --arg h "$host" '{host: $h}' | api registered_users)
+grep -q '"alice"' <<<"$out" && grep -q '"bob"' <<<"$out" || fail "accounts after the restart: $out"
+# bob logs in again and reads the room's archive and his own. The answer to
+# the second query can come with the next request.
+out=$(xmpp "login bob \$PASSWORD
+post \"<iq \$J type='set' id='room' to='\$ROOM'><query xmlns='urn:xmpp:mam:2' queryid='room'/></iq>\"
+post \"<iq \$J type='set' id='own'><query xmlns='urn:xmpp:mam:2' queryid='own'/></iq>\"
+post ''")
+grep -q '<body>hello room from alice</body>' <<<"$out" || fail "the room's archive after the restart: $out"
+grep -q '<body>hello bob from alice</body>' <<<"$out" || fail "bob's archive after the restart: $out"
+echo "ports 5222, 5269, 5280 and 5443 answered, registration was refused, alice and bob exchanged" \
+  "messages that the admin read, and accounts and archives survived the pod's deletion"
