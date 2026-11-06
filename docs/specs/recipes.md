@@ -6710,19 +6710,43 @@ variable locks the setting, so a System Console change cannot open
 sign-up while the target says otherwise. Without open sign-up, accounts
 come from the admin or from an invitation.
 
-DEC-295: `mattermost` creates no admin account, and its README says how
-to create the first one with `mmctl` in local mode, which the image turns
-on with `MM_SERVICESETTINGS_ENABLELOCALMODE`. Mattermost has no setting
-for an initial account. Until the first account exists, Mattermost makes
+DEC-295: The Job `mattermost-admin` creates the first admin from
+`applications.mattermost.admin.username`, `.admin.email` and
+`.admin.password` through `POST /api/v4/users`, once
+`/api/v4/system/ping` answers through the Service. Mattermost has no
+setting for an initial account. Until the first account exists, it makes
 the first account created through sign-up a system admin, also with open
-sign-up off (`CreateUserFromSignup` in `server/channels/app/user.go` of
-v12.0.2). The Service is of type `ClusterIP`, and the README asks for the
-admin before the target exposes it.
+sign-up off (`CreateUserFromSignup` in `server/channels/app/user.go` and
+`CreateUser` in `server/channels/app/users/users.go` of v12.0.2). On kind
+the first sign-up to the recipe without the Job got 201 with the roles
+`system_admin system_user`, and with the Job 403.
+
+Once an account exists, Mattermost answers the Job's request with 403 and
+`api.user.create_user.no_open_server`, or with 400 and
+`app.user.save.username_exists` when open sign-up is on. The Job then
+completes and changes nothing, also when the target's password differs
+from the account's. A sign-up between the pod's readiness and the Job's
+request would still become the admin, so the README asks to expose the
+Service only after the Job completed.
+
+The Job runs `docker.io/curlimages/curl` 8.23.0, the image of the curl
+project, as its user `curl_user`, UID 100, which passes Pod Security
+`restricted`. curl writes each parameter into the request as a JSON string
+through `--variable` and `{{name:json}}`, so quotes and backslashes in a
+password reach Mattermost unchanged. The password comes from the Secret
+`mattermost-admin`, which only the recipe renders (Referenced Secret,
+RCP-243). `tests/values.yaml` adds the same Job through the chart's
+`extraDeploy`, as a user would next to the chart, and `check` compares it
+without the labels the API server generates for a Job (RCP-9). The Job
+goes 600 seconds after it finished, as `matrix-synapse-admin` does
+(DEC-283).
 
 | Alternative | Why it was not taken |
 |---|---|
+| `mmctl --local` by hand after the first rollout, as the README said up to #122 | Until someone runs it, the first sign-up becomes the admin. |
 | An init container through `extraInitContainers` that runs `mattermost import bulk` with the admin as a user line of a Secret | On an empty database the import first runs Mattermost's app migrations, and the first of them saves the configuration. The import opens the configuration store read-only (`InitDBCommandContextCobra` in `server/cmd/mattermost/commands/init.go`), so it stopped on kind with `configuration store is read-only`, and the pod never started. |
-| A Job through the chart's `extraDeploy` that creates the admin through the API | The API server generates a Job's selector and pod labels from the Job's UID, `batch.kubernetes.io/controller-uid`. The two sides of `check` would never compare equal unless RCP-9 dropped those labels. |
+| `mmctl --local` in a container of Mattermost's pod | The image has no shell to wait for the socket of local mode, and the container would restart once the account exists. |
+| A login with the target's password when Mattermost refuses the request | It would fail the Job after a password change in Mattermost and with multi-factor authentication. |
 | `MM_TEAMSETTINGS_ENABLEUSERCREATION: "false"` against the first sign-up | It also refuses every invitation (`CreateUserWithInviteId`, `CreateUserWithToken`). |
 
 The chart renders the claims `mattermost-mattermost-team-edition` for
@@ -6739,10 +6763,11 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
 - RCP-370: `mattermost` MUST render the chart's Deployment, Service,
   Secrets, claims and test ConfigMap with the values of DEC-291 to DEC-294
   and `docker.io/mattermost/mattermost-team-edition:12.0.2` pinned to its
-  index.
+  index, and the Job `mattermost-admin` of DEC-295 that `tests/values.yaml`
+  adds through `extraDeploy`.
 
   - Test: `check mattermost`; CI `check` job
-  - Since: #122
+  - Since: #122; the Job: #130
 
 - RCP-371: `mattermost` MUST connect to the Cluster of `postgresql` with a
   connection string without a password and `sslmode=require`, and MUST set
@@ -6755,32 +6780,45 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   warning from a server-side dry run of the label
   `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
   `status: OK` from `/api/v4/system/ping` through the Service. It MUST
-  create the admin with `mmctl --local` as the README says. Through the
-  API it MUST read the image tag as `Version` with `BuildEnterpriseReady`
-  `false` from the client configuration, and get 403 for a sign-up without
-  an invitation. As the admin it MUST create a team, a channel and a
-  second user, and post a message with a file. The second user MUST read
-  the message and the file, and read both again once the pod was deleted
-  and its successor is ready.
+  wait for the Job `mattermost-admin` to complete and log in as its admin.
+  Through the API it MUST read the image tag as `Version` with
+  `BuildEnterpriseReady` `false` from the client configuration, and get
+  403 for a sign-up without an invitation. As the admin it MUST create a
+  team, a channel and a second user, and post a message with a file. The
+  second user MUST read the message and the file, and read both again
+  once the pod was deleted and its successor is ready. The Job run again
+  MUST complete, leave the number of accounts as it was, and the admin
+  MUST still log in.
 
   The message comes from PostgreSQL and the file from the claim, so the
-  read after the restart needs both. On kind the smoke test ran in 28
-  seconds.
+  read after the restart needs both.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #122
+  - Since: #122; the Job: #130
 
-- RCP-373: The README of `mattermost` MUST say how to create the first
-  admin with `mmctl --local`, and that until then the first sign-up
-  becomes a system admin.
+- RCP-373: The README of `mattermost` MUST say that the Job
+  `mattermost-admin` creates the first admin and leaves existing accounts
+  as they are, and that the Service is to be exposed only after the Job
+  completed.
 
   - Test: manual: review
-  - Since: #122
+  - Since: #122; the Job: #130
 
-- AC-370 (RCP-370 to RCP-372): `check mattermost --level deploys` passes
-  in CI on each Kubernetes minor, with differences of the classes Selector
-  scheme, Explicit default and Derived name only, and its smoke test reads
-  the message and the file after the restart.
+- RCP-374: `mattermost` MUST take the first admin's username, email
+  address and password from `applications.mattermost.admin.username`,
+  `.admin.email` and `.admin.password`, and MUST leave them unset. The Job
+  `mattermost-admin` MUST create the account as a system admin when
+  Mattermost has none, and MUST complete without a change when Mattermost
+  refuses the request because accounts exist.
+
+  - Test: `check lint` (RCP-262); CI `check` job, report line `smoke`
+  - Since: #130
+
+- AC-370 (RCP-370 to RCP-372, RCP-374): `check mattermost --level
+  deploys` passes in CI on each Kubernetes minor, with differences of the
+  classes Selector scheme, Explicit default, Derived name and Referenced
+  Secret only, and its smoke test reads the message and the file after the
+  restart and the Job's second run creates no account.
 
 ## Matrix Synapse
 
@@ -8539,7 +8577,7 @@ feature's design (OQ-6).
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
-| mattermost | chart `mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm from its HTTP repository, unsupported upstream (DEC-290), Team Edition 12.0.2 (DEC-291), includes postgresql with `PGPASSWORD` (DEC-292), UID 2000 under `restricted` (DEC-293), open sign-up off (DEC-294), first admin by `mmctl --local` from the README (DEC-295), `kubernetes` generator 1.14.0, level `deploys` (RCP-370 to RCP-373) |
+| mattermost | chart `mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm from its HTTP repository, unsupported upstream (DEC-290), Team Edition 12.0.2 (DEC-291), includes postgresql with `PGPASSWORD` (DEC-292), UID 2000 under `restricted` (DEC-293), open sign-up off (DEC-294), first admin from the Job `mattermost-admin` (DEC-295), `kubernetes` generator 1.14.0, level `deploys` (RCP-370 to RCP-374) |
 | matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
 | mongodb option `replica-set` | `recipes.mongodb.replica-set`, replica set `rs0` of one member `localhost:27017` (DEC-321), key file generated by the init container `key` (DEC-322), initiated by a postStart hook (DEC-323) (RCP-400, RCP-401) |
 | rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) as `root` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403) |
