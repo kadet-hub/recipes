@@ -333,6 +333,14 @@
       "groupName": "actual"
     },
     {
+      "description": "RCP-16: ejabberd's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "processone/ejabberd",
+        "ghcr.io/processone/ejabberd"
+      ],
+      "groupName": "ejabberd"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",
