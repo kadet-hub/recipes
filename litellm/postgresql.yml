@@ -1,0 +1,13 @@
+classes:
+  - recipes.postgresql
+parameters:
+  components:
+    litellm:
+      application: litellm
+      # The included recipe's connection URI. The proxy applies its schema
+      # at start.
+      env:
+        DATABASE_URL:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: uri

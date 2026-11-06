@@ -1,0 +1,7 @@
+classes:
+  - recipes.navidrome
+parameters:
+  namespace: navidrome
+  kapitan:
+    vars:
+      target: navidrome

@@ -1,0 +1,185 @@
+parameters:
+  components:
+    mattermost-mattermost-team-edition:
+      application: mattermost
+      # renovate: upstream
+      image: docker.io/mattermost/mattermost-team-edition:12.0.2@sha256:0e435f3397390c36797d0c09b6fcfd73841ebf89bb292d6c6e109082a21ad7b6
+      update_strategy:
+        type: RollingUpdate
+      revision_history_limit: 1
+      # The chart leaves the token at the API default, true.
+      automount_service_account_token: true
+      # The chart's hash of its Secret mattermost-mattermost-team-edition-config
+      # as tests/values.yaml renders it. It does not follow a change of the
+      # recipe or the target.
+      pod_annotations:
+        checksum/config: cc302228b5a168d508b65eed4a02009f6b6f83bb17053a1c286783399024996a
+      # The image's user mattermost, as tests/values.yaml sets it for Pod
+      # Security restricted.
+      workload_security_context:
+        runAsNonRoot: true
+        runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      env:
+        MM_CONFIG:
+          secretKeyRef:
+            name: mattermost-mattermost-team-edition-mattermost-dbsecret
+            key: mattermost.dbsecret
+        # lib/pq reads the password the connection string leaves out.
+        PGPASSWORD:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+      env_from:
+        config:
+          - secretRef:
+              name: mattermost-mattermost-team-edition-config
+      ports:
+        http:
+          container_port: 8065
+      # The chart's Service names its port after the chart, so it is a
+      # standalone Service below.
+      service: null
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /healthz
+          initial_delay_seconds: 10
+          failure_threshold: 30
+        liveness:
+          type: http
+          port: http
+          path: /api/v4/system/ping
+          initial_delay_seconds: 1
+        readiness:
+          type: http
+          port: http
+          path: /api/v4/system/ping
+          initial_delay_seconds: 15
+      volumes:
+        mattermost-config:
+          emptyDir: {}
+        mattermost-data:
+          persistentVolumeClaim:
+            claimName: mattermost-mattermost-team-edition
+        mattermost-plugins:
+          persistentVolumeClaim:
+            claimName: mattermost-mattermost-team-edition-plugins
+      volume_mounts:
+        mattermost-config:
+          mount_path: /mattermost/config
+        mattermost-data:
+          mount_path: /mattermost/data
+        mattermost-plugins:
+          mount_path: /mattermost/client/plugins
+    # Creates the first admin through the API once Mattermost answers.
+    # Mattermost makes the first account a system admin. Once an account
+    # exists it refuses the sign-up, and the Job leaves the accounts as they
+    # are. curl's {{...:json}} writes each value as a JSON string.
+    mattermost-admin:
+      application: mattermost
+      type: job
+      # renovate: upstream
+      image: docker.io/curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+      # The image's user curl_user.
+      workload_security_context:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      # A finished Job goes, so that applying a new version of the recipe
+      # creates it again instead of changing its pod template.
+      ttl_seconds_after_finished: 600
+      env:
+        ADMIN_USERNAME: ${applications.mattermost.admin.username}
+        ADMIN_EMAIL: ${applications.mattermost.admin.email}
+        ADMIN_PASSWORD:
+          secretKeyRef:
+            name: mattermost-admin
+            key: password
+      command:
+        - sh
+        - -c
+      args:
+        script: |
+          url=http://mattermost-team-edition:8065
+          until curl -fsS -o /dev/null $url/api/v4/system/ping; do sleep 5; done
+          status=$(curl -sS -o /tmp/answer -w '%{http_code}' \
+            --variable %ADMIN_USERNAME --variable %ADMIN_EMAIL --variable %ADMIN_PASSWORD \
+            --expand-json '{"username": "{{ADMIN_USERNAME:json}}", "email": "{{ADMIN_EMAIL:json}}", "password": "{{ADMIN_PASSWORD:json}}"}' \
+            $url/api/v4/users)
+          case $status in
+            201) grep -q system_admin /tmp/answer && echo "created the system admin $ADMIN_USERNAME" && exit 0 ;;
+            400|403) grep -qE 'api.user.create_user.no_open_server|app.user.save.username_exists' /tmp/answer &&
+              echo "Mattermost has accounts, created none" && exit 0 ;;
+          esac
+          echo "unexpected answer $status: $(cat /tmp/answer)"
+          exit 1
+  generators:
+    kubernetes:
+      services:
+        mattermost-team-edition:
+          type: ClusterIP
+          selector:
+            name: mattermost-mattermost-team-edition
+          ports:
+            mattermost-team-edition:
+              service_port: 8065
+              container_port: http
+      secrets:
+        # The first admin's password for the Job mattermost-admin.
+        mattermost-admin:
+          string_data:
+            password:
+              value: ${applications.mattermost.admin.password}
+        # MM_<SECTION>_<SETTING> overrides of Mattermost's configuration.
+        mattermost-mattermost-team-edition-config:
+          string_data:
+            MM_PLUGINSETTINGS_CLIENTDIRECTORY:
+              value: ./client/plugins
+            # Accounts only through the admin.
+            MM_TEAMSETTINGS_ENABLEOPENSERVER:
+              value: "false"
+        # Configuration and data in PostgreSQL. CloudNativePG serves TLS, which
+        # sslmode=require uses without verifying the server's certificate.
+        mattermost-mattermost-team-edition-mattermost-dbsecret:
+          string_data:
+            mattermost.dbsecret:
+              value: postgres://${applications.postgresql.owner}@${applications.postgresql.cluster}-rw:5432/${applications.postgresql.database}?sslmode=require&connect_timeout=10
+      persistent_volume_claims:
+        # Uploaded files.
+        mattermost-mattermost-team-edition:
+          storage: 10Gi
+        # The web app's plugin bundles.
+        mattermost-mattermost-team-edition-plugins:
+          storage: 1Gi
+      configs:
+        # templates/tests/mattermost-config-test.yaml of the chart
+        # mattermost-team-edition 6.6.111, Apache-2.0 (mattermost.yml.LICENSE),
+        # the script of its Helm test. The shell's ${...} are written as
+        # ${escape:...}.
+        mattermost-mattermost-team-edition-tests:
+          data:
+            run.sh:
+              value: |-
+                #!/usr/bin/env bats
+                @test "Testing Mattermost is accessible" {
+                  url="http://mattermost-team-edition.${namespace}.svc.cluster.local:8065"
+                  code=$(wget --server-response --spider --timeout 10 --tries 1 ${escape:url} 2>&1 | awk '/^  HTTP/{print $2}')
+                  [ "$code" == "200" ]
+                }

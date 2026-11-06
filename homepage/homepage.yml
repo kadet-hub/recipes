@@ -1,0 +1,66 @@
+parameters:
+  components:
+    homepage:
+      application: homepage
+      # renovate: Source
+      image: ghcr.io/gethomepage/homepage:v2.7.0@sha256:19c5c09184458a41b7b5915e71463a39f36cd33540f41bdbed008791b8182d5f
+      security_profile: restricted
+      # The user of the Kubernetes installation page, which owns /app/.next
+      # in the image.
+      workload_security_context:
+        runAsUser: 1000
+        runAsGroup: 1000
+      ports:
+        http:
+          container_port: 3000
+          service_port: 3000
+      service:
+        type: ClusterIP
+      env:
+        HOMEPAGE_ALLOWED_HOSTS: ${applications.homepage.allowed_hosts}
+      # The image's HEALTHCHECK.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - wget --no-verbose --tries=1 --spider -Y off http://127.0.0.1:$PORT/api/healthcheck || exit 1
+          period_seconds: 10
+          timeout_seconds: 3
+      config_maps:
+        config:
+          versioned: true
+          data:
+            settings.yaml:
+              value: ${yaml:applications.homepage.settings}
+            services.yaml:
+              value: ${yaml:applications.homepage.services}
+            bookmarks.yaml:
+              value: ${yaml:applications.homepage.bookmarks}
+            widgets.yaml:
+              value: ${yaml:applications.homepage.widgets}
+      # A writable /app/config takes the logs and the files homepage copies
+      # from its skeleton; the dashboard's files are mounted over it.
+      volumes:
+        config-dir:
+          emptyDir: {}
+      volume_mounts:
+        config-dir:
+          mount_path: /app/config
+        settings:
+          volume: config
+          mount_path: /app/config/settings.yaml
+          sub_path: settings.yaml
+        services:
+          volume: config
+          mount_path: /app/config/services.yaml
+          sub_path: services.yaml
+        bookmarks:
+          volume: config
+          mount_path: /app/config/bookmarks.yaml
+          sub_path: bookmarks.yaml
+        widgets:
+          volume: config
+          mount_path: /app/config/widgets.yaml
+          sub_path: widgets.yaml
