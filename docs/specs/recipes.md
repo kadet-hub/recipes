@@ -1157,7 +1157,7 @@ and the README lists the renames.
 | `read_only: true` | `read_only_root_filesystem: true` | DEC-309 |
 | `tmpfs` | `volumes` with an `emptyDir` of `medium: Memory` and the entry's `size` as `sizeLimit`, `volume_mounts` at its path | DEC-309. `mode` and `noexec` are dropped. |
 | bind mount of a file that the pinned repository does not contain, which the documentation copies from a file the image carries byte for byte at the mount target | nothing | DEC-301. The README names the file and its SHA-256. |
-| `read_only: true` | `read_only_root_filesystem: true`, and an `emptyDir` at `/tmp` where the service writes temporary files there | DEC-215. Docker leaves `/tmp` of a read-only container read-only, and an `emptyDir` stands in for the `tmpfs` that a compose file would add. |
+| `read_only: true` without a `tmpfs` at `/tmp`, where the service writes temporary files there | an `emptyDir` at `/tmp` | DEC-215. Docker leaves `/tmp` of a read-only container read-only, and the `emptyDir` stands in for the `tmpfs` that the compose file lacks. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -1191,14 +1191,15 @@ What the table does not map is a gap, and so is each of these:
   from an example file, which was resolved without one, the bind mounts
   below its configuration directory and `aliases`, which were gaps,
   `read_only` and `tmpfs`, all for jitsi-meet (DEC-306 to DEC-309).
-  Revised in #115: `read_only`, which was a gap, for navidrome (DEC-215).
+  Revised in #115: an `emptyDir` at `/tmp` of a read-only service that
+  writes there, for navidrome (DEC-215).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; file the image
     carries: #118; `.env`, configuration directory, `aliases`,
-    `read_only`, `tmpfs`: #117; `read_only`: #115
+    `read_only`, `tmpfs`: #117; `/tmp` of a read-only service: #115
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
