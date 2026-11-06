@@ -75,6 +75,7 @@ for _ in $(seq 30); do
   [[ -n $new ]] && break
   sleep 1
 done
+[[ -n $new ]] || fail "no umami pod replaced $old within 30 seconds"
 kubectl wait pod/"$new" --for=condition=Ready --timeout=300s >/dev/null
 reachable
 # The new pod accepts the session only when APP_SECRET comes from the Secret.

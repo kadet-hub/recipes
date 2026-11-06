@@ -1,0 +1,28 @@
+# Qdrant's non-root image, with which the chart renders no init container
+# that runs chown as root (DEC-231).
+image:
+  useUnprivilegedImage: true
+# What Pod Security restricted asks for beyond the chart's defaults (DEC-231).
+containerSecurityContext:
+  capabilities:
+    drop:
+      - ALL
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+# The API key from the Secret the recipe renders (DEC-232).
+env:
+  - name: QDRANT__SERVICE__API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: qdrant-apikey
+        key: api-key
+# The kubernetes generator cannot set podManagementPolicy, so the proof
+# runs the API default. With one replica both policies start the same pod
+# (DEC-230).
+podManagementPolicy: OrderedReady
+# The generator puts the label name on each claim template, and the chart
+# puts app on it.
+persistence:
+  additionalLabels:
+    name: qdrant-storage
