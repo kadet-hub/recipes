@@ -1,0 +1,110 @@
+parameters:
+  components:
+    librechat-librechat:
+      application: librechat
+      image: registry.librechat.ai/librechat-ai/librechat:v0.8.8@sha256:5b706bcee1ca154a1e2987303aaeca0eb27f97919cccee4bb604226c2f8abf61
+      # The chart leaves the pod's token unset and the ServiceAccount's at true.
+      automount_service_account_token: true
+      service_account:
+        create: true
+        automount_service_account_token: true
+      # The chart sets the API default explicitly.
+      enable_service_links: true
+      update_strategy:
+        type: RollingUpdate
+      # The chart's hash of its ConfigMap as tests/values.yaml renders it. It
+      # does not follow a change of the recipe or the target.
+      pod_annotations:
+        checksum/configEnv: a1651ccd35b8ebde8006c215a842daed6134cec26a9dc134992bc05d9ff66181
+      # The chart's security contexts with the two fields Pod Security
+      # restricted adds, as tests/values.yaml sets them.
+      workload_security_context:
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        runAsNonRoot: true
+        runAsUser: 1000
+      ports:
+        http:
+          container_port: 3080
+          service_port: 3080
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service:
+        type: ClusterIP
+      # The chart's probes with the API's defaults, where the generator's
+      # differ.
+      healthcheck:
+        liveness:
+          type: http
+          port: 3080
+          path: /health
+          timeout_seconds: 1
+        readiness:
+          type: http
+          port: 3080
+          path: /health
+          timeout_seconds: 1
+      env_from:
+        configenv:
+          - configMapRef:
+              name: librechat-librechat-configenv
+      env:
+        CREDS_KEY:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: CREDS_KEY
+        CREDS_IV:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: CREDS_IV
+        JWT_SECRET:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: JWT_SECRET
+        JWT_REFRESH_SECRET:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: JWT_REFRESH_SECRET
+        # The password of the user root of the included recipe mongodb, which
+        # Kubernetes puts into MONGO_URI below.
+        MONGODB_PASSWORD:
+          secretKeyRef:
+            name: mongodb
+            key: password
+        MONGO_URI: mongodb://root:$(MONGODB_PASSWORD)@mongodb:27017/LibreChat?authSource=admin
+      volume_mounts:
+        image-volume:
+          mount_path: /app/client/public/images
+      volumes:
+        image-volume:
+          persistentVolumeClaim:
+            claimName: librechat-librechat-images
+      persistent_volume_claims:
+        librechat-librechat-images:
+          storage: 10G
+  generators:
+    kubernetes:
+      configs:
+        librechat-librechat-configenv:
+          data:
+            ALLOW_REGISTRATION:
+              value: "false"
+      # A component Secret would also be mounted as a volume, which the chart
+      # does not.
+      secrets:
+        librechat-credentials-env:
+          string_data:
+            CREDS_KEY:
+              value: ${applications.librechat.creds_key}
+            CREDS_IV:
+              value: ${applications.librechat.creds_iv}
+            JWT_SECRET:
+              value: ${applications.librechat.jwt_secret}
+            JWT_REFRESH_SECRET:
+              value: ${applications.librechat.jwt_refresh_secret}

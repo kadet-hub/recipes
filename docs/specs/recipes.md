@@ -8371,6 +8371,166 @@ renders no hook, and its ServiceAccount has no role.
   its smoke test reads the run, the artifact and the model version after
   the restart.
 
+## LibreChat
+
+LibreChat is a chat UI for language models of many providers, such as
+OpenAI, Anthropic, Google and OpenAI-compatible servers. It keeps users,
+conversations and settings in MongoDB, and its optional parts are
+Meilisearch for the search over conversations, a RAG API for file search
+and Redis for several replicas. LibreChat-AI/LibreChat is MIT.
+
+DEC-255: `librechat` is a chart recipe on the chart `librechat` 3.0.0,
+which LibreChat-AI/LibreChat keeps in `helm/librechat` and its workflow
+`helmcharts.yml` publishes for each tag `chart-<version>` at
+`oci://ghcr.io/librechat-ai/librechat-chart/librechat`. The chart's
+location follows the repository's owner, and the location of the previous
+owner stops at 2.0.14. 3.0.0, published on 2026-10-17, was the newest
+chart on 2026-11-05. Its `appVersion` is v0.8.8, the newest
+LibreChat version without a suffix. GitHub marks every LibreChat release as
+a prerelease, and v0.8.9-rc1 of 2026-10-26 is a release candidate. The
+repository's `docker-compose.yml` and `deploy-compose.yml` were considered.
+DEC-10 puts the project's chart first, and both run moving `-dev` tags.
+
+The recipe runs the chart's default image
+`registry.librechat.ai/librechat-ai/librechat:v0.8.8`, pinned to its index
+for amd64 and arm64. registry.librechat.ai forwards the registry API to
+`ghcr.io/librechat-ai/librechat` and redirects the layers there, and both
+served the same index on 2026-11-05. The chart names its objects
+`<release>-librechat`, so they are `librechat-librechat`.
+
+DEC-256: `librechat` includes the recipe `mongodb` in place of the chart's
+Bitnami subchart (DEC-4, DEC-20). `mongodb` includes no recipe, so it can
+be included (RCP-47). `tests/values.yaml` sets `mongodb.enabled: false` and
+gives LibreChat the variables the chart builds for its own MongoDB:
+`MONGODB_PASSWORD` from the key `password` of the Secret `mongodb`, and
+`MONGO_URI` as
+`mongodb://root:$(MONGODB_PASSWORD)@mongodb:27017/LibreChat?authSource=admin`,
+which Kubernetes expands from the variable before it. The password goes
+into the URI unencoded, so it must consist of letters and digits, as for
+open-webui (DEC-78). LibreChat v0.8.8 ran against MongoDB 9.0.4 of
+`mongodb` on kind.
+
+DEC-257: `librechat` renders no Meilisearch, no RAG API and no Redis. The
+chart turns on its subchart `meilisearch` by default, the chart of
+meilisearch/meilisearch-kubernetes 0.11.0 with Meilisearch v1.7.3, and
+leaves the RAG API, its PostgreSQL and Redis off. LibreChat searches only
+with `SEARCH` set to true (`isEnabled(process.env.SEARCH)` in
+`api/server/routes/search.js` of v0.8.8), so without it the conversation
+search is off and LibreChat does not connect to Meilisearch.
+`tests/values.yaml` sets `meilisearch.enabled: false`. Meilisearch inside
+`librechat` was considered. DEC-4 makes a subchart a recipe of its own, and
+no recipe of Meilisearch exists yet. A target that runs Meilisearch, the
+RAG API or Redis elsewhere sets LibreChat's variables for them, which the
+README names.
+
+DEC-258: `librechat` keeps registration closed, and the README creates the
+first user with `npm run create-user` in the container. LibreChat v0.8.8
+refuses `/api/auth/register` with 403 unless `ALLOW_REGISTRATION` is true
+(`api/server/middleware/validateRegistration.js`), and the recipe sets it to
+`"false"` in the ConfigMap `librechat-librechat-configenv`, so a target
+reads the state in its manifests. LibreChat has no variable that creates an
+account, so an admin from required parameters, as DEC-165 does for
+stirling-pdf, is not possible. The first user of an empty database
+becomes `ADMIN`. A Job that runs the script from parameters was
+considered. The script exits with 1 once the user exists, and it would add
+a workload the chart does not have.
+
+DEC-259: `librechat` runs under Pod Security `restricted`.
+`tests/values.yaml` adds `seccompProfile: RuntimeDefault` to the chart's
+`podSecurityContext` and `allowPrivilegeEscalation: false` to its
+`securityContext`, which already drop every capability and run as UID 1000,
+the image's user `node`. With the chart's contexts alone the pod passes
+`baseline` only. On kind LibreChat and its create-user script ran
+unchanged.
+
+The chart reads its credentials with `envFrom` from the Secret that
+`global.librechat.existingSecretName` names, with `optional: false`. The
+`kubernetes` generator 1.14.0 renders an `envFrom` entry with the name
+only, so the comparison would show `optional` as a difference.
+`tests/values.yaml` sets `existingSecretName: ""` and reads `CREDS_KEY`,
+`CREDS_IV`, `JWT_SECRET` and `JWT_REFRESH_SECRET` one by one through
+`global.librechat.env` from the Secret `librechat-credentials-env` that
+the recipe renders, which `check` accepts as a Referenced Secret
+(DEC-166). A key a target adds to the Secret, such as an API key, needs an
+`env` entry as well. The chart renders its default `lifecycle: {}` as an
+empty object on the container, and the generator renders none, so
+`tests/values.yaml` sets `lifecycle: null`. The pod annotation
+`checksum/configEnv` is the chart's hash of its ConfigMap for
+`tests/values.yaml` (RCP-42). The chart's Ingress, on by default for
+`chat.example.com`, its Langfuse fanout and its HorizontalPodAutoscaler are
+not part of the recipe. The chart's Helm test
+`librechat-librechat-test-connection` is left out (RCP-25). Its
+ServiceAccount has no role.
+
+- RCP-335: `librechat` MUST render the chart's Deployment, Service,
+  ServiceAccount, ConfigMap `librechat-librechat-configenv` and claim
+  `librechat-librechat-images` with the values of DEC-256 to DEC-259, and
+  `registry.librechat.ai/librechat-ai/librechat:v0.8.8` pinned to its
+  index.
+
+  - Test: `check librechat`; CI `check` job
+  - Since: #121
+
+- RCP-336: `librechat` MUST put `applications.librechat.creds_key`,
+  `.creds_iv`, `.jwt_secret` and `.jwt_refresh_secret` into the keys
+  `CREDS_KEY`, `CREDS_IV`, `JWT_SECRET` and `JWT_REFRESH_SECRET` of the
+  Secret `librechat-credentials-env`, MUST set the variables of the same
+  names from them, and MUST leave the parameters unset. It MUST build
+  `MONGO_URI` from the key `password` of the Secret `mongodb`.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as a ref (RCP-19, RCP-40). The README names
+  `applications.mongodb.password` as well (RCP-51).
+
+  - Test: `check lint` (RCP-262); CI `check` job, report lines
+    `difference: Referenced Secret` and `smoke`
+  - Since: #121
+
+- RCP-337: `librechat` MUST set `ALLOW_REGISTRATION` to `"false"` and MUST
+  NOT set `SEARCH`. It MUST render no object of Meilisearch, the RAG API or
+  Redis.
+
+  - Test: `check librechat` (renders: the ConfigMap compared with the
+    chart's); CI `check` job, report line `smoke`
+  - Since: #121
+
+- RCP-338: The `tests/smoke` of `librechat` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. It
+  MUST start an OpenAI-compatible stub that `tests/target.yml` configures
+  as the endpoint `openAI`, and create the first user with
+  `npm run create-user`. From a pod of the LibreChat image and through the
+  Service `librechat-librechat` on port 3080 it MUST get `OK` from
+  `/health` and 403 for a registration, log in as that user with the role
+  `ADMIN`, find the stub's model in `/api/models`, send a message to it and
+  find the stub's reply in the conversation. Once the LibreChat and MongoDB
+  pods were deleted and their successors are ready, it MUST log in again
+  and read the conversation and both messages back.
+
+  LibreChat answers a chat request from a client that names no browser in
+  `User-Agent` with `Illegal request` (`api/server/middleware/uaParser.js`),
+  so the test sends Firefox's. The chat request returns at once, and the
+  reply streams into MongoDB in the background, so the test polls the
+  conversation's messages. The stub is busybox's `httpd` with a script that
+  lists one model and gives every completion the same reply, as a stream of
+  server-sent events when the request asks for one. LibreChat streams the
+  answer and asks for the title without streaming.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #121
+
+- RCP-339: `librechat` MUST run as UID 1000 with the security contexts of
+  DEC-259.
+
+  - Test: `check librechat`; CI `check` job, report line `smoke`
+  - Since: #121
+
+- AC-335 (RCP-335 to RCP-339): `check librechat --level deploys` passes in
+  CI on each Kubernetes minor, its report lists the objects of `mongodb` as
+  included, with differences of the classes Selector scheme, Explicit
+  default and Referenced Secret only, and its smoke test reads the
+  conversation with the stub's reply after the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -9310,3 +9470,4 @@ feature's design (OQ-6).
 | homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
 | litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.14.0, level `deploys` (RCP-315 to RCP-318) |
 | mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
+| librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.14.0, level `deploys` (RCP-335 to RCP-339) |
