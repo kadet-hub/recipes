@@ -891,7 +891,7 @@ For a compose source and a designed recipe, `renders`, also as part of
 
   - Test: `check/tests/test_compare.py`; CI `check` job
   - Since: #2; `chart`, `release`, `heritage`, `component`: #29; the
-    labels of a Job: this change
+    labels of a Job: #127
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
