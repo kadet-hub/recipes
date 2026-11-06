@@ -1382,7 +1382,9 @@ this as a constraint.
   compares the rules with the documentation the README names. A compose
   recipe still renders no RBAC object (RCP-38). A ClusterRole is
   cluster-scoped, so a namespace in its metadata does not keep its binding
-  from finding it. A role of an included recipe does not count as the
+  from finding it. A Role or RoleBinding without a namespace lands in the
+  target namespace, so their namespaces are compared only when both name
+  one. A role of an included recipe does not count as the
   recipe's own. Its rules need not only read, as a chart recipe's are
   compared with the chart instead, so a binding to it would let the
   designed recipe grant what this rule forbids.
