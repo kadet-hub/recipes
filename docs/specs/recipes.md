@@ -6597,7 +6597,7 @@ the same file.
     on kind with Kubernetes 1.37 and the option, `/_matrix/federation/v1/version`,
     `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered;
     manual: the two servers above on kind with Kubernetes 1.37
-  - Since: #124; federation of two servers: this change
+  - Since: #124; federation of two servers: #128
 
 - RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
   Security warning from a server-side dry run of the label
@@ -6629,7 +6629,7 @@ the same file.
   uses, would bring Node and a lock file into this repository.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #124; Chrome: this change
+  - Since: #124; Chrome: #128
 
 - RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
   with `register_new_matrix_user --exists-ok --admin` and the shared
