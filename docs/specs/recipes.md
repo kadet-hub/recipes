@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.16.0 implements renders and deploys, for charts
+Status: Draft. check 0.17.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -1364,17 +1364,46 @@ this as a constraint.
 
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
-  object, every selector selecting pods, then one fresh kind cluster, with
-  a deploy and `tests/smoke` at `deploys` and the apply of RCP-26 without
-  a comparison at `renders`.
+  object except roles that only read (RCP-308), every selector selecting
+  pods, then one fresh kind cluster, with a deploy and `tests/smoke` at
+  `deploys` and the apply of RCP-26 without a comparison at `renders`.
 
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
-  would compare it. The `next` compile (RCP-24) runs unchanged.
+  would compare it. The `next` compile (RCP-24) runs unchanged. Revised in
+  #126: read access that the project's documentation asks for
+  (RCP-308).
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
     `renders`: `check/tests/test_check.py`
-  - Since: #14; `renders`: #45
+  - Since: #14; `renders`: #45; RCP-308: #126
+
+- RCP-308: `check lint` MUST accept an RBAC object in a designed recipe
+  only when it reads. Every rule of a Role or ClusterRole MUST grant no
+  verb but `get`, `list` and `watch`, MUST name no `*` in `apiGroups` or
+  `resources`, MUST name no `secrets` or Secret subresource in
+  `resources`, and MUST have no `nonResourceURLs`. A ClusterRole MUST have
+  no `aggregationRule`. Every binding MUST bind a Role or ClusterRole that
+  the recipe renders itself.
+
+  A project's documentation can ask for read access to the cluster, as
+  homepage's Kubernetes installation page does for its service discovery.
+  `check` cannot compare such rules with documentation, so the rule limits
+  what they can grant. A binding to a role the recipe does not render, such
+  as `cluster-admin`, would grant more than the rules show. The review
+  compares the rules with the documentation the README names. A compose
+  recipe still renders no RBAC object (RCP-38). A ClusterRole is
+  cluster-scoped, so a namespace in its metadata does not keep its binding
+  from finding it. A Role or RoleBinding without a namespace lands in the
+  target namespace, so their namespaces are compared only when both name
+  one. A role of an included recipe does not count as the
+  recipe's own. Its rules need not only read, as a chart recipe's are
+  compared with the chart instead, so a binding to it would let the
+  designed recipe grant what this rule forbids.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+    (`LintDesign.test_read_only_rbac`)
+  - Since: #126
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
@@ -1423,8 +1452,8 @@ recipe on Strimzi's operator, which becomes the chart recipe `strimzi`
 PowerDNS ships no chart and moved first, as the designed recipe `powerdns`.
 external-dns ships its chart only in the HTTP repository
 `https://kubernetes-sigs.github.io/external-dns/`, and it needs a
-ClusterRole, which a designed recipe cannot have (RCP-44). An OCI chart is
-asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
+ClusterRole, which a designed recipe could not have before RCP-308. An OCI
+chart is asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
 followed as the chart recipe `external-dns-powerdns` on the chart
 `external-dns` 1.23.0 from that repository (RCP-23), with external-dns
 0.23.0. It includes `powerdns` (RCP-47) and requires nothing.
@@ -7493,7 +7522,7 @@ feature's design (OQ-6).
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
