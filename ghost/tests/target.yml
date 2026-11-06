@@ -1,0 +1,14 @@
+classes:
+  - recipes.ghost
+parameters:
+  namespace: ghost
+  kapitan:
+    vars:
+      target: ghost
+  applications:
+    ghost:
+      # The address at which the test pod reaches the Service ghost.
+      url: http://ghost:2368
+    mysql:
+      password: aaaaaaaaaaaaaaaa
+      root_password: bbbbbbbbbbbbbbbb

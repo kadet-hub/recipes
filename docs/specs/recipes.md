@@ -4943,6 +4943,208 @@ and the README asks for it before the exposure.
   as included, and its smoke test reads the post and the PNG after the
   restart.
 
+## Ghost
+
+Ghost is a publishing platform for blogs and newsletters. It keeps posts,
+staff users, members and settings in MySQL, and uploaded images, themes
+and its log files in its content directory. Staff work in the admin app
+below `/ghost/`, which talks to the Admin API, and readers get the pages
+that the active theme renders. Ghost is MIT. Release v6.75.0 of
+2026-11-04 was the newest of TryGhost/Ghost on 2026-11-05.
+
+Ghost publishes no chart and no Kustomize base. Its install guide for
+Docker (docs.ghost.org/install/docker) clones TryGhost/ghost-docker, MIT,
+and runs its `compose.yml`. On 2026-11-05 the file at
+`af0fcad04ef1e4c6b7582ddc36696be5138820b2` ran Caddy, Ghost and MySQL by
+default, and further services in the profiles `analytics` and
+`activitypub`. Compose sources stop on that file. `caddy` mounts the
+directory `./caddy` and `db` the directory `./mysql-init`, both of which
+the repository contains. `tinybird-login` and `tinybird-deploy` `build`
+without a published `image`. `working_dir`, `tty` and `profiles` are keys
+that the mapping of Compose sources does not name.
+
+The file runs Ghost as `ghost:6-alpine`, the Docker Official Image `ghost`.
+`library/ghost` in docker-library/official-images names Austin Burdine of
+Ghost, with a ghost.org address, as its maintainer and builds it from
+TryGhost/docker-library-ghost, MIT. The packaging is therefore Ghost's
+own, as `mariadb`'s is MariaDB's (MariaDB). Docker Hub's tag
+`6.75.0-alpine`, also `6-alpine` on 2026-11-05, is the index
+`sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7`
+for amd64 and arm64, built from TryGhost/docker-library-ghost at
+`1742107e163584e436b1f155d3751400a58384f0`. It runs Ghost on Node 22 and
+Alpine 3.23.
+
+DEC-210: `ghost` is a designed recipe on
+`docker.io/library/ghost:6.75.0-alpine` (DEC-11). The compose file of
+TryGhost/ghost-docker was considered as the source (DEC-10). It stops on
+the directories it mounts and on its `build` services, as above. The
+variant `alpine` is the one that file runs. The Debian variant, the tag
+`6.75.0` without a suffix, was considered. It is the image's default, and
+Ghost's own compose file does not use it.
+
+The image's entrypoint copies the default content, the themes Casper and
+Source among it, from `/var/lib/ghost/content.orig` into each directory of
+`/var/lib/ghost/content` that does not exist yet, and starts
+`node current/index.js` (`docker-entrypoint.sh`). Started as root, it
+first gives the content directory to the user `node`, UID and GID 1000 in
+the image's `/etc/passwd`, and switches to it. Started as that user, it
+skips both steps. `ghost` runs as `node` with `fsGroup` 1000 under
+`security_profile: restricted`, and mounts the claim `content` at
+`/var/lib/ghost/content`. On kind the entrypoint filled the claim and Ghost
+wrote uploads to it. The claim is 8Gi, as `mysql`'s, and the README names
+the size as a setting.
+
+The image's configuration, `config.production.json`, listens on port 2368
+and sets the URL `http://localhost:2368`. Ghost reads further settings from
+environment variables whose `__` separates the levels of its
+configuration. `url` is the address readers and staff reach the site at.
+Ghost builds every link from it, and with an `https` URL it redirects a
+request that does not arrive over HTTPS, as a proxy reports it in
+`X-Forwarded-Proto`. The recipe sets `url` from
+`applications.ghost.url`, which the target sets (RCP-19).
+
+DEC-211: The database is the included recipe `mysql` (DEC-4, DEC-12),
+MySQL 9.7.4 of the 9.7 LTS line. Ghost connects to the Service `mysql`
+with `applications.mysql.database` and `.user` and the key `password` of
+the Secret `mysql`. `database__client` stays `mysql`, the default of
+Ghost's production configuration. Ghost's compose file runs MySQL 8.0.46,
+and Ghost's CI runs its tests against MySQL 8.0 only
+(`.github/workflows/ci.yml` of v6.75.0). The install guide names no MySQL
+version. endoflife.date lists the end of life of MySQL 8.0 as 2026-04-30.
+On kind with the pinned images, Ghost created its schema on MySQL 9.7.4,
+and the smoke test writes and reads posts. Nothing upstream tests Ghost's
+later migrations on 9.7. A MySQL 8.0 component inside `ghost`, as the
+compose file runs it, was considered. It would run a release line past its
+end of life, and run MySQL a second way next to `mysql`, as DEC-20 argues
+for paperless-ngx. Ghost connects without TLS, because its knex
+configuration sets no `ssl` for `mysql2` (`configure-knex.ts` of v6.75.0).
+
+Ghost exits when its database does not answer at start. On kind, with
+`mysql` scaled to zero, the pod restarted twice in 45 seconds with
+`ECONNREFUSED` on port 3306. Ghost's compose file starts it once `db` is
+healthy. The init container `wait-for-database` of Ghost's image waits
+until the Service `mysql` accepts connections on port 3306, as DEC-121
+does for umami. The Service has an endpoint only once MySQL is ready, and
+the image's BusyBox carries `nc`.
+
+DEC-212: `ghost` has one probe, the readiness probe `GET /` on port `http`
+with the header `X-Forwarded-Proto: https`, at the generator's period of 10
+seconds, timeout of 5 seconds and 3 failures. The image has no
+`HEALTHCHECK`, and the install guide names no check. Ghost opens its port
+about a second after start and answers 503 while it boots. Its first boot
+on kind spent 28 seconds creating the schema. Without the probe the Service
+would send requests to it during that time. The front page reads posts from
+the database. On kind it answered 503 during the boot, 200 afterwards and
+500 while `mysql` was scaled to zero, with an `http` and with an `https`
+URL. Without the header, Ghost answers the front page under an `https` URL
+with 301 to HTTPS on the host the request named. The kubelet follows a
+redirect to the same host (`pkg/probe/http/http.go` of Kubernetes). On
+kind, under an `https` URL and without the header, the pod never became
+ready, and the kubelet reported
+`server gave HTTP response to HTTPS client`. The header marks the probe's
+request as HTTPS, so Ghost renders the page under either scheme. A probe of `/ghost/api/admin/site/` was
+considered. It answered 200 while `mysql` was down. A liveness probe was
+considered. A database migration of a new Ghost version runs in the booting
+process, and a restart in the middle of it would start it again.
+
+DEC-213: `ghost` renders no owner account. The first visitor of
+`/ghost/#/setup` names the site and creates the owner, as with Ghost's
+compose file. Ghost 6.75.0 reads no account from its configuration. The
+Admin API's `POST /authentication/setup/` creates the owner without a
+login while none exists, and answers 403 afterwards
+(`api/endpoints/authentication.js`). A Job that posts the setup with a
+credential parameter was considered. It would add a workload that no
+Ghost artifact has, and as the setup fails once an owner exists, a
+changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+setup, and the README asks for the setup before the exposure. Members, the
+readers who subscribe to a site, sign up through Ghost's Portal by a link
+that Ghost mails. Who may sign up is a setting of the site in the
+database, which the recipe leaves at Ghost's default.
+
+DEC-214: `ghost` configures no mail. The image's configuration sets
+Ghost's transport `Direct`, which delivers to the recipient's mail server
+from the pod. Ghost mails staff invitations, password resets and members'
+sign-in links, and with `security.staffDeviceVerification`, `true` by
+default, a code for each login from a browser without a verified session.
+The first login of a user that never logged in skips the code
+(`api/endpoints/session.js`). On kind, the owner's first login after the
+setup got a session, and a second login answered 500 with
+`Failed to send email`. The recipe keeps the verification on. Mail needs
+an account at a mail provider, which only the target can name, so the
+README names the settings and says that logins after the first need them.
+Turning the verification off by default was considered. It would remove
+the check of a new device for every installation, also once mail works.
+
+- RCP-290: `ghost` MUST run `docker.io/library/ghost` in the variant
+  `alpine` of DEC-210, pinned to its index, as the StatefulSet `ghost`
+  with UID, GID and `fsGroup` 1000 and `security_profile: restricted`. It
+  MUST mount the claim `content` at `/var/lib/ghost/content` and set `url`
+  from `applications.ghost.url`.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
+  - Since: #119
+
+- RCP-291: `ghost` MUST include `recipes.mysql` and connect to the
+  Service `mysql` with the database and user of `applications.mysql` and
+  the key `password` of the Secret `mysql`. Its init container
+  `wait-for-database` MUST wait until the Service `mysql` accepts
+  connections on port 3306.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #119
+
+- RCP-292: `ghost` MUST have the readiness probe of DEC-212 and no
+  liveness or startup probe.
+
+  - Test: manual: review; CI `check` job, which waits for the rollout
+  - Since: #119
+
+- RCP-293: The `tests/smoke` of `ghost` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace before
+  it starts a pod of its own, and no restart of the pod `ghost-0`. From
+  that pod, through the Service `ghost` on port 2368, it MUST get the
+  setup status `false`, and a front page whose generator tag names the
+  major and minor version of the image tag. It MUST create the owner
+  through `POST /ghost/api/admin/authentication/setup/`, get 403 for a
+  second setup, get no session for a wrong password and log in. With the
+  session it MUST publish a post through `/ghost/api/admin/posts/` and
+  read it without the session on its URL, and upload a PNG through
+  `/ghost/api/admin/images/upload/` and fetch it byte for byte. Once the
+  pod `ghost-0` was deleted and its successor is ready, it MUST read the
+  post and the PNG again and reach `/ghost/api/admin/users/me/` with the
+  session of the login.
+
+  The setup goes through the Service as a visitor's would (DEC-213). The
+  image brings Node.js 22, whose `fetch` makes the requests, so the test
+  needs no image besides Ghost's. The post comes back from
+  MySQL, the PNG from the claim, and the session from the table
+  `sessions` in MySQL.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #119
+
+- RCP-294: Renovate MUST NOT need a release timestamp for the image of
+  `ghost`.
+
+  Docker Hub listed 2571 tags of `library/ghost` on 2026-11-05, so
+  Renovate gets no release timestamps for it, as for `wordpress`
+  (RCP-184). Renovate's docker versioning proposes only tags with the
+  suffix `-alpine`, which keeps the variant.
+
+  - Test: manual: Renovate dry run
+  - Since: #119
+
+- AC-290 (RCP-290 to RCP-293): `check ghost --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `mysql` as
+  included, and its smoke test reads the post and the PNG after the
+  restart.
+
+Not proven: Ghost's migrations of later releases on MySQL 9.7, mail with
+any transport, the members' sign-up and newsletters, the admin app in a
+browser, and a route or Ingress in front of the Service.
+
 ## Umami
 
 Umami is web analytics without cookies. A tracker script on each website
@@ -5453,6 +5655,152 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## Zulip
+
+Zulip is a team chat whose messages are organized by channel and topic.
+One container of `ghcr.io/zulip/zulip-server` runs nginx, the Django
+application, the Tornado event server and the queue workers under
+supervisord. It keeps its data in PostgreSQL, queues events in RabbitMQ,
+caches in memcached and counts rate limits in Redis, and stores uploads
+and generated secrets on its claim at `/data`. Zulip and its chart are
+Apache-2.0.
+
+DEC-313: `zulip` is a chart recipe on the chart `zulip` 2.3.0 of
+zulip/docker-zulip, tag `helm-2.3.0`, which Zulip publishes at
+`oci://ghcr.io/zulip/helm-charts/zulip`. It runs
+`ghcr.io/zulip/zulip-server:12.3-0`, the chart's `appVersion`, pinned to
+its index for amd64 and arm64. On 2026-11-05 2.3.0 was the newest chart
+and 12.3-0 the newest image tag. The repository's `compose.yaml` was
+considered as the source. DEC-10 puts the chart first, and Zulip's
+documentation for Kubernetes starts from the chart.
+
+DEC-314: The chart's Bitnami subcharts give way to the included recipes
+`postgresql`, `rabbitmq`, `memcached` and `valkey` (DEC-20).
+`tests/values.yaml` switches the four subcharts off and points
+`externalPostgresql`, `externalRabbitmq`, `externalMemcached` and
+`externalRedis` at their Services, with each password as a `valueFrom` of
+the included recipe's Secret, which the chart takes for these values. The
+subcharts run images of `bitnamilegacy`, and the PostgreSQL subchart runs
+`zulip/zulip-postgresql` 14. Keeping them was considered. They would run a
+second PostgreSQL, RabbitMQ and Redis next to the recipes that this
+repository proves, and the legacy images get no updates.
+
+Zulip's own PostgreSQL image adds hunspell dictionaries and a stop word
+list for its full-text search. The first migration of 12.3
+(`zerver/migrations/0001_squashed_0569.py`) falls back to PostgreSQL's
+`pg_catalog.english` when the server lacks them and `REMOTE_POSTGRES_HOST`
+is set, and logs a warning, as it did on kind. The CloudNativePG image
+lacks them, so search on `zulip` stems words less well than on Zulip's
+image. Zulip's documentation names the same trade-off for managed
+databases. The
+migration creates the schema `zulip` and sets the owner's `search_path`,
+which the owner of the database `app` may do.
+
+The RabbitMQ Cluster Operator generates the default user's name as well as
+its password, in the Secret `rabbitmq-default-user`. The chart's
+`externalRabbitmq.user` takes only a string, so `tests/values.yaml` leaves
+it empty and sets `SETTING_RABBITMQ_USERNAME` in `zulip.environment` from
+the Secret's key `username`. The user reaches the vhost `/`, Zulip's
+default.
+
+The included recipe `memcached` has no authentication (DEC-153). The
+chart's schema requires a memcached password, so `tests/values.yaml` sets
+`externalMemcached.password` to the empty string. Zulip then sets
+`MEMCACHED_USERNAME`, but the python-binary-memcached client authenticates
+only when a password is set as well. On kind memcached reported
+`auth_cmds 0` and items written by Zulip.
+
+DEC-315: `zulip` creates the organization and its owner on the first start
+from the required parameters `applications.zulip.administrator` and
+`applications.zulip.owner_password`. The chart runs every script of
+`postSetup.scripts` on each start, after the migrations, from the ConfigMap
+`zulip-post-setup-scripts`. The script `create-organization.sh` of
+`tests/values.yaml` runs `manage.py create_realm` when `manage.py
+list_realms` shows no organization at the root domain, and passes the
+password through `--password-file`, so it does not appear in a process
+list. The file belongs to the user `zulip`, because the command runs as
+that user and could not open `/dev/stdin` of the root shell. The owner's
+login is the server administrator's address, which Zulip requires as
+`SETTING_ZULIP_ADMINISTRATOR`. A second address parameter was considered.
+One organization on its own server has one person who answers both.
+
+`create_realm` commits the organization in a durable transaction before
+`do_create_user` sets the owner's password (`zerver/actions/create_realm.py`
+of 12.3), and Zulip rejects a password that is shorter than 8 characters
+or that zxcvbn guesses in fewer than 10000 attempts
+(`check_password_strength` in `zproject/backends.py`). On kind a password
+of twelve `a` left the organization `Zulip` without an owner, and the
+script skipped it on every later start. The script therefore runs Zulip's
+strength check first and stops before `create_realm` on a weak password,
+so the next start tries again. Wrapping both steps in one transaction was
+considered. The durable transaction of `do_create_realm` cannot be nested.
+
+A new organization requires an invitation to join (`invite_required`
+defaults to true in `zerver/models/realms.py` of 12.3), and
+`OPEN_REALM_CREATION` stays at its default, off, so a new organization
+needs a link from `manage.py generate_realm_creation_link`. The chart's
+documented way, a creation link opened in a browser after the install, was
+considered. Until someone opens it the server has no organization and no
+admin, and the defaults for applications with accounts ask for the first
+admin from parameters (DEC-165).
+
+DEC-316: `applications.zulip.secret_key` is required and sets
+`SECRETS_secret_key` from the Secret `zulip`. Zulip's chart documentation
+lists it among the settings a values file must set. Without it the image
+generates one into `zulip-secrets.conf` on the claim. Leaving it to the
+image was considered. A restored or replaced claim would then log every
+user out, and the key would not be in the target's refs.
+
+DEC-317: Zulip serves plain HTTP on port 80, the chart's default with
+`CERTIFICATES` unset, and the recipe renders no Ingress or route, as the
+chart's `ingress.enabled` defaults to false. TLS ends at a proxy the target
+sets up, whose addresses go into `LOADBALANCER_IPS`. Zulip answers a
+request without proxy headers only from the loopback. On kind a request
+through the Service from another pod got 500, with or without
+`X-Forwarded-For`, and `errors.log` named `ProxyMisconfigurationError`.
+`tests/smoke` therefore reaches the Service through `kubectl
+port-forward`, as the chart's CI does. A proxy that `LOADBALANCER_IPS`
+names is not proven.
+
+The chart renders no hook and no Role. The ServiceAccount `zulip` keeps
+the API default `automountServiceAccountToken: true`, as on the chart side.
+`tests/target.yml` runs one PostgreSQL instance and one RabbitMQ node, so
+the proof fits a CI runner. The recipe is at level `deploys`.
+
+- RCP-393: `zulip` MUST render the chart's StatefulSet, Service,
+  ServiceAccount, claim `zulip-data` and ConfigMap
+  `zulip-post-setup-scripts` with the values of DEC-314 to DEC-316, and the
+  Secret `zulip` with the keys `secret-key` and `owner-password`.
+
+  - Test: `check zulip`; CI `check` job
+  - Since: #123
+
+- RCP-394: `create-organization.sh` MUST create the organization at the
+  root domain with the owner `applications.zulip.administrator` and the
+  password `applications.zulip.owner_password` when none exists, and MUST
+  leave an existing organization unchanged. It MUST create nothing when
+  Zulip's strength check rejects the password.
+
+  - Test: `zulip/tests/smoke`, the owner's login before and after the pod
+    is replaced; manual: on kind, a password of twelve `a` left no
+    organization and the log line `ZULIP_OWNER_PASSWORD is too weak for
+    Zulip.`, and after the Secret got a strong password the next start
+    created the organization with the owner (#123)
+  - Since: #123
+
+- RCP-395: The `tests/smoke` of `zulip` MUST reach Zulip through the
+  Service `zulip`, log in as the owner, and have a member created with
+  `manage.py create_user` and the owner each read the other's message in
+  the channel `general`. It MUST require that a signup without an
+  invitation and a new organization without a creation link are refused.
+  After it deletes the Zulip pod and the PostgreSQL primary, it MUST log
+  in as the owner again and read both messages. It MUST also require that
+  Zulip's queue workers consume RabbitMQ, that memcached holds items
+  without a SASL authentication, and that `manage.py check_redis` passes.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #123
+
 ## Actual
 
 Actual is a personal finance app. Its sync server serves the web UI, keeps
@@ -5554,6 +5902,135 @@ OpenID login creates a user only while the server has none
 
   - Test: CI `check` job, report line `smoke`
   - Since: #111
+
+## Qdrant
+
+Qdrant is a vector database. Clients store points, each a vector with a
+JSON payload, in collections and search them for the nearest vectors,
+through a REST API on port 6333 and a gRPC API on port 6334. It is meant
+as the vector store of a retrieval stack with Ollama, LiteLLM and Open
+WebUI. `qdrant` deploys it from the chart `qdrant` of qdrant/qdrant-helm.
+The project publishes the chart with chart-releaser as a GitHub release
+asset and in the HTTP repository `https://qdrant.github.io/qdrant-helm`,
+the URL its README gives to `helm repo add`. It pushes no OCI artifact, so
+the `Source` line takes the HTTP form of RCP-23. Chart and Qdrant are
+Apache-2.0.
+
+With its defaults the chart runs one replica as the StatefulSet `qdrant`
+in Qdrant's distributed mode (`config.cluster.enabled`), where the peers
+talk over an internal gRPC API on port 6335. The data lives on the claim
+template `qdrant-storage`, 10Gi with ReadWriteOnce, and snapshots in an
+`emptyDir`. The Services `qdrant` and `qdrant-headless` expose the ports
+`http`, `grpc` and `p2p`, the ConfigMap `qdrant` holds the start script
+`initialize.sh` and `production.yaml`, and the ServiceAccount `qdrant` has
+no role. The pod is ready once `/readyz` answers. The chart sets no API
+key, and the init container `ensure-dir-ownership` runs `chown -R` on the
+volumes as root.
+
+DEC-230: `qdrant` is a chart recipe on the chart `qdrant` 1.20.0, the
+newest release on 2026-11-05, and runs Qdrant 1.20.0, its `appVersion` and
+the newest release of qdrant/qdrant. The advisories of qdrant/qdrant on
+2026-11-05 name no release from 1.20.0 on. GHSA-frc7-44gm-99qq, fixed in
+1.20.0, is the reason not to run an older one: before 1.20.0 the internal
+port of distributed mode answered without authentication, so a pod that
+reached port 6335 could add a peer and receive the stored data.
+
+DEC-231: `qdrant` runs one node. The chart's StatefulSet sets
+`podManagementPolicy: Parallel`, which the `kubernetes` generator cannot
+render, in 1.14.0 or in 1.15.0. `tests/values.yaml` sets `OrderedReady`,
+the API default that the recipe gets. With one replica both policies
+start the same pod. The chart's values warn that with `OrderedReady` the
+nodes of a cluster wait for each other's readiness forever, so the README
+does not offer the number of replicas as a setting. The recipe keeps the
+chart's distributed mode, which runs on one node as well. Stopping on the gap,
+as Compose sources stop on one, was considered. The chart's default is one
+node, and one node is what the recipe proves.
+
+DEC-232: `qdrant` runs `docker.io/qdrant/qdrant:v1.20.0-unprivileged`
+under Pod Security `restricted`. Qdrant builds this variant of every
+release with the user 1000:1000, and the chart switches to it with
+`image.useUnprivilegedImage`, which also leaves out the init container
+`ensure-dir-ownership`. `tests/values.yaml` adds `capabilities.drop: [ALL]`
+on the container and the seccomp profile `RuntimeDefault` on the pod,
+which `restricted` requires beyond the chart's defaults: UID 1000, GID
+2000, `fsGroup` 3000 and a read-only root filesystem. The default image
+with `updateVolumeFsOwnership: false` was considered. It runs the same
+binary as UID 1000, but its files belong to root, and the unprivileged
+variant is the one Qdrant builds for a container without root.
+
+DEC-233: `qdrant` requires the API key `applications.qdrant.api_key`. The
+recipe renders it into the Secret `qdrant-apikey`, key `api-key`, and
+`tests/values.yaml` sets the chart's `env` `QDRANT__SERVICE__API_KEY`
+from it, so `check` accepts the Secret as a Referenced Secret (DEC-166).
+Without a key Qdrant answers every request of every pod that reaches the
+Service. From 1.20.0 the internal port needs the same key, because
+`service.enforce_internal_auth` is on by default, but only once a key is
+set (GHSA-frc7-44gm-99qq). The chart's value `apiKey` with a string was
+considered. The chart then renders the Secret with a second key
+`local.yaml`, mounts it as a configuration file and puts a hash of the
+Secret on the pod, and the recipe would carry the hash of the test key.
+`apiKey: true` generates a key with `lookup`, which neither
+`helm template` nor Kapitan can run. The read-only key and JWT access,
+which Qdrant also offers, are not rendered.
+
+The generator puts the label `name` on each claim template, and the chart
+puts `app: qdrant` there. The recipe adds `app`, and `tests/values.yaml`
+adds `name` through `persistence.additionalLabels`, so the templates are
+equal. With the chart's defaults Qdrant sends anonymous usage statistics to
+Qdrant, which the recipe keeps and the README says how to turn off. The
+chart's Ingress, ServiceMonitor, PodDisruptionBudget, snapshot claim and
+snapshot restoration are off by default and not part of the recipe. Its
+Helm test, a ConfigMap and a Pod, is left out (RCP-25). The start script
+in the ConfigMap is text of the chart's `templates/configmap.yaml`, so
+`qdrant.yml.LICENSE` carries the chart's license (RCP-42).
+
+- RCP-310: `qdrant` MUST render the chart's StatefulSet, Services, ConfigMap
+  and ServiceAccount, with `docker.io/qdrant/qdrant:v1.20.0-unprivileged`
+  pinned to its index, one replica and the claim template
+  `qdrant-storage` of 10Gi.
+
+  - Test: `check qdrant`; CI `check` job
+  - Since: #110
+
+- RCP-311: `qdrant` MUST put `applications.qdrant.api_key` into the key
+  `api-key` of the Secret `qdrant-apikey`, MUST set
+  `QDRANT__SERVICE__API_KEY` from it, and MUST leave the parameter unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets it, as a ref (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); CI `check` job, report lines
+    `difference: Referenced Secret` and `smoke`
+  - Since: #110
+
+- RCP-312: `qdrant` MUST run as UID 1000, GID 2000 and `fsGroup` 3000
+  under Pod Security `restricted`, without an init container.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #110
+
+- RCP-313: The `tests/smoke` of `qdrant` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
+  the version of the image tag from `/` through the Service with the key
+  of the Secret `qdrant-apikey`. It MUST get 401 from `/collections`
+  without a key and with a wrong one. With the key it MUST create a
+  collection, write three points with vectors and payload, and get the
+  nearest one with its payload from a query. Once the pod `qdrant-0` was
+  deleted and its successor is ready, it MUST find the three points and
+  get the same answer to the query.
+
+  The successor mounts the claim of the deleted pod, so the points after
+  the restart show that the claim keeps the data.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #110
+
+- AC-310 (RCP-310 to RCP-313): `check qdrant --level deploys` passes in CI
+  on each Kubernetes minor, with differences of the classes Selector
+  scheme, Port by name, Derived name, Explicit default and Referenced
+  Secret only, and its smoke test finds the points after the pod was
+  replaced.
 
 ## Matrix Synapse
 
@@ -6681,8 +7158,11 @@ feature's design (OQ-6).
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
+| ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
+| qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
