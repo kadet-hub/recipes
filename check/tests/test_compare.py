@@ -134,6 +134,10 @@ class Compare(unittest.TestCase):
             [(d.cls, d.where()) for d in result["differences"]],
             [(compare.SELECTOR_SCHEME, "spec.selector.matchLabels.batch.kubernetes.io/controller-uid")],
         )
+        # A Job without labels of its own gets those of its pod template.
+        chart["metadata"]["labels"] = dict(chart["spec"]["template"]["metadata"]["labels"])
+        recipe["metadata"]["labels"] = {"name": "demo-admin"}
+        self.assertEqual(self.unaccepted(compare.compare([chart], [recipe])), [])
         recipe["spec"]["template"]["metadata"]["labels"]["sidecar.istio.io/inject"] = "false"
         self.assertEqual(
             self.unaccepted(compare.compare([chart], [recipe])),
