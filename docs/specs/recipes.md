@@ -1368,10 +1368,11 @@ this as a constraint.
 
 - RCP-308: `check lint` MUST accept an RBAC object in a designed recipe
   only when it reads. Every rule of a Role or ClusterRole MUST grant no
-  verb but `get`, `list` and `watch`, MUST name neither `*` nor `secrets`
-  in `apiGroups` or `resources`, and MUST have no `nonResourceURLs`. A
-  ClusterRole MUST have no `aggregationRule`. Every binding MUST bind a
-  Role or ClusterRole that the recipe renders.
+  verb but `get`, `list` and `watch`, MUST name no `*` in `apiGroups` or
+  `resources`, MUST name no `secrets` or Secret subresource in
+  `resources`, and MUST have no `nonResourceURLs`. A ClusterRole MUST have
+  no `aggregationRule`. Every binding MUST bind a Role or ClusterRole that
+  the recipe renders itself.
 
   A project's documentation can ask for read access to the cluster, as
   homepage's Kubernetes installation page does for its service discovery.
@@ -1381,7 +1382,10 @@ this as a constraint.
   compares the rules with the documentation the README names. A compose
   recipe still renders no RBAC object (RCP-38). A ClusterRole is
   cluster-scoped, so a namespace in its metadata does not keep its binding
-  from finding it.
+  from finding it. A role of an included recipe does not count as the
+  recipe's own. Its rules need not only read, as a chart recipe's are
+  compared with the chart instead, so a binding to it would let the
+  designed recipe grant what this rule forbids.
 
   - Test: `check lint`; `check/tests/test_lint.py`
     (`LintDesign.test_read_only_rbac`)
