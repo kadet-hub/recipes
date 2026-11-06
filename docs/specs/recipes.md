@@ -7052,15 +7052,15 @@ and `check rocketchat` on a replica set.
   password of its `value` and with `readWrite` on that database as its
   only role. For a user that exists, it MUST set that password and role.
   Without the option, `mongodb` MUST render the same objects as before
-  this change.
+  #131.
 
   - Test: `mongodb/tests/smoke`: the user `app` writes and reads its
     database, and after a new password in the Secret and a restart of the
     pod, the new password logs in, the old one is refused and the role is
     unchanged; manual: a compile of `mongodb/tests/target.yml` of the
     parent commit, alone and with `recipes.mongodb.replica-set`, gives the
-    same files before and after this change
-  - Since: this change
+    same files before and after #131
+  - Since: #131
 
 ## Rocket.Chat
 
@@ -7122,7 +7122,7 @@ is in the Secret `rocketchat-rocketchat`, which the chart renders from
 URL's database, `rocketchat`. The password is
 `applications.mongodb.users.rocketchat.value` and stands in the URL
 unencoded, so the README asks for letters and digits, as for open-webui.
-Until this change Rocket.Chat connected as `root`, the only user `mongodb`
+Until #131 Rocket.Chat connected as `root`, the only user `mongodb`
 created then.
 
 Rocket.Chat 8.9.1 needs no more than `readWrite` on its database. Its one
@@ -7214,13 +7214,13 @@ defaults to false. The recipe is at level `deploys`.
   MUST require the user with `readWrite` on `rocketchat` as its only role.
 
   - Test: CI `check` job of `rocketchat`, report line `smoke`
-  - Since: this change
+  - Since: #131
 
 - AC-401 (RCP-404, RCP-405): `check mongodb --level deploys` and
   `check rocketchat --level deploys` pass in CI on each Kubernetes minor.
   A compile of `mongodb/tests/target.yml` of the parent commit, alone and
-  with `recipes.mongodb.replica-set`, gives the same files with this
-  change as without it.
+  with `recipes.mongodb.replica-set`, gives the same files with #131 as
+  without it.
 
 ## Memos
 
