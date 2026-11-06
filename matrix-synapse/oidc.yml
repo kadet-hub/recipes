@@ -1,0 +1,35 @@
+parameters:
+  applications:
+    matrix-synapse:
+      # The target sets oidc.issuer, oidc.client_id and oidc.client_secret.
+      oidc:
+        # The name on the login button of clients.
+        name: Single sign-on
+  components:
+    # One OpenID Connect provider for login, after the Keycloak example of
+    # Synapse's docs/openid.md.
+    matrix-synapse:
+      application: matrix-synapse
+      config_maps:
+        config:
+          data:
+            oidc.yaml:
+              value: |
+                oidc_providers:
+                  - idp_id: oidc
+                    idp_name: ${applications.matrix-synapse.oidc.name}
+                    issuer: ${applications.matrix-synapse.oidc.issuer}
+                    client_id: ${applications.matrix-synapse.oidc.client_id}
+                    client_secret_path: /secrets/oidc-client-secret
+                    scopes:
+                      - openid
+                      - profile
+                    user_mapping_provider:
+                      config:
+                        localpart_template: "{{ user.preferred_username }}"
+                        display_name_template: "{{ user.name }}"
+      secrets:
+        credentials:
+          string_data:
+            oidc-client-secret:
+              value: ${applications.matrix-synapse.oidc.client_secret}

@@ -1,0 +1,16 @@
+classes:
+  - recipes.mattermost
+parameters:
+  namespace: mattermost
+  kapitan:
+    vars:
+      target: mattermost
+  applications:
+    mattermost:
+      admin:
+        username: smoke-admin
+        email: smoke-admin@example.com
+        password: aaaaaaaaaaaaaaaa
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

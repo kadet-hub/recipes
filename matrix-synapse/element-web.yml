@@ -1,0 +1,44 @@
+parameters:
+  components:
+    matrix-synapse-element-web:
+      application: matrix-synapse
+      # renovate: upstream
+      image: ghcr.io/element-hq/element-web:v1.12.33@sha256:b0aa4b5a4fc1afaaff62e2dbd0c92d57e2b20724f3ccb2fef53aae949088c3d2
+      # The image's user nginx. Its nginx listens on ELEMENT_WEB_PORT, which a
+      # user without NET_BIND_SERVICE cannot set to the default 80.
+      workload_security_context:
+        runAsUser: 101
+        runAsGroup: 101
+      env:
+        ELEMENT_WEB_PORT: "8080"
+      ports:
+        http:
+          container_port: 8080
+          service_port: 80
+      service:
+        type: ClusterIP
+      # The image's HEALTHCHECK with the defaults of a compose healthcheck.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - wget -q --spider http://localhost:$ELEMENT_WEB_PORT/config.json
+          period_seconds: 30
+          timeout_seconds: 30
+      config_maps:
+        config:
+          mount: /app/config.json
+          subPath: config.json
+          data:
+            config.json:
+              value: |
+                {
+                  "default_server_config": {
+                    "m.homeserver": {
+                      "base_url": "${applications.matrix-synapse.public_baseurl}",
+                      "server_name": "${applications.matrix-synapse.server_name}"
+                    }
+                  }
+                }

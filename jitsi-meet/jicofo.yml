@@ -1,0 +1,38 @@
+parameters:
+  components:
+    jitsi-meet-jicofo:
+      application: jitsi-meet
+      # renovate: upstream
+      image: ghcr.io/jitsi/jicofo:stable-11248-3@sha256:b934149573661e2d8e020e47bd81521263a7289de5fb38ba7da95d5b70933cd2
+      pod_annotations:
+        service: jitsi-jicofo
+      ports:
+        http:
+          service_port: 8888
+      service:
+        type: ClusterIP
+      env:
+        TZ: UTC
+        ENABLE_AUTH: "1"
+        JICOFO_AUTH_PASSWORD:
+          secretKeyRef:
+            name: jitsi-meet
+            key: JICOFO_AUTH_PASSWORD
+        # SENTRY_DSN="${JICOFO_SENTRY_DSN:-0}" in the compose list keeps the quotes.
+        SENTRY_DSN: '"0"'
+        # prosody's network alias xmpp.meet.jitsi, the image's default.
+        XMPP_SERVER: jitsi-meet-prosody
+      volumes:
+        run:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+        tmp:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+      volume_mounts:
+        run:
+          mount_path: /run
+        tmp:
+          mount_path: /tmp
