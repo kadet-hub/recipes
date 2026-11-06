@@ -860,7 +860,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   that only identify an object (`app`, `name`, `app.kubernetes.io/name`,
   `app.kubernetes.io/instance`, `app.kubernetes.io/component`,
   `app.kubernetes.io/part-of`, `chart`, `release`, `heritage`, `component`),
-  the labels the API server adds to the pod template of a Job
+  the labels the API server adds to a Job and its pod template
   (`controller-uid`, `batch.kubernetes.io/controller-uid`, `job-name`,
   `batch.kubernetes.io/job-name`), and image digests on the recipe side.
   Secrets the chart generates are compared by key.
@@ -880,14 +880,16 @@ For a compose source and a designed recipe, `renders`, also as part of
   would name a manager that does not manage the object.
 
   When it creates a Job, also in a dry run, the API server sets the
-  `controller-uid` labels to the Job's UID, which differs on each side, and
-  selects on `batch.kubernetes.io/controller-uid`. That selector difference
-  is of the class Selector scheme (RCP-12). A chart that adds a Job, such
-  as one that creates an admin through `extraDeploy`, would otherwise never
-  compare equal. The `job-name` labels name the Job, which the pairing
-  already compares. A Job with `manualSelector: true` gets none of these
-  labels, but the `kubernetes` generator has no key for it, and Kubernetes
-  advises against it.
+  `controller-uid` labels of the pod template to the Job's UID, which
+  differs on each side, and selects on `batch.kubernetes.io/controller-uid`.
+  That selector difference is of the class Selector scheme (RCP-12). A Job
+  without labels of its own gets those of its pod template, the generated
+  ones included, while the `kubernetes` generator always labels a Job. A
+  chart that adds a Job, such as one that creates an admin through
+  `extraDeploy`, would otherwise never compare equal. The `job-name` labels
+  name the Job, which the pairing already compares. A Job with
+  `manualSelector: true` gets none of these labels, but the `kubernetes`
+  generator has no key for it, and Kubernetes advises against it.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
   - Since: #2; `chart`, `release`, `heritage`, `component`: #29; the
