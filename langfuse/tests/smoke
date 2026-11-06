@@ -118,12 +118,28 @@ login "wrong-$password" 401
 jq -e '.user == null' "$work/session" >/dev/null
 
 # Every pod that keeps state or connects to it is replaced. What Langfuse
-# stored stays.
-for workload in langfuse-web langfuse-worker langfuse-clickhouse langfuse-s3-all-in-one; do
+# stored stays. Each workload must have a pod to delete, and the wait is for
+# a ready pod with another UID, since a StatefulSet's successor keeps the
+# name.
+workloads=(langfuse-web langfuse-worker langfuse-clickhouse langfuse-s3-all-in-one)
+declare -A old
+for workload in "${workloads[@]}"; do
+  old[$workload]=$(kubectl get pods -l "name=$workload" -o jsonpath='{.items[*].metadata.uid}')
+  [[ ${old[$workload]} ]]
   kubectl delete pods -l "name=$workload" --wait=true >/dev/null
 done
-for workload in langfuse-web langfuse-worker langfuse-clickhouse langfuse-s3-all-in-one; do
-  kubectl wait pods -l "name=$workload" --for=condition=Ready --timeout=600s >/dev/null
+replaced() {
+  kubectl get pods -l "name=$1" -o json | jq -e --arg old "$2" '[.items[]
+    | select(.metadata.uid as $uid | $old | split(" ") | index($uid) | not)
+    | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length > 0' >/dev/null
+}
+for workload in "${workloads[@]}"; do
+  for _ in $(seq 120); do
+    replaced "$workload" "${old[$workload]}" && continue 2
+    sleep 5
+  done
+  echo "no ready successor of $workload" >&2
+  exit 1
 done
 kill $pf
 forward
