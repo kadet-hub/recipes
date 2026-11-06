@@ -83,7 +83,9 @@ Langfuse.
 Langfuse connects to ClickHouse, and the one the option `clickhouse` gives
 its user. `applications.langfuse.s3.secret_access_key` is the S3 secret key
 with which Langfuse reaches its bucket, and the one the option `s3`
-accepts. `applications.valkey.password`, which the included recipe `valkey`
+accepts. The option writes it into SeaweedFS' identities, a JSON text, as
+it is, so it must not contain `"`, `\` or a control character.
+`applications.valkey.password`, which the included recipe `valkey`
 requires, is the password of Valkey's user `default`, with which Langfuse
 connects to its queue and cache. It is written into
 `REDIS_CONNECTION_STRING` as it is, so it must not contain characters a URL
