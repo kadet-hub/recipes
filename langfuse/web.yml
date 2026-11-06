@@ -47,6 +47,8 @@ parameters:
             name: valkey-auth
             key: default-password
         REDIS_TLS_ENABLED: "false"
+        # The password is part of this URL as it is, so it must not hold
+        # characters a URL reserves.
         REDIS_CONNECTION_STRING: redis://default:$(REDIS_PASSWORD)@valkey:6379/0
         CLICKHOUSE_MIGRATION_URL: clickhouse://${applications.langfuse.clickhouse.host}:9000
         CLICKHOUSE_MIGRATION_SSL: "false"

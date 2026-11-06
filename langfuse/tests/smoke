@@ -52,8 +52,9 @@ forward() {
   done
   return 1
 }
+# Set before the first port-forward, so a failed one does not outlive the test.
+trap '[[ -z ${pf:-} ]] || kill "$pf"; rm -rf "$work"' EXIT
 forward
-trap 'kill $pf; rm -rf "$work"' EXIT
 url=http://localhost:13000
 
 # One span as OTLP JSON. Langfuse answers with the key of the file it
