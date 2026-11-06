@@ -181,6 +181,8 @@ for _ in $(seq 60); do
   sleep 1
 done
 [[ -n $new ]] || { echo "no pod replaced $old" >&2; exit 1; }
+# The StatefulSet creates mongodb-0 again a moment after the delete.
+kubectl wait pod/mongodb-0 --for=create --timeout=60s >/dev/null
 kubectl wait pod/"$new" pod/mongodb-0 --for=condition=Ready --timeout=600s >/dev/null
 # check reports the last line.
 echo "$(client read "$email" "$password" "$conversation" | tail -1), read back as the admin from create-user after LibreChat and MongoDB were replaced; registration got 403. The pods pass Pod Security restricted."
