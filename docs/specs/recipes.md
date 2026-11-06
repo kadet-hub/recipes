@@ -1135,6 +1135,7 @@ and the README lists the renames.
 | `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 | `init: true` where the image's start script runs the server as PID 1 and the server ends on `SIGTERM` | nothing | DEC-120 |
 | `depends_on` with `condition: service_healthy` on a service that becomes an included recipe, where the dependent exits while that service does not answer | an init container of the dependent's image that waits until the included recipe's Service accepts connections | DEC-121. It adds no image. |
+| bind mount of a file that the pinned repository does not contain, which the documentation copies from a file the image carries byte for byte at the mount target | nothing | DEC-301. The README names the file and its SHA-256. |
 
 What the table does not map is a gap, and so is each of these:
 
@@ -1163,12 +1164,14 @@ What the table does not map is a gap, and so is each of these:
   Revised in #68: `cap_add` of optional capabilities, which was a gap,
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
-  (DEC-120, DEC-121).
+  (DEC-120, DEC-121). Revised in #118: the bind mount of a file
+  the image carries, for ejabberd (DEC-301).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
-    `cap_add`: #68; `init`, wait for the database: #91
+    `cap_add`: #68; `init`, wait for the database: #91; file the image
+    carries: #118
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -4944,6 +4947,208 @@ and the README asks for it before the exposure.
   as included, and its smoke test reads the post and the PNG after the
   restart.
 
+## Ghost
+
+Ghost is a publishing platform for blogs and newsletters. It keeps posts,
+staff users, members and settings in MySQL, and uploaded images, themes
+and its log files in its content directory. Staff work in the admin app
+below `/ghost/`, which talks to the Admin API, and readers get the pages
+that the active theme renders. Ghost is MIT. Release v6.75.0 of
+2026-11-04 was the newest of TryGhost/Ghost on 2026-11-05.
+
+Ghost publishes no chart and no Kustomize base. Its install guide for
+Docker (docs.ghost.org/install/docker) clones TryGhost/ghost-docker, MIT,
+and runs its `compose.yml`. On 2026-11-05 the file at
+`af0fcad04ef1e4c6b7582ddc36696be5138820b2` ran Caddy, Ghost and MySQL by
+default, and further services in the profiles `analytics` and
+`activitypub`. Compose sources stop on that file. `caddy` mounts the
+directory `./caddy` and `db` the directory `./mysql-init`, both of which
+the repository contains. `tinybird-login` and `tinybird-deploy` `build`
+without a published `image`. `working_dir`, `tty` and `profiles` are keys
+that the mapping of Compose sources does not name.
+
+The file runs Ghost as `ghost:6-alpine`, the Docker Official Image `ghost`.
+`library/ghost` in docker-library/official-images names Austin Burdine of
+Ghost, with a ghost.org address, as its maintainer and builds it from
+TryGhost/docker-library-ghost, MIT. The packaging is therefore Ghost's
+own, as `mariadb`'s is MariaDB's (MariaDB). Docker Hub's tag
+`6.75.0-alpine`, also `6-alpine` on 2026-11-05, is the index
+`sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7`
+for amd64 and arm64, built from TryGhost/docker-library-ghost at
+`1742107e163584e436b1f155d3751400a58384f0`. It runs Ghost on Node 22 and
+Alpine 3.23.
+
+DEC-210: `ghost` is a designed recipe on
+`docker.io/library/ghost:6.75.0-alpine` (DEC-11). The compose file of
+TryGhost/ghost-docker was considered as the source (DEC-10). It stops on
+the directories it mounts and on its `build` services, as above. The
+variant `alpine` is the one that file runs. The Debian variant, the tag
+`6.75.0` without a suffix, was considered. It is the image's default, and
+Ghost's own compose file does not use it.
+
+The image's entrypoint copies the default content, the themes Casper and
+Source among it, from `/var/lib/ghost/content.orig` into each directory of
+`/var/lib/ghost/content` that does not exist yet, and starts
+`node current/index.js` (`docker-entrypoint.sh`). Started as root, it
+first gives the content directory to the user `node`, UID and GID 1000 in
+the image's `/etc/passwd`, and switches to it. Started as that user, it
+skips both steps. `ghost` runs as `node` with `fsGroup` 1000 under
+`security_profile: restricted`, and mounts the claim `content` at
+`/var/lib/ghost/content`. On kind the entrypoint filled the claim and Ghost
+wrote uploads to it. The claim is 8Gi, as `mysql`'s, and the README names
+the size as a setting.
+
+The image's configuration, `config.production.json`, listens on port 2368
+and sets the URL `http://localhost:2368`. Ghost reads further settings from
+environment variables whose `__` separates the levels of its
+configuration. `url` is the address readers and staff reach the site at.
+Ghost builds every link from it, and with an `https` URL it redirects a
+request that does not arrive over HTTPS, as a proxy reports it in
+`X-Forwarded-Proto`. The recipe sets `url` from
+`applications.ghost.url`, which the target sets (RCP-19).
+
+DEC-211: The database is the included recipe `mysql` (DEC-4, DEC-12),
+MySQL 9.7.4 of the 9.7 LTS line. Ghost connects to the Service `mysql`
+with `applications.mysql.database` and `.user` and the key `password` of
+the Secret `mysql`. `database__client` stays `mysql`, the default of
+Ghost's production configuration. Ghost's compose file runs MySQL 8.0.46,
+and Ghost's CI runs its tests against MySQL 8.0 only
+(`.github/workflows/ci.yml` of v6.75.0). The install guide names no MySQL
+version. endoflife.date lists the end of life of MySQL 8.0 as 2026-04-30.
+On kind with the pinned images, Ghost created its schema on MySQL 9.7.4,
+and the smoke test writes and reads posts. Nothing upstream tests Ghost's
+later migrations on 9.7. A MySQL 8.0 component inside `ghost`, as the
+compose file runs it, was considered. It would run a release line past its
+end of life, and run MySQL a second way next to `mysql`, as DEC-20 argues
+for paperless-ngx. Ghost connects without TLS, because its knex
+configuration sets no `ssl` for `mysql2` (`configure-knex.ts` of v6.75.0).
+
+Ghost exits when its database does not answer at start. On kind, with
+`mysql` scaled to zero, the pod restarted twice in 45 seconds with
+`ECONNREFUSED` on port 3306. Ghost's compose file starts it once `db` is
+healthy. The init container `wait-for-database` of Ghost's image waits
+until the Service `mysql` accepts connections on port 3306, as DEC-121
+does for umami. The Service has an endpoint only once MySQL is ready, and
+the image's BusyBox carries `nc`.
+
+DEC-212: `ghost` has one probe, the readiness probe `GET /` on port `http`
+with the header `X-Forwarded-Proto: https`, at the generator's period of 10
+seconds, timeout of 5 seconds and 3 failures. The image has no
+`HEALTHCHECK`, and the install guide names no check. Ghost opens its port
+about a second after start and answers 503 while it boots. Its first boot
+on kind spent 28 seconds creating the schema. Without the probe the Service
+would send requests to it during that time. The front page reads posts from
+the database. On kind it answered 503 during the boot, 200 afterwards and
+500 while `mysql` was scaled to zero, with an `http` and with an `https`
+URL. Without the header, Ghost answers the front page under an `https` URL
+with 301 to HTTPS on the host the request named. The kubelet follows a
+redirect to the same host (`pkg/probe/http/http.go` of Kubernetes). On
+kind, under an `https` URL and without the header, the pod never became
+ready, and the kubelet reported
+`server gave HTTP response to HTTPS client`. The header marks the probe's
+request as HTTPS, so Ghost renders the page under either scheme. A probe of `/ghost/api/admin/site/` was
+considered. It answered 200 while `mysql` was down. A liveness probe was
+considered. A database migration of a new Ghost version runs in the booting
+process, and a restart in the middle of it would start it again.
+
+DEC-213: `ghost` renders no owner account. The first visitor of
+`/ghost/#/setup` names the site and creates the owner, as with Ghost's
+compose file. Ghost 6.75.0 reads no account from its configuration. The
+Admin API's `POST /authentication/setup/` creates the owner without a
+login while none exists, and answers 403 afterwards
+(`api/endpoints/authentication.js`). A Job that posts the setup with a
+credential parameter was considered. It would add a workload that no
+Ghost artifact has, and as the setup fails once an owner exists, a
+changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+setup, and the README asks for the setup before the exposure. Members, the
+readers who subscribe to a site, sign up through Ghost's Portal by a link
+that Ghost mails. Who may sign up is a setting of the site in the
+database, which the recipe leaves at Ghost's default.
+
+DEC-214: `ghost` configures no mail. The image's configuration sets
+Ghost's transport `Direct`, which delivers to the recipient's mail server
+from the pod. Ghost mails staff invitations, password resets and members'
+sign-in links, and with `security.staffDeviceVerification`, `true` by
+default, a code for each login from a browser without a verified session.
+The first login of a user that never logged in skips the code
+(`api/endpoints/session.js`). On kind, the owner's first login after the
+setup got a session, and a second login answered 500 with
+`Failed to send email`. The recipe keeps the verification on. Mail needs
+an account at a mail provider, which only the target can name, so the
+README names the settings and says that logins after the first need them.
+Turning the verification off by default was considered. It would remove
+the check of a new device for every installation, also once mail works.
+
+- RCP-290: `ghost` MUST run `docker.io/library/ghost` in the variant
+  `alpine` of DEC-210, pinned to its index, as the StatefulSet `ghost`
+  with UID, GID and `fsGroup` 1000 and `security_profile: restricted`. It
+  MUST mount the claim `content` at `/var/lib/ghost/content` and set `url`
+  from `applications.ghost.url`.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
+  - Since: #119
+
+- RCP-291: `ghost` MUST include `recipes.mysql` and connect to the
+  Service `mysql` with the database and user of `applications.mysql` and
+  the key `password` of the Secret `mysql`. Its init container
+  `wait-for-database` MUST wait until the Service `mysql` accepts
+  connections on port 3306.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #119
+
+- RCP-292: `ghost` MUST have the readiness probe of DEC-212 and no
+  liveness or startup probe.
+
+  - Test: manual: review; CI `check` job, which waits for the rollout
+  - Since: #119
+
+- RCP-293: The `tests/smoke` of `ghost` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace before
+  it starts a pod of its own, and no restart of the pod `ghost-0`. From
+  that pod, through the Service `ghost` on port 2368, it MUST get the
+  setup status `false`, and a front page whose generator tag names the
+  major and minor version of the image tag. It MUST create the owner
+  through `POST /ghost/api/admin/authentication/setup/`, get 403 for a
+  second setup, get no session for a wrong password and log in. With the
+  session it MUST publish a post through `/ghost/api/admin/posts/` and
+  read it without the session on its URL, and upload a PNG through
+  `/ghost/api/admin/images/upload/` and fetch it byte for byte. Once the
+  pod `ghost-0` was deleted and its successor is ready, it MUST read the
+  post and the PNG again and reach `/ghost/api/admin/users/me/` with the
+  session of the login.
+
+  The setup goes through the Service as a visitor's would (DEC-213). The
+  image brings Node.js 22, whose `fetch` makes the requests, so the test
+  needs no image besides Ghost's. The post comes back from
+  MySQL, the PNG from the claim, and the session from the table
+  `sessions` in MySQL.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #119
+
+- RCP-294: Renovate MUST NOT need a release timestamp for the image of
+  `ghost`.
+
+  Docker Hub listed 2571 tags of `library/ghost` on 2026-11-05, so
+  Renovate gets no release timestamps for it, as for `wordpress`
+  (RCP-184). Renovate's docker versioning proposes only tags with the
+  suffix `-alpine`, which keeps the variant.
+
+  - Test: manual: Renovate dry run
+  - Since: #119
+
+- AC-290 (RCP-290 to RCP-293): `check ghost --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `mysql` as
+  included, and its smoke test reads the post and the PNG after the
+  restart.
+
+Not proven: Ghost's migrations of later releases on MySQL 9.7, mail with
+any transport, the members' sign-up and newsletters, the admin app in a
+browser, and a route or Ingress in front of the Service.
+
 ## Umami
 
 Umami is web analytics without cookies. A tracker script on each website
@@ -5454,6 +5659,152 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## Zulip
+
+Zulip is a team chat whose messages are organized by channel and topic.
+One container of `ghcr.io/zulip/zulip-server` runs nginx, the Django
+application, the Tornado event server and the queue workers under
+supervisord. It keeps its data in PostgreSQL, queues events in RabbitMQ,
+caches in memcached and counts rate limits in Redis, and stores uploads
+and generated secrets on its claim at `/data`. Zulip and its chart are
+Apache-2.0.
+
+DEC-313: `zulip` is a chart recipe on the chart `zulip` 2.3.0 of
+zulip/docker-zulip, tag `helm-2.3.0`, which Zulip publishes at
+`oci://ghcr.io/zulip/helm-charts/zulip`. It runs
+`ghcr.io/zulip/zulip-server:12.3-0`, the chart's `appVersion`, pinned to
+its index for amd64 and arm64. On 2026-11-05 2.3.0 was the newest chart
+and 12.3-0 the newest image tag. The repository's `compose.yaml` was
+considered as the source. DEC-10 puts the chart first, and Zulip's
+documentation for Kubernetes starts from the chart.
+
+DEC-314: The chart's Bitnami subcharts give way to the included recipes
+`postgresql`, `rabbitmq`, `memcached` and `valkey` (DEC-20).
+`tests/values.yaml` switches the four subcharts off and points
+`externalPostgresql`, `externalRabbitmq`, `externalMemcached` and
+`externalRedis` at their Services, with each password as a `valueFrom` of
+the included recipe's Secret, which the chart takes for these values. The
+subcharts run images of `bitnamilegacy`, and the PostgreSQL subchart runs
+`zulip/zulip-postgresql` 14. Keeping them was considered. They would run a
+second PostgreSQL, RabbitMQ and Redis next to the recipes that this
+repository proves, and the legacy images get no updates.
+
+Zulip's own PostgreSQL image adds hunspell dictionaries and a stop word
+list for its full-text search. The first migration of 12.3
+(`zerver/migrations/0001_squashed_0569.py`) falls back to PostgreSQL's
+`pg_catalog.english` when the server lacks them and `REMOTE_POSTGRES_HOST`
+is set, and logs a warning, as it did on kind. The CloudNativePG image
+lacks them, so search on `zulip` stems words less well than on Zulip's
+image. Zulip's documentation names the same trade-off for managed
+databases. The
+migration creates the schema `zulip` and sets the owner's `search_path`,
+which the owner of the database `app` may do.
+
+The RabbitMQ Cluster Operator generates the default user's name as well as
+its password, in the Secret `rabbitmq-default-user`. The chart's
+`externalRabbitmq.user` takes only a string, so `tests/values.yaml` leaves
+it empty and sets `SETTING_RABBITMQ_USERNAME` in `zulip.environment` from
+the Secret's key `username`. The user reaches the vhost `/`, Zulip's
+default.
+
+The included recipe `memcached` has no authentication (DEC-153). The
+chart's schema requires a memcached password, so `tests/values.yaml` sets
+`externalMemcached.password` to the empty string. Zulip then sets
+`MEMCACHED_USERNAME`, but the python-binary-memcached client authenticates
+only when a password is set as well. On kind memcached reported
+`auth_cmds 0` and items written by Zulip.
+
+DEC-315: `zulip` creates the organization and its owner on the first start
+from the required parameters `applications.zulip.administrator` and
+`applications.zulip.owner_password`. The chart runs every script of
+`postSetup.scripts` on each start, after the migrations, from the ConfigMap
+`zulip-post-setup-scripts`. The script `create-organization.sh` of
+`tests/values.yaml` runs `manage.py create_realm` when `manage.py
+list_realms` shows no organization at the root domain, and passes the
+password through `--password-file`, so it does not appear in a process
+list. The file belongs to the user `zulip`, because the command runs as
+that user and could not open `/dev/stdin` of the root shell. The owner's
+login is the server administrator's address, which Zulip requires as
+`SETTING_ZULIP_ADMINISTRATOR`. A second address parameter was considered.
+One organization on its own server has one person who answers both.
+
+`create_realm` commits the organization in a durable transaction before
+`do_create_user` sets the owner's password (`zerver/actions/create_realm.py`
+of 12.3), and Zulip rejects a password that is shorter than 8 characters
+or that zxcvbn guesses in fewer than 10000 attempts
+(`check_password_strength` in `zproject/backends.py`). On kind a password
+of twelve `a` left the organization `Zulip` without an owner, and the
+script skipped it on every later start. The script therefore runs Zulip's
+strength check first and stops before `create_realm` on a weak password,
+so the next start tries again. Wrapping both steps in one transaction was
+considered. The durable transaction of `do_create_realm` cannot be nested.
+
+A new organization requires an invitation to join (`invite_required`
+defaults to true in `zerver/models/realms.py` of 12.3), and
+`OPEN_REALM_CREATION` stays at its default, off, so a new organization
+needs a link from `manage.py generate_realm_creation_link`. The chart's
+documented way, a creation link opened in a browser after the install, was
+considered. Until someone opens it the server has no organization and no
+admin, and the defaults for applications with accounts ask for the first
+admin from parameters (DEC-165).
+
+DEC-316: `applications.zulip.secret_key` is required and sets
+`SECRETS_secret_key` from the Secret `zulip`. Zulip's chart documentation
+lists it among the settings a values file must set. Without it the image
+generates one into `zulip-secrets.conf` on the claim. Leaving it to the
+image was considered. A restored or replaced claim would then log every
+user out, and the key would not be in the target's refs.
+
+DEC-317: Zulip serves plain HTTP on port 80, the chart's default with
+`CERTIFICATES` unset, and the recipe renders no Ingress or route, as the
+chart's `ingress.enabled` defaults to false. TLS ends at a proxy the target
+sets up, whose addresses go into `LOADBALANCER_IPS`. Zulip answers a
+request without proxy headers only from the loopback. On kind a request
+through the Service from another pod got 500, with or without
+`X-Forwarded-For`, and `errors.log` named `ProxyMisconfigurationError`.
+`tests/smoke` therefore reaches the Service through `kubectl
+port-forward`, as the chart's CI does. A proxy that `LOADBALANCER_IPS`
+names is not proven.
+
+The chart renders no hook and no Role. The ServiceAccount `zulip` keeps
+the API default `automountServiceAccountToken: true`, as on the chart side.
+`tests/target.yml` runs one PostgreSQL instance and one RabbitMQ node, so
+the proof fits a CI runner. The recipe is at level `deploys`.
+
+- RCP-393: `zulip` MUST render the chart's StatefulSet, Service,
+  ServiceAccount, claim `zulip-data` and ConfigMap
+  `zulip-post-setup-scripts` with the values of DEC-314 to DEC-316, and the
+  Secret `zulip` with the keys `secret-key` and `owner-password`.
+
+  - Test: `check zulip`; CI `check` job
+  - Since: #123
+
+- RCP-394: `create-organization.sh` MUST create the organization at the
+  root domain with the owner `applications.zulip.administrator` and the
+  password `applications.zulip.owner_password` when none exists, and MUST
+  leave an existing organization unchanged. It MUST create nothing when
+  Zulip's strength check rejects the password.
+
+  - Test: `zulip/tests/smoke`, the owner's login before and after the pod
+    is replaced; manual: on kind, a password of twelve `a` left no
+    organization and the log line `ZULIP_OWNER_PASSWORD is too weak for
+    Zulip.`, and after the Secret got a strong password the next start
+    created the organization with the owner (#123)
+  - Since: #123
+
+- RCP-395: The `tests/smoke` of `zulip` MUST reach Zulip through the
+  Service `zulip`, log in as the owner, and have a member created with
+  `manage.py create_user` and the owner each read the other's message in
+  the channel `general`. It MUST require that a signup without an
+  invitation and a new organization without a creation link are refused.
+  After it deletes the Zulip pod and the PostgreSQL primary, it MUST log
+  in as the owner again and read both messages. It MUST also require that
+  Zulip's queue workers consume RabbitMQ, that memcached holds items
+  without a SASL authentication, and that `manage.py check_redis` passes.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #123
+
 ## Actual
 
 Actual is a personal finance app. Its sync server serves the web UI, keeps
@@ -5684,6 +6035,189 @@ in the ConfigMap is text of the chart's `templates/configmap.yaml`, so
   scheme, Port by name, Derived name, Explicit default and Referenced
   Secret only, and its smoke test finds the points after the pod was
   replaced.
+
+## ejabberd
+
+ejabberd is an XMPP server. Clients log in to accounts of its domain, chat
+directly and in group rooms, and the server archives their messages. It
+also federates with other XMPP servers. ProcessOne publishes no chart.
+processone/ejabberd, GPL-2.0, builds the image `ghcr.io/processone/ejabberd`
+for amd64 and arm64 and documents it in `CONTAINER.md`, which carries three
+compose examples as code blocks. `ejabberd` takes `CONTAINER.md` at commit
+`5ef8f25445204ebc0633242aecc1ba0473e3901d`, the tag of release 26.09 of
+2026-09-30, the newest on 2026-11-05, SHA-256
+`c13e76ebc376b36cd088ed91facd15ec3fe1d253cc5620bc93e4f7f023ce29f4`. The
+image `26.09.1`, which `latest` pointed to on 2026-11-05, is ProcessOne's
+rebuild of that tag of 2026-10-23, and its
+`org.opencontainers.image.revision` is `26.09`. The image
+`docker.io/ejabberd/ecs` comes from processone/docker-ejabberd, for amd64
+only, and does not read `REGISTER_ADMIN_PASSWORD` ("Images Comparison" in
+`CONTAINER.md`).
+
+DEC-300: `ejabberd` maps the compose example under "Customized Example" in
+`CONTAINER.md` (ejabberd), as `pihole` takes the code block of its README
+(DEC-28). It is the one example that registers an admin account from a
+variable, `REGISTER_ADMIN_PASSWORD`, and keeps the Mnesia database in a
+directory outside the container. "Minimal Example" stores nothing outside
+the container and registers no account, so nobody could log in and a new
+pod would start empty. "Clustering Example" runs two nodes without storage
+and with a fixed Erlang cookie. The repository's own compose file,
+`test/docker/docker-compose.yml`, runs the databases of ejabberd's test
+suite and no ejabberd. A designed recipe on the image was considered.
+DEC-10 puts the project's compose example first.
+
+The example's service `main` becomes the StatefulSet `ejabberd`. Its
+relative bind mount `./database`, which the repository does not contain,
+becomes the claim `database` at `/opt/ejabberd/database` (DEC-21). The
+published ports 5222 for clients, 5269 for other servers, 5280 for the web
+admin and 5443 for TLS become the Service `ejabberd`. On 5443 ejabberd
+serves BOSH, WebSocket, its HTTP API, the web admin and HTTP upload. The
+image's `HEALTHCHECK` runs `ejabberdctl status` every minute with a timeout
+of 5 seconds and 10 retries, which becomes the readiness probe. The image
+sets the Erlang node name to `ejabberd@localhost`, so Mnesia finds its
+tables on the claim in every new pod.
+
+DEC-301: A bind mount of a file that the pinned repository does not
+contain, which the documentation copies from a file that the image carries
+byte for byte at the mount target, renders nothing (Compose sources). The
+example mounts `./conf/ejabberd.yml` at `/opt/ejabberd/conf/ejabberd.yml`,
+and `CONTAINER.md` has the user copy it from `ejabberd.yml.example`. The
+image's build moves `.github/container/ejabberd.yml.example` into the
+release (`.github/container/Dockerfile`), and the image's file at the
+mount target has its SHA-256,
+`12e320cde9dcb0b8f73cab84a33a3abe90a8aaf4e9295f087346d354385ad8fa`. That
+file defines the macros `HOST` and `ADMIN` that the example's
+`EJABBERD_MACRO_HOST` and `EJABBERD_MACRO_ADMIN` set. The repository's root
+`ejabberd.yml.example` defines neither, so with it the two variables would
+change nothing. A ConfigMap with the file's text was considered. It would
+copy 289 lines of GPL-2.0 text into the recipe, which DEC-16 avoids, and
+mount the same bytes the container already has.
+
+DEC-302: `ejabberd` runs under the Pod Security level `restricted` and adds
+the capability `NET_BIND_SERVICE` to its container (ejabberd). The image
+gives `beam.smp` the file capability `cap_net_bind_service+ep`
+(`setcap` in `.github/container/Dockerfile`). With every capability
+dropped, the kernel refuses to execute a file whose capabilities it cannot
+grant, and the container exits with
+`erlexec: Error 1 executing '.../beam.smp'`. `restricted` allows adding
+`NET_BIND_SERVICE` and no other capability. The capability stays out of the
+running process, because `allowPrivilegeEscalation: false` keeps
+`beam.smp` from gaining it, and ejabberd binds only ports above 1024.
+Docker's default capabilities include `NET_BIND_SERVICE`, so the compose
+container has it too. The level `baseline` with the runtime's default
+capabilities was considered. It would keep a dozen more capabilities that
+ejabberd does not use.
+
+DEC-303: `ejabberd` requires the admin password as a parameter and keeps
+the registration rules of the image's `ejabberd.yml` (ejabberd). The
+example sets `REGISTER_ADMIN_PASSWORD=somePassw0rd`, a placeholder in
+documentation. The image registers `admin@<host>` with it when the
+database is empty, and the macro `ADMIN` makes that account the only one
+in the ACL `admin`. `mod_register` accepts in-band registration only from
+the access rule `trusted_network`, which allows the loopback network, and
+the HTTP API admits only the admin on the loopback network. A client that
+reaches the Service therefore cannot create an account, and the admin
+creates accounts in the pod or in the web admin. The example's password as
+the recipe's default was considered. Every target that kept it would run
+an admin account with a password published in `CONTAINER.md`.
+
+DEC-304: `ejabberd` stops ejabberd in a preStop hook with
+`ejabberdctl stop && ejabberdctl stopped`, which the compose example does
+not have (ejabberd). The image's entrypoint is `tini -- ejabberdctl
+foreground`, and `ejabberdctl` starts the Erlang VM as its child without
+`exec`. tini hands SIGTERM to that shell, which exits, and tini then exits
+too, which kills the VM before Mnesia writes its log to the claim. In CI on
+Kubernetes 1.36 the account registered last was missing after the pod was
+deleted (run 42110904623), and `docker stop` of the image lost every account
+registered since the start. With the hook the node stops in 2 to 3 seconds
+and the accounts are there after the restart. Keeping the image's stop was
+considered. Every rollout, eviction and node drain would lose recent
+accounts and messages.
+
+DEC-305: `ejabberd` requires the Erlang cookie as a parameter and sets it
+as `ERLANG_COOKIE`, which the compose example does not set (ejabberd).
+`ejabberdctl` writes the variable to `~/.erlang.cookie` before it starts
+an Erlang node. Without it, the server node and the node of `ejabberdctl
+started`, which the image forks at every start, both start without a
+cookie file. ejabberd names the provisional file of its ctl socket after a
+hash of the cookie (`get_provisional_udsocket_path` in
+`src/ejabberd_listener.erl`). In 2 of 15 fresh starts of the image on
+Docker the listener then failed with `enoent` and the container exited, and
+on kind it restarted. The image runs `CTL_ON_CREATE` only while
+`database/schema.DAT` is missing, and the failed start had already written
+it, so the admin account was never registered. With the variable set, 25
+of 25 fresh starts registered the admin. The node accepts Erlang
+distribution on the pod's address, and the cookie is its only
+authentication, so it is a ref like the password. Retrying the
+registration at every start was considered. It would put the password into
+`CTL_ON_START`, which the container logs, and would not keep ejabberd from
+exiting on its first start.
+
+- RCP-380: The `Source` line of `ejabberd` MUST name `CONTAINER.md` of
+  processone/ejabberd at the commit of the release tag that the image's
+  `org.opencontainers.image.revision` names, with the file's SHA-256.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23).
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    the image's label
+  - Since: #118
+
+- RCP-381: `ejabberd` MUST set `REGISTER_ADMIN_PASSWORD` from the Secret
+  `ejabberd`, whose value is `applications.ejabberd.admin_password`, which
+  the recipe leaves unset, and `ERLANG_COOKIE` from the same Secret, whose
+  value is `applications.ejabberd.erlang_cookie`, which the recipe leaves
+  unset too. It MUST set `EJABBERD_MACRO_HOST` to
+  `applications.ejabberd.host` and `EJABBERD_MACRO_ADMIN` to
+  `admin@<host>`.
+
+  Without either parameter the compile stops with `Interpolation key` and
+  its name (RCP-19, RCP-40). The host defaults to the example's
+  `example.com`.
+
+  - Test: CI `check` job; manual: a compile of `tests/target.yml` without
+    the parameter stops with `Interpolation key` and its name
+  - Since: #118
+
+- RCP-382: The container of `ejabberd` MUST run as UID and GID 9000 under
+  `restricted` and MUST add no capability other than `NET_BIND_SERVICE`.
+
+  - Test: CI `check` job, the rollout of `ejabberd`; manual: review
+  - Since: #118
+
+- RCP-383: The `tests/smoke` of `ejabberd` MUST, from a pod of its own and
+  through the Service `ejabberd`, get stream features on 5222 that require
+  STARTTLS and on 5269, get 401 from `/admin/` on 5280, and get `forbidden`
+  for an in-band registration in a BOSH session on 5443. As the admin
+  through the API in the pod it MUST create two accounts and a persistent
+  room with its archive. Over BOSH the two accounts MUST exchange a room
+  message and a direct message, which the admin MUST read through the
+  room's history. Once the pod `ejabberd-0` was deleted and its successor
+  is ready, the API MUST list both accounts, and the second account MUST
+  find both messages in its archives.
+
+  The test pod runs the ejabberd image, which carries `curl` and `nc`. It
+  connects from outside the loopback network, from which `ejabberd.yml`
+  would accept a registration. A room's history lives in memory and
+  starts empty in the new pod, so after the restart the archives prove that
+  the messages are on the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #118
+
+- RCP-384: `ejabberd` MUST stop ejabberd in a preStop hook and wait until
+  the node has stopped.
+
+  - Test: `tests/smoke`, which requires every account after the pod's
+    deletion; CI `check` job
+  - Since: #118
+
+- AC-380 (RCP-37, RCP-380 to RCP-384): `check ejabberd --level deploys`
+  passes in CI on each Kubernetes minor, and its smoke test finds both
+  messages in the archives after the restart. `tests/target.yml` without
+  `applications.ejabberd.admin_password` or `erlang_cookie` stops the
+  compile with `Interpolation key` and that key.
 
 ## MLflow
 
@@ -6754,9 +7288,12 @@ feature's design (OQ-6).
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
+| ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
+| ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
 | mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
