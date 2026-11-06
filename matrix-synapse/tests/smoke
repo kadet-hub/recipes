@@ -6,7 +6,8 @@
 # second user joins and reads both, also after the pod was replaced, with
 # the same signing key. The login names the provider of the option oidc.
 # Element Web answers through its Service, and its config.json names the
-# homeserver, which answers at that URL.
+# homeserver, which answers at that URL. In Chrome, Element Web's login page
+# names the server and the provider it read from the homeserver.
 set -euo pipefail
 fail() { echo "$*" >&2; exit 1; }
 kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
@@ -39,7 +40,8 @@ forward() {
   done
   fail "no answer through the port forward"
 }
-trap '[[ -z $pf ]] || kill $pf' EXIT
+web_pf='' driver_pid=''
+trap 'kill $pf $web_pf $driver_pid 2>/dev/null' EXIT
 forward
 # Federation is off: the listener serves neither the federation API nor
 # the server keys.
@@ -112,4 +114,36 @@ jq -e --arg s "$server" '.default_server_config["m.homeserver"].server_name == $
   fail "Element Web names another server than $server"
 in_pod "${base_url%/}/_matrix/client/versions" | jq -e '.versions | length > 0' >/dev/null ||
   fail "no homeserver answers at $base_url"
-echo "Synapse $tag on $server: $admin from the Job created $reader, a room and a message with an upload, which $reader read before and after the pod was replaced with the same signing key; registration got 403, federation 404; the login offers the provider oidc; Element Web points at $base_url; the pods pass Pod Security restricted"
+
+# Element Web in Chrome through ChromeDriver, which GitHub's runners carry
+# (CHROMEWEBDRIVER). The host and port of the homeserver's URL resolve to the
+# port forward of Synapse. The login page lists the provider of the login
+# flows only once Element Web has reached the homeserver.
+driver=${CHROMEDRIVER:-${CHROMEWEBDRIVER:+$CHROMEWEBDRIVER/}chromedriver}
+command -v "$driver" >/dev/null || fail "no ChromeDriver for Element Web: set CHROMEDRIVER"
+kubectl port-forward service/matrix-synapse-element-web 18080:80 >/dev/null &
+web_pf=$!
+"$driver" --port=19515 >/dev/null 2>&1 &
+driver_pid=$!
+wd=http://127.0.0.1:19515
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$wd/status" 2>/dev/null && curl -fsS -o /dev/null http://127.0.0.1:18080/config.json 2>/dev/null && break
+  sleep 1
+done
+idp=$(curl -fsS "$url/_matrix/client/v3/login" | jq -er '[.flows[] | select(.type == "m.login.sso") | .identity_providers[].name][0]')
+homeserver=${base_url#*://}
+caps=$(jq -n --arg rule "MAP ${homeserver%%/*} 127.0.0.1:18008" \
+  '{capabilities: {alwaysMatch: {browserName: "chrome", "goog:chromeOptions": {args: ["--headless", "--host-resolver-rules=\($rule)"]}}}}')
+session=$(curl -fsS -H 'Content-Type: application/json' --data "$caps" "$wd/session" | jq -er .value.sessionId)
+curl -fsS -H 'Content-Type: application/json' --data '{"url": "http://127.0.0.1:18080/#/login"}' "$wd/session/$session/url" >/dev/null
+page=
+for _ in $(seq 30); do
+  page=$(curl -fsS -H 'Content-Type: application/json' --data '{"script": "return document.body.innerText", "args": []}' \
+    "$wd/session/$session/execute/sync" | jq -r .value)
+  [[ $page == *"Continue with $idp"* ]] && break
+  sleep 2
+done
+curl -fsS -X DELETE "$wd/session/$session" >/dev/null
+[[ $page == *"Continue with $idp"* && $page == *"$server"* && $page == *Password* ]] ||
+  fail "Element Web in Chrome shows no login for $server with $idp: $page"
+echo "Synapse $tag on $server: $admin from the Job created $reader, a room and a message with an upload, which $reader read before and after the pod was replaced with the same signing key; registration got 403, federation 404; the login offers the provider oidc; Element Web points at $base_url, and in Chrome its login names $server and $idp; the pods pass Pod Security restricted"
