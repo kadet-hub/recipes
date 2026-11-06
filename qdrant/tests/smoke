@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# RCP-312: the pod under Pod Security restricted, the image's version through
+# the Service, 401 without the API key and with a wrong one, a collection
+# with points and payload written and searched with the key of the Secret
+# qdrant-apikey, and the same points read back after the pod was deleted.
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level.
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$ns" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+key=$(kubectl get secret qdrant-apikey -o jsonpath='{.data.api-key}' | base64 -d)
+pf=
+forward() {
+  kubectl port-forward service/qdrant 16333:6333 >/dev/null &
+  pf=$!
+  for _ in $(seq 30); do
+    kill -0 "$pf" 2>/dev/null || { echo "kubectl port-forward to the Service qdrant ended" >&2; return 1; }
+    curl -fsS -o /dev/null http://localhost:16333/readyz 2>/dev/null && kill -0 "$pf" 2>/dev/null && return
+    sleep 2
+  done
+  echo "the Service qdrant does not answer" >&2
+  return 1
+}
+trap 'kill $pf 2>/dev/null' EXIT
+forward
+url=http://localhost:16333
+api() { curl -fsS -H "api-key: $key" -H 'Content-Type: application/json' "$@"; }
+status() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
+
+image=$(kubectl get statefulset qdrant -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image%@*}
+tag=${tag##*:v}
+tag=${tag%-unprivileged}
+api "$url/" | jq -e --arg tag "$tag" '.version == $tag' >/dev/null
+
+[[ $(status "$url/collections") == 401 ]]
+[[ $(status -H 'api-key: wrong' "$url/collections") == 401 ]]
+
+api -X PUT "$url/collections/smoke" \
+  --data '{"vectors": {"size": 4, "distance": "Cosine"}}' >/dev/null
+api -X PUT "$url/collections/smoke/points?wait=true" --data '{"points": [
+  {"id": 1, "vector": [0.9, 0.1, 0.1, 0.1], "payload": {"city": "Berlin"}},
+  {"id": 2, "vector": [0.1, 0.9, 0.1, 0.1], "payload": {"city": "London"}},
+  {"id": 3, "vector": [0.1, 0.1, 0.9, 0.1], "payload": {"city": "Moscow"}}
+]}' >/dev/null
+search() {
+  api -X POST "$url/collections/smoke/points/query" \
+    --data '{"query": [0.2, 0.1, 0.9, 0.1], "limit": 1, "with_payload": true}' |
+    jq -e '.result.points[0] | .id == 3 and .payload.city == "Moscow"' >/dev/null
+}
+search
+
+# The successor pod mounts the same claim.
+kill "$pf" 2>/dev/null || true
+uid=$(kubectl get pod qdrant-0 -o jsonpath='{.metadata.uid}')
+kubectl delete pod qdrant-0 --wait=true >/dev/null
+for _ in $(seq 60); do
+  now=$(kubectl get pod qdrant-0 -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
+  [[ -n $now && $now != "$uid" ]] && break
+  sleep 2
+done
+[[ -n $now && $now != "$uid" ]] || { echo "no pod replaced qdrant-0" >&2; exit 1; }
+kubectl wait --for=condition=Ready pod/qdrant-0 --timeout=300s >/dev/null
+forward
+api "$url/collections/smoke" | jq -e '.result.points_count == 3' >/dev/null
+search
+echo "Pod Security restricted, version $tag, 401 without and with a wrong key," \
+  "3 points written, the nearest found before and after the pod was replaced"
