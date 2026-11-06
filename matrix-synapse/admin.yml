@@ -1,0 +1,47 @@
+parameters:
+  components:
+    # Registers the first admin through the admin API with the shared
+    # secret, which homeserver.yaml names, once Synapse answers, and leaves
+    # an existing account as it is.
+    matrix-synapse-admin:
+      application: matrix-synapse
+      type: job
+      image: ${components.matrix-synapse.image}
+      workload_security_context: ${components.matrix-synapse.workload_security_context}
+      command:
+        - register_new_matrix_user
+      args:
+        config:
+          - --config
+          - /config/homeserver.yaml
+        user:
+          - --user
+          - ${applications.matrix-synapse.admin.username}
+        password:
+          - --password-file
+          - /secrets/admin-password
+        admin: --admin
+        exists: --exists-ok
+        server: http://matrix-synapse:${components.matrix-synapse.ports.http.service_port}
+      init_containers:
+        wait-for-synapse:
+          image: ${components.matrix-synapse.image}
+          command:
+            - sh
+            - -c
+            - until curl -fs -o /dev/null ${components.matrix-synapse-admin.args.server}/health; do sleep 5; done
+      # A finished Job goes, so that applying a new version of the recipe
+      # creates it again instead of changing its pod template.
+      ttl_seconds_after_finished: 600
+      volumes:
+        config:
+          configMap:
+            name: matrix-synapse
+        credentials:
+          secret:
+            secretName: matrix-synapse
+      volume_mounts:
+        config:
+          mount_path: /config
+        credentials:
+          mount_path: /secrets

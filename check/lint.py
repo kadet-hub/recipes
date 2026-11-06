@@ -551,9 +551,13 @@ def lint_output(name, objects, chart_names):
 
 
 def read_only_rbac_errors(objects):
-    """RCP-308: the RBAC of a designed recipe only reads, and binds only roles the recipe renders."""
+    """RCP-308: the RBAC of a designed recipe only reads, and binds only roles the recipe renders itself.
+    objects are the recipe's own: a binding to a role of an included recipe fails, because the included
+    role's rules need not only read."""
     rbac = [o for o in objects if o.get("kind") in compare.RBAC_KINDS]
-    roles = {(o["kind"], (o.get("metadata") or {}).get("namespace"), (o.get("metadata") or {}).get("name"))
+    # A ClusterRole is cluster-scoped, so a namespace in its metadata does not count.
+    roles = {(o["kind"], (o.get("metadata") or {}).get("namespace") if o["kind"] == "Role" else None,
+              (o.get("metadata") or {}).get("name"))
              for o in rbac if o["kind"] in ("Role", "ClusterRole")}
     errors = []
     for o in rbac:
@@ -565,14 +569,18 @@ def read_only_rbac_errors(objects):
                 if extra := sorted(set(rule.get("verbs") or []) - READ_VERBS):
                     errors.append(f"{compare.ident(o)}: verbs {', '.join(extra)}, a designed recipe only reads (RCP-308)")
                 named = [*(rule.get("apiGroups") or []), *(rule.get("resources") or [])]
-                if bad := sorted({n for n in named if n == "*" or n.split("/")[0] == "secrets"}):
+                if "*" in named:
+                    errors.append(f"{compare.ident(o)}: *, a designed recipe names the groups and resources it reads (RCP-308)")
+                if bad := sorted({r for r in rule.get("resources") or [] if r.split("/")[0] == "secrets"}):
                     errors.append(f"{compare.ident(o)}: {', '.join(bad)}, a designed recipe reads no Secret (RCP-308)")
                 if rule.get("nonResourceURLs"):
                     errors.append(f"{compare.ident(o)}: nonResourceURLs, a designed recipe reads only resources (RCP-308)")
         else:
             ref = o.get("roleRef") or {}
             namespace = meta.get("namespace") if ref.get("kind") == "Role" else None
-            if (ref.get("kind"), namespace, ref.get("name")) not in roles:
+            # Without a namespace an object lands in the target namespace, so only two set ones must agree.
+            if not any(k == ref.get("kind") and n == ref.get("name") and (None in (ns, namespace) or ns == namespace)
+                       for k, ns, n in roles):
                 errors.append(f"{compare.ident(o)}: binds {ref.get('kind')}/{ref.get('name')}, which the recipe does not render (RCP-308)")
     return errors
 

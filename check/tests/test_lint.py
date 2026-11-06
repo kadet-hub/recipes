@@ -402,9 +402,15 @@ class LintDesign(unittest.TestCase):
         binding = {"apiVersion": rbac, "kind": "RoleBinding", "metadata": {"name": "homepage", "namespace": "homepage"},
                    "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "homepage"}, "subjects": subjects}
         self.assertEqual(lint.read_only_rbac_errors([cluster_role, role, cluster_binding, binding]), [])
+        # A ClusterRole is cluster-scoped: a namespace in its metadata does not hide it from its binding.
+        namespaced = {**cluster_role, "metadata": {"name": "homepage", "namespace": "homepage"}}
+        self.assertEqual(lint.read_only_rbac_errors([namespaced, cluster_binding]), [])
+        # A Role rendered without a namespace lands in the binding's, the target namespace.
+        unnamespaced = {**role, "metadata": {"name": "homepage"}}
+        self.assertEqual(lint.read_only_rbac_errors([unnamespaced, binding]), [])
         writes = {**cluster_role, "rules": [reads, {"apiGroups": [""], "resources": ["configmaps"], "verbs": ["get", "update"]}]}
-        secrets = {**role, "rules": [{"apiGroups": [""], "resources": ["secrets"], "verbs": ["get"]},
-                                     {"apiGroups": ["*"], "resources": ["*"], "verbs": ["list"]}]}
+        secrets = {**role, "rules": [{"apiGroups": [""], "resources": ["secrets", "secrets/status"], "verbs": ["get"]},
+                                     {"apiGroups": ["*"], "resources": ["pods"], "verbs": ["list"]}]}
         urls = {**cluster_role, "metadata": {"name": "homepage-urls"}, "rules": [{"nonResourceURLs": ["/metrics"], "verbs": ["get"]}],
                 "aggregationRule": {"clusterRoleSelectors": []}}
         admin = {**cluster_binding, "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "cluster-admin"}}
@@ -413,8 +419,8 @@ class LintDesign(unittest.TestCase):
             lint.read_only_rbac_errors([writes, secrets, urls, admin, elsewhere]),
             [
                 "ClusterRole.rbac.authorization.k8s.io/homepage: verbs update, a designed recipe only reads (RCP-308)",
-                "Role.rbac.authorization.k8s.io/homepage/homepage: secrets, a designed recipe reads no Secret (RCP-308)",
-                "Role.rbac.authorization.k8s.io/homepage/homepage: *, a designed recipe reads no Secret (RCP-308)",
+                "Role.rbac.authorization.k8s.io/homepage/homepage: secrets, secrets/status, a designed recipe reads no Secret (RCP-308)",
+                "Role.rbac.authorization.k8s.io/homepage/homepage: *, a designed recipe names the groups and resources it reads (RCP-308)",
                 "ClusterRole.rbac.authorization.k8s.io/homepage-urls: aggregationRule, a designed recipe grants only the rules it lists (RCP-308)",
                 "ClusterRole.rbac.authorization.k8s.io/homepage-urls: nonResourceURLs, a designed recipe reads only resources (RCP-308)",
                 "ClusterRoleBinding.rbac.authorization.k8s.io/homepage: binds ClusterRole/cluster-admin, which the recipe does not render (RCP-308)",

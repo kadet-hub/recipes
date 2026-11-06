@@ -1,0 +1,137 @@
+parameters:
+  components:
+    zulip:
+      application: zulip
+      type: statefulset
+      image: ghcr.io/zulip/zulip-server:12.3-0@sha256:76a1ecc4ba5470869d9609ef1ec16497b410189918b2daba85862183a59aa275
+      service_account:
+        create: true
+        automount_service_account_token: true
+      # The chart leaves the token at the API default, true.
+      automount_service_account_token: true
+      env:
+        SETTING_REMOTE_POSTGRES_HOST: ${applications.postgresql.cluster}-rw
+        SETTING_REMOTE_POSTGRES_PORT: "5432"
+        SECRETS_postgres_password:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+        CONFIG_postgresql__database_user: ${applications.postgresql.owner}
+        CONFIG_postgresql__database_name: ${applications.postgresql.database}
+        SETTING_RABBITMQ_HOST: rabbitmq
+        SETTING_RABBITMQ_PORT: "5672"
+        SECRETS_rabbitmq_password:
+          secretKeyRef:
+            name: rabbitmq-default-user
+            key: password
+        SETTING_MEMCACHED_LOCATION: memcached:11211
+        # memcached has no authentication. Without a password Zulip
+        # connects without SASL.
+        SECRETS_memcached_password: ""
+        SETTING_REDIS_HOST: valkey
+        SETTING_REDIS_PORT: "6379"
+        SECRETS_redis_password:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+        SECRETS_secret_key:
+          secretKeyRef:
+            name: zulip
+            key: secret-key
+        SETTING_EXTERNAL_HOST: ${applications.zulip.host}
+        # The operator generates the user's name.
+        SETTING_RABBITMQ_USERNAME:
+          secretKeyRef:
+            name: rabbitmq-default-user
+            key: username
+        SETTING_RUNNING_IN_HELM: "true"
+        SETTING_ZULIP_ADMINISTRATOR: ${applications.zulip.administrator}
+        # Read by create-organization.sh.
+        ZULIP_OWNER_PASSWORD:
+          secretKeyRef:
+            name: zulip
+            key: owner-password
+      ports:
+        smtp:
+          container_port: 25
+        http:
+          container_port: 80
+          service_port: 80
+          # The chart sets no appProtocol.
+          app_protocol: ""
+        https:
+          container_port: 443
+      service: {}
+      # The chart probes through the loopback, which /health trusts.
+      healthcheck:
+        startup:
+          type: command
+          command:
+            - curl
+            - --silent
+            - --fail
+            - --max-time
+            - "5"
+            - http://127.0.0.1/health
+          initial_delay_seconds: 10
+          failure_threshold: 30
+        liveness:
+          type: command
+          command:
+            - curl
+            - --silent
+            - --fail
+            - --max-time
+            - "5"
+            - http://127.0.0.1/health
+          initial_delay_seconds: 10
+      volume_mounts:
+        zulip-persistent-storage:
+          mount_path: /data
+        zulip-post-setup-scripts:
+          mount_path: /data/post-setup.d
+      volumes:
+        zulip-persistent-storage:
+          persistentVolumeClaim:
+            claimName: zulip-data
+        zulip-post-setup-scripts:
+          configMap:
+            name: zulip-post-setup-scripts
+            defaultMode: 488
+      persistent_volume_claims:
+        zulip-data:
+          storage: 10Gi
+  generators:
+    kubernetes:
+      configs:
+        zulip-post-setup-scripts:
+          data:
+            # The entrypoint runs it as root on every start, after the
+            # migrations.
+            create-organization.sh:
+              value: |
+                #!/bin/bash
+                # Creates the organization and its owner on the first start.
+                set -euo pipefail
+                manage=/home/zulip/deployments/current/manage.py
+                if runuser -u zulip -- "$manage" list_realms | grep -q "^[0-9]* *''"; then
+                  exit 0
+                fi
+                # A file the user zulip reads, so the password is in no process list.
+                password_file=$(mktemp)
+                trap 'rm -f "$password_file"' EXIT
+                printf '%s' "$ZULIP_OWNER_PASSWORD" >"$password_file"
+                chown zulip "$password_file"
+                # create_realm commits the organization before it sets the owner's
+                # password, so a password Zulip rejects would leave it without an owner.
+                runuser -u zulip -- "$manage" shell -c "import sys; from zproject.backends import check_password_strength as strong; sys.exit(0 if strong(open('$password_file').read().strip()) else 'ZULIP_OWNER_PASSWORD is too weak for Zulip.')"
+                runuser -u zulip -- "$manage" create_realm Zulip "$SETTING_ZULIP_ADMINISTRATOR" Owner \
+                  --password-file "$password_file"
+      # A component Secret would also be mounted as a volume.
+      secrets:
+        zulip:
+          string_data:
+            secret-key:
+              value: ${applications.zulip.secret_key}
+            owner-password:
+              value: ${applications.zulip.owner_password}
