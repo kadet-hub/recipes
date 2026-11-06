@@ -5805,8 +5805,10 @@ named cert-manager or a provided Secret.
   (`Security.authBanRate`), after 35 relay or unknown recipient attempts and
   after 30 scans for paths such as `*.php*`. Its default inbound throttles
   allow 5 per second per client address and 25 per hour per sender domain
-  and recipient. On kind, the 101st connection after 100 failed IMAP logins
-  was closed while another pod still connected.
+  and recipient. On kind, a pod still logged in over IMAP after 100 failed
+  logins. Its 101st failed login got its address banned, and Stalwart
+  closed that connection and every later one from it, while another pod
+  still connected.
 
   - Test: `tests/smoke`; CI `check` job
   - Since: #125
