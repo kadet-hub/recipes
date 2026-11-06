@@ -1,3 +1,9 @@
 backends:
   - omegaconf
-required: []
+required:
+  - path: applications.stirling-pdf.admin.username
+    description: Login of the first admin, which Stirling-PDF creates on its first start instead of admin/stirling.
+    secret: false
+  - path: applications.stirling-pdf.admin.password
+    description: Password of the first admin, read only on the first start while the database holds no user.
+    secret: true

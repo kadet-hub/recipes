@@ -1,0 +1,10 @@
+classes:
+  - recipes.qdrant
+parameters:
+  namespace: qdrant
+  kapitan:
+    vars:
+      target: qdrant
+  applications:
+    qdrant:
+      api_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

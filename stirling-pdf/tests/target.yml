@@ -5,3 +5,8 @@ parameters:
   kapitan:
     vars:
       target: stirling-pdf
+  applications:
+    stirling-pdf:
+      admin:
+        username: smoke-admin
+        password: smoke-password

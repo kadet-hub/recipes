@@ -1,0 +1,16 @@
+parameters:
+  applications:
+    matrix-synapse:
+      # The listener serves the federation API and the server keys next to
+      # the client API, and Synapse serves /.well-known/matrix/server, which
+      # sends other servers to port 443 of server_name instead of 8448.
+      federation: |
+        listeners:
+          - port: ${components.matrix-synapse.ports.http.container_port}
+            type: http
+            x_forwarded: true
+            resources:
+              - names:
+                  - client
+                  - federation
+        serve_server_wellknown: true

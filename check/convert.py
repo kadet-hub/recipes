@@ -899,6 +899,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if not RELEASE_NAME.match(a.name):
         ap.error(f"--name {a.name!r}: lowercase letters, digits and '-' only, as an inventory key")
+    if a.out.resolve() == Path(a.chart).resolve():  # CNV-20: fetch would read the output directory as the chart
+        ap.error(f"--out {a.out}: the same path as the chart {a.chart!r}; choose another directory")
     if a.out.exists() and any(a.out.iterdir()):
         ap.error(f"--out {a.out}: not empty")
     a.out.mkdir(parents=True, exist_ok=True)

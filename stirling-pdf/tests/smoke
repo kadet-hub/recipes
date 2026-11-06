@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # RCP-242: the pod under Pod Security restricted, the status of the image's
-# version through the Service, the API closed without a login, two one-page
-# PDFs merged through /api/v1/general/merge-pdfs as admin and checked with
-# qpdf and pdftotext of the image, and a setting written through the admin
-# API that the next pod reads from the claim.
+# version through the Service, the API and the sign-up closed without a
+# login, the admin of the Secret stirling-pdf-admin and no admin/stirling,
+# two one-page PDFs merged through /api/v1/general/merge-pdfs as that admin
+# and checked with qpdf and pdftotext of the image, and a setting written
+# through the admin API that the next pod reads from the claim.
 set -euo pipefail
 name=stirling-pdf-stirling-pdf-chart
 ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
@@ -35,10 +36,14 @@ forward() {
 trap 'kill $pf 2>/dev/null; rm -rf "$work"' EXIT
 forward
 url=http://localhost:18080/api/v1
-# The image creates the user admin with the password stirling on its first start.
+admin() { kubectl get secret stirling-pdf-admin -o jsonpath="{.data.$1}" | base64 -d; }
+username=$(admin username)
+password=$(admin password)
+# The status code of a login, and its session token in $work/token.
 login() {
-  jq -n '{username: "admin", password: "stirling"}' |
-    curl -fsS -H 'Content-Type: application/json' -d @- "$url/auth/login" | jq -er .session.access_token
+  jq -n --arg username "$1" --arg password "$2" '{$username, $password}' |
+    curl -sS -o "$work/login.json" -w '%{http_code}' -H 'Content-Type: application/json' -d @- "$url/auth/login"
+  jq -r '.session.access_token // empty' "$work/login.json" >"$work/token"
 }
 
 # A one-page PDF 1.4 with the text $1 in Helvetica, with a correct xref table.
@@ -64,7 +69,15 @@ merge=(-F "fileInput=@$work/one.pdf" -F "fileInput=@$work/two.pdf" "$url/general
 
 code=$(curl -sS -o /dev/null -w '%{http_code}' "${merge[@]}")
 [[ $code == 401 ]] || { echo "merge without a login: HTTP $code" >&2; exit 1; }
-token=$(login)
+code=$(jq -n '{username: "smoke-intruder", password: "smoke-password"}' |
+  curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d @- "$url/user/register")
+[[ $code == 401 ]] || { echo "sign-up without a login: HTTP $code" >&2; exit 1; }
+# Without the Secret's admin the first start would create admin/stirling.
+code=$(login admin stirling)
+[[ $code == 401 ]] || { echo "login as admin/stirling: HTTP $code" >&2; exit 1; }
+code=$(login "$username" "$password")
+[[ $code == 200 ]] || { echo "login as $username: HTTP $code" >&2; exit 1; }
+token=$(<"$work/token")
 curl -fsS -H "Authorization: Bearer $token" -o "$work/merged.pdf" "${merge[@]}"
 # qpdf --check exits non-zero on a damaged file.
 mapfile -t out < <(kubectl exec -i "deployment/$name" -c "$name" -- sh -c '
@@ -98,8 +111,10 @@ for _ in $(seq 150); do
 done
 [[ -n $ready ]] || { echo "no new pod became ready" >&2; exit 1; }
 forward
-token=$(login)
+code=$(login "$username" "$password")
+[[ $code == 200 ]] || { echo "login as $username after the restart: HTTP $code" >&2; exit 1; }
+token=$(<"$work/token")
 curl -fsS -H "Authorization: Bearer $token" "$url/admin/settings/key/$key" |
   jq -e --arg value "$value" '.value == $value' >/dev/null
 # check reports the last line.
-echo "Stirling-PDF $tag merged two PDFs into one of 2 pages as admin, and the next pod read $key from the claim. The pod passes Pod Security restricted."
+echo "Stirling-PDF $tag refused admin/stirling and a sign-up, merged two PDFs into one of 2 pages as $username, and the next pod read $key from the claim. The pod passes Pod Security restricted."

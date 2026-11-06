@@ -1,0 +1,12 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.ghost.url
+    description: URL readers and staff reach Ghost at, with its scheme, from which Ghost builds every link.
+    secret: false
+  - path: applications.mysql.password
+    description: Password with which Ghost connects to the included recipe mysql as the user app.
+    secret: true
+  - path: applications.mysql.root_password
+    description: Password of the user root of mysql.
+    secret: true

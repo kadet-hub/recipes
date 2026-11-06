@@ -1,0 +1,7 @@
+classes:
+  - recipes.actual
+parameters:
+  namespace: actual
+  kapitan:
+    vars:
+      target: actual

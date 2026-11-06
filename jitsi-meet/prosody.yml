@@ -1,0 +1,77 @@
+parameters:
+  components:
+    jitsi-meet-prosody:
+      application: jitsi-meet
+      type: statefulset
+      # renovate: upstream
+      image: ghcr.io/jitsi/prosody:stable-11248-3@sha256:3f1943334f2c07244d2f2ec582fa7b59e226d461ef97db267f0a92cbba13b968
+      pod_annotations:
+        service: jitsi-prosody
+      ports:
+        c2s:
+          service_port: 5222
+        s2s:
+          service_port: 5269
+        component:
+          service_port: 5347
+        http:
+          service_port: 5280
+      service:
+        type: ClusterIP
+      env:
+        TZ: UTC
+        ENABLE_AUTH: "1"
+        ENABLE_GUESTS: "1"
+        JICOFO_AUTH_PASSWORD:
+          secretKeyRef:
+            name: jitsi-meet
+            key: JICOFO_AUTH_PASSWORD
+        JVB_AUTH_PASSWORD:
+          secretKeyRef:
+            name: jitsi-meet
+            key: JVB_AUTH_PASSWORD
+        MODERATOR_USER: moderator
+        MODERATOR_PASSWORD:
+          secretKeyRef:
+            name: jitsi-meet
+            key: MODERATOR_PASSWORD
+      # The first moderator. The image creates only the users of jicofo and
+      # jvb, so this waits for prosody as its register-setup does, then
+      # creates the user or sets its password.
+      lifecycle:
+        postStart:
+          exec:
+            command:
+              - bash
+              - -c
+              - |
+                for _ in $(seq 60); do curl -fsS -o /dev/null http://127.0.0.1:5280/health && break; sleep 2; done
+                user="prosodyctl --config /run/prosody/config/prosody.cfg.lua shell user"
+                $user create "$MODERATOR_USER@meet.jitsi" "$MODERATOR_PASSWORD" || $user password "$MODERATOR_USER@meet.jitsi" "$MODERATOR_PASSWORD"
+      # The image runs as the user s6, UID 1000, which writes the claim.
+      workload_security_context:
+        fsGroup: 1000
+      volumes:
+        run:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        tmp:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+      volume_mounts:
+        run:
+          mount_path: /run
+        tmp:
+          mount_path: /tmp
+        storage:
+          mount_path: /var/lib/prosody
+      volume_claims:
+        storage:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
