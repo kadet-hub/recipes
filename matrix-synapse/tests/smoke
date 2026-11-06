@@ -91,11 +91,13 @@ signing_key=$(key)
 
 old=$(kubectl get pod matrix-synapse-0 -o jsonpath='{.metadata.uid}')
 kubectl delete pod matrix-synapse-0 --wait=true >/dev/null
+ready=
 for _ in $(seq 60); do
   new=$(kubectl get pod matrix-synapse-0 -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
-  [[ $new && $new != "$old" ]] && kubectl wait pod/matrix-synapse-0 --for=condition=Ready --timeout=10s >/dev/null 2>&1 && break
+  [[ $new && $new != "$old" ]] && kubectl wait pod/matrix-synapse-0 --for=condition=Ready --timeout=10s >/dev/null 2>&1 && ready=1 && break
   sleep 5
 done
+[[ $ready ]] || fail "pod never became ready: no ready pod replaced the deleted matrix-synapse-0"
 forward
 read_back "after the pod was replaced"
 [[ $(key) == "$signing_key" ]] || fail "the signing key changed with the pod"
