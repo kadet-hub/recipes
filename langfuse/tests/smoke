@@ -48,9 +48,11 @@ forward() {
   kubectl port-forward service/langfuse-web 13000:3000 >/dev/null 2>&1 &
   pf=$!
   for _ in $(seq 30); do
-    curl -fsS -o /dev/null http://localhost:13000/api/public/health 2>/dev/null && return
+    kill -0 "$pf" 2>/dev/null || { echo "kubectl port-forward to the Service langfuse-web ended" >&2; return 1; }
+    curl -fsS -o /dev/null http://localhost:13000/api/public/health 2>/dev/null && kill -0 "$pf" 2>/dev/null && return
     sleep 2
   done
+  echo "the Service langfuse-web does not answer" >&2
   return 1
 }
 # Set before the first port-forward, so a failed one does not outlive the test.
@@ -77,7 +79,8 @@ span() {
 observation() {
   local trace=$1 answer=
   for _ in $(seq 60); do
-    answer=$(curl -fsS -u "$pk:$sk" "$url/api/public/v2/observations?traceId=$trace&fields=core,io" 2>/dev/null)
+    # A failed request is retried like an answer without the span.
+    answer=$(curl -fsS -u "$pk:$sk" "$url/api/public/v2/observations?traceId=$trace&fields=core,io" 2>/dev/null) || true
     jq -e --arg trace "$trace" '.data[0].input == $trace' <<<"$answer" >/dev/null && return
     sleep 2
   done
@@ -141,7 +144,9 @@ for workload in "${workloads[@]}"; do
   echo "no ready successor of $workload" >&2
   exit 1
 done
-kill $pf
+# The next port-forward binds the same port once this one has ended.
+kill "$pf"
+wait "$pf" || true
 forward
 health
 observation "$first"
