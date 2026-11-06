@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.memos.instance_url
+    description: MEMOS_INSTANCE_URL, the URL users reach Memos at, with its scheme. On the first start it makes the instance public.
+    secret: false

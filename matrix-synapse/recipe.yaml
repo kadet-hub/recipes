@@ -1,0 +1,27 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.matrix-synapse.server_name
+    description: The domain in every user ID and room alias of the homeserver, such as example.com, which cannot change later.
+    secret: false
+  - path: applications.matrix-synapse.registration_shared_secret
+    description: Shared secret with which register_new_matrix_user and the admin API register accounts, also admins.
+    secret: true
+  - path: applications.matrix-synapse.admin.username
+    description: Localpart of the first admin, which the Job matrix-synapse-admin registers.
+    secret: false
+  - path: applications.matrix-synapse.admin.password
+    description: Password of the first admin, set only when the Job registers the account.
+    secret: true
+  - path: applications.matrix-synapse.oidc.issuer
+    description: Issuer URL of the OpenID Connect provider, such as a Keycloak realm.
+    secret: false
+    option: oidc
+  - path: applications.matrix-synapse.oidc.client_id
+    description: Client ID of Synapse at the OpenID Connect provider.
+    secret: false
+    option: oidc
+  - path: applications.matrix-synapse.oidc.client_secret
+    description: Client secret of Synapse at the OpenID Connect provider.
+    secret: true
+    option: oidc
