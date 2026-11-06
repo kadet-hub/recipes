@@ -5558,6 +5558,135 @@ OpenID login creates a user only while the server has none
   - Test: CI `check` job, report line `smoke`
   - Since: #111
 
+## Qdrant
+
+Qdrant is a vector database. Clients store points, each a vector with a
+JSON payload, in collections and search them for the nearest vectors,
+through a REST API on port 6333 and a gRPC API on port 6334. It is meant
+as the vector store of a retrieval stack with Ollama, LiteLLM and Open
+WebUI. `qdrant` deploys it from the chart `qdrant` of qdrant/qdrant-helm.
+The project publishes the chart with chart-releaser as a GitHub release
+asset and in the HTTP repository `https://qdrant.github.io/qdrant-helm`,
+the URL its README gives to `helm repo add`. It pushes no OCI artifact, so
+the `Source` line takes the HTTP form of RCP-23. Chart and Qdrant are
+Apache-2.0.
+
+With its defaults the chart runs one replica as the StatefulSet `qdrant`
+in Qdrant's distributed mode (`config.cluster.enabled`), where the peers
+talk over an internal gRPC API on port 6335. The data lives on the claim
+template `qdrant-storage`, 10Gi with ReadWriteOnce, and snapshots in an
+`emptyDir`. The Services `qdrant` and `qdrant-headless` expose the ports
+`http`, `grpc` and `p2p`, the ConfigMap `qdrant` holds the start script
+`initialize.sh` and `production.yaml`, and the ServiceAccount `qdrant` has
+no role. The pod is ready once `/readyz` answers. The chart sets no API
+key, and the init container `ensure-dir-ownership` runs `chown -R` on the
+volumes as root.
+
+DEC-230: `qdrant` is a chart recipe on the chart `qdrant` 1.20.0, the
+newest release on 2026-11-05, and runs Qdrant 1.20.0, its `appVersion` and
+the newest release of qdrant/qdrant. The advisories of qdrant/qdrant on
+2026-11-05 name no release from 1.20.0 on. GHSA-frc7-44gm-99qq, fixed in
+1.20.0, is the reason not to run an older one: before 1.20.0 the internal
+port of distributed mode answered without authentication, so a pod that
+reached port 6335 could add a peer and receive the stored data.
+
+DEC-231: `qdrant` runs one node. The chart's StatefulSet sets
+`podManagementPolicy: Parallel`, which the `kubernetes` generator cannot
+render, in 1.14.0 or in 1.15.0. `tests/values.yaml` sets `OrderedReady`,
+the API default that the recipe gets. With one replica both policies
+start the same pod. The chart's values warn that with `OrderedReady` the
+nodes of a cluster wait for each other's readiness forever, so the README
+does not offer the number of replicas as a setting. The recipe keeps the
+chart's distributed mode, which runs on one node as well. Stopping on the gap,
+as Compose sources stop on one, was considered. The chart's default is one
+node, and one node is what the recipe proves.
+
+DEC-232: `qdrant` runs `docker.io/qdrant/qdrant:v1.20.0-unprivileged`
+under Pod Security `restricted`. Qdrant builds this variant of every
+release with the user 1000:1000, and the chart switches to it with
+`image.useUnprivilegedImage`, which also leaves out the init container
+`ensure-dir-ownership`. `tests/values.yaml` adds `capabilities.drop: [ALL]`
+on the container and the seccomp profile `RuntimeDefault` on the pod,
+which `restricted` requires beyond the chart's defaults: UID 1000, GID
+2000, `fsGroup` 3000 and a read-only root filesystem. The default image
+with `updateVolumeFsOwnership: false` was considered. It runs the same
+binary as UID 1000, but its files belong to root, and the unprivileged
+variant is the one Qdrant builds for a container without root.
+
+DEC-233: `qdrant` requires the API key `applications.qdrant.api_key`. The
+recipe renders it into the Secret `qdrant-apikey`, key `api-key`, and
+`tests/values.yaml` sets the chart's `env` `QDRANT__SERVICE__API_KEY`
+from it, so `check` accepts the Secret as a Referenced Secret (DEC-166).
+Without a key Qdrant answers every request of every pod that reaches the
+Service. From 1.20.0 the internal port needs the same key, because
+`service.enforce_internal_auth` is on by default, but only once a key is
+set (GHSA-frc7-44gm-99qq). The chart's value `apiKey` with a string was
+considered. The chart then renders the Secret with a second key
+`local.yaml`, mounts it as a configuration file and puts a hash of the
+Secret on the pod, and the recipe would carry the hash of the test key.
+`apiKey: true` generates a key with `lookup`, which neither
+`helm template` nor Kapitan can run. The read-only key and JWT access,
+which Qdrant also offers, are not rendered.
+
+The generator puts the label `name` on each claim template, and the chart
+puts `app: qdrant` there. The recipe adds `app`, and `tests/values.yaml`
+adds `name` through `persistence.additionalLabels`, so the templates are
+equal. With the chart's defaults Qdrant sends anonymous usage statistics to
+Qdrant, which the recipe keeps and the README says how to turn off. The
+chart's Ingress, ServiceMonitor, PodDisruptionBudget, snapshot claim and
+snapshot restoration are off by default and not part of the recipe. Its
+Helm test, a ConfigMap and a Pod, is left out (RCP-25). The start script
+in the ConfigMap is text of the chart's `templates/configmap.yaml`, so
+`qdrant.yml.LICENSE` carries the chart's license (RCP-42).
+
+- RCP-310: `qdrant` MUST render the chart's StatefulSet, Services, ConfigMap
+  and ServiceAccount, with `docker.io/qdrant/qdrant:v1.20.0-unprivileged`
+  pinned to its index, one replica and the claim template
+  `qdrant-storage` of 10Gi.
+
+  - Test: `check qdrant`; CI `check` job
+  - Since: #110
+
+- RCP-311: `qdrant` MUST put `applications.qdrant.api_key` into the key
+  `api-key` of the Secret `qdrant-apikey`, MUST set
+  `QDRANT__SERVICE__API_KEY` from it, and MUST leave the parameter unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets it, as a ref (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); CI `check` job, report lines
+    `difference: Referenced Secret` and `smoke`
+  - Since: #110
+
+- RCP-312: `qdrant` MUST run as UID 1000, GID 2000 and `fsGroup` 3000
+  under Pod Security `restricted`, without an init container.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #110
+
+- RCP-313: The `tests/smoke` of `qdrant` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
+  the version of the image tag from `/` through the Service with the key
+  of the Secret `qdrant-apikey`. It MUST get 401 from `/collections`
+  without a key and with a wrong one. With the key it MUST create a
+  collection, write three points with vectors and payload, and get the
+  nearest one with its payload from a query. Once the pod `qdrant-0` was
+  deleted and its successor is ready, it MUST find the three points and
+  get the same answer to the query.
+
+  The successor mounts the claim of the deleted pod, so the points after
+  the restart show that the claim keeps the data.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #110
+
+- AC-310 (RCP-310 to RCP-313): `check qdrant --level deploys` passes in CI
+  on each Kubernetes minor, with differences of the classes Selector
+  scheme, Port by name, Derived name, Explicit default and Referenced
+  Secret only, and its smoke test finds the points after the pod was
+  replaced.
+
 ## ejabberd
 
 ejabberd is an XMPP server. Clients log in to accounts of its domain, chat
@@ -6664,4 +6793,5 @@ feature's design (OQ-6).
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
+| qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
