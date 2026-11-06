@@ -5645,7 +5645,10 @@ only with `PROSODY_ENABLE_S2S` and on 5347 only for an external component.
 
   The test pod runs prosody's image, which carries bash and curl, and the
   test speaks BOSH with curl. The Jingle offer shows that jicofo allocated
-  the meeting on jvb. The moderator's account is no proof of the claim,
+  the meeting on jvb. jicofo grants a meeting also while no bridge has
+  joined it and then never offers a session, which failed the leg on 1.35
+  of CI run 42130303700. The test therefore first waits until jicofo's
+  REST API on its loopback address reports an operational bridge. The moderator's account is no proof of the claim,
   because the hook of RCP-389 creates it again, so the test reads back
   private XML data (XEP-0049), which only the claim keeps.
 

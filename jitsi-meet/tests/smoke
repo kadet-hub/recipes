@@ -16,6 +16,16 @@ trap 'kubectl delete pod jitsi-meet-smoke --wait=false >/dev/null' EXIT
 kubectl wait pod/jitsi-meet-smoke --for=condition=Ready --timeout=120s >/dev/null
 password=$(kubectl get secret jitsi-meet -o jsonpath='{.data.MODERATOR_PASSWORD}' | base64 -d)
 jvb=$(kubectl get pod -l name=jitsi-meet-jvb -o jsonpath='{.items[0].status.podIP}')
+# jicofo grants a meeting also while no bridge has joined it, and then never
+# offers a session to its participants. Its REST API on the loopback address
+# reports the bridges it knows.
+for _ in $(seq 60); do
+  kubectl exec deploy/jitsi-meet-jicofo -- curl -fsS http://127.0.0.1:8888/stats |
+    grep -q '"operational_bridge_count":[1-9]' && break
+  sleep 3
+done
+kubectl exec deploy/jitsi-meet-jicofo -- curl -fsS http://127.0.0.1:8888/stats |
+  grep -q '"operational_bridge_count":[1-9]' || { echo "jicofo knows no bridge" >&2; exit 1; }
 
 # A BOSH client (XEP-0124, XEP-0206) for bash and curl. A session keeps its sid
 # and next rid in /tmp/bosh-<name> and every stanza it got in /tmp/bosh-<name>.log.

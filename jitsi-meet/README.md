@@ -176,6 +176,9 @@ From there, through the Services, it
 - requires that `meet.jitsi` offers no anonymous login, answers in-band
   registration with `service-unavailable` and refuses a wrong password,
   over BOSH through web
+- waits until jicofo's REST API, on its loopback address, reports a
+  bridge, because jicofo grants a meeting without one and then offers no
+  session
 - logs in as the moderator and as an anonymous guest, and requires that
   jicofo refuses the guest a new meeting
 - has the moderator open a meeting and join its room, and the guest join it
