@@ -1,0 +1,15 @@
+classes:
+  - recipes.rocketchat
+parameters:
+  namespace: rocketchat
+  kapitan:
+    vars:
+      target: rocketchat
+  # host and admin_email as tests/values.yaml gives them to the chart.
+  applications:
+    rocketchat:
+      host: chat.example.com
+      admin_email: admin@example.com
+      admin_password: aaaaaaaaaaaa
+    mongodb:
+      password: aaaaaaaaaaaa
