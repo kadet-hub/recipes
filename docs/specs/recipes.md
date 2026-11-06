@@ -4943,6 +4943,208 @@ and the README asks for it before the exposure.
   as included, and its smoke test reads the post and the PNG after the
   restart.
 
+## Ghost
+
+Ghost is a publishing platform for blogs and newsletters. It keeps posts,
+staff users, members and settings in MySQL, and uploaded images, themes
+and its log files in its content directory. Staff work in the admin app
+below `/ghost/`, which talks to the Admin API, and readers get the pages
+that the active theme renders. Ghost is MIT. Release v6.75.0 of
+2026-11-04 was the newest of TryGhost/Ghost on 2026-11-05.
+
+Ghost publishes no chart and no Kustomize base. Its install guide for
+Docker (docs.ghost.org/install/docker) clones TryGhost/ghost-docker, MIT,
+and runs its `compose.yml`. On 2026-11-05 the file at
+`af0fcad04ef1e4c6b7582ddc36696be5138820b2` ran Caddy, Ghost and MySQL by
+default, and further services in the profiles `analytics` and
+`activitypub`. Compose sources stop on that file. `caddy` mounts the
+directory `./caddy` and `db` the directory `./mysql-init`, both of which
+the repository contains. `tinybird-login` and `tinybird-deploy` `build`
+without a published `image`. `working_dir`, `tty` and `profiles` are keys
+that the mapping of Compose sources does not name.
+
+The file runs Ghost as `ghost:6-alpine`, the Docker Official Image `ghost`.
+`library/ghost` in docker-library/official-images names Austin Burdine of
+Ghost, with a ghost.org address, as its maintainer and builds it from
+TryGhost/docker-library-ghost, MIT. The packaging is therefore Ghost's
+own, as `mariadb`'s is MariaDB's (MariaDB). Docker Hub's tag
+`6.75.0-alpine`, also `6-alpine` on 2026-11-05, is the index
+`sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7`
+for amd64 and arm64, built from TryGhost/docker-library-ghost at
+`1742107e163584e436b1f155d3751400a58384f0`. It runs Ghost on Node 22 and
+Alpine 3.23.
+
+DEC-210: `ghost` is a designed recipe on
+`docker.io/library/ghost:6.75.0-alpine` (DEC-11). The compose file of
+TryGhost/ghost-docker was considered as the source (DEC-10). It stops on
+the directories it mounts and on its `build` services, as above. The
+variant `alpine` is the one that file runs. The Debian variant, the tag
+`6.75.0` without a suffix, was considered. It is the image's default, and
+Ghost's own compose file does not use it.
+
+The image's entrypoint copies the default content, the themes Casper and
+Source among it, from `/var/lib/ghost/content.orig` into each directory of
+`/var/lib/ghost/content` that does not exist yet, and starts
+`node current/index.js` (`docker-entrypoint.sh`). Started as root, it
+first gives the content directory to the user `node`, UID and GID 1000 in
+the image's `/etc/passwd`, and switches to it. Started as that user, it
+skips both steps. `ghost` runs as `node` with `fsGroup` 1000 under
+`security_profile: restricted`, and mounts the claim `content` at
+`/var/lib/ghost/content`. On kind the entrypoint filled the claim and Ghost
+wrote uploads to it. The claim is 8Gi, as `mysql`'s, and the README names
+the size as a setting.
+
+The image's configuration, `config.production.json`, listens on port 2368
+and sets the URL `http://localhost:2368`. Ghost reads further settings from
+environment variables whose `__` separates the levels of its
+configuration. `url` is the address readers and staff reach the site at.
+Ghost builds every link from it, and with an `https` URL it redirects a
+request that does not arrive over HTTPS, as a proxy reports it in
+`X-Forwarded-Proto`. The recipe sets `url` from
+`applications.ghost.url`, which the target sets (RCP-19).
+
+DEC-211: The database is the included recipe `mysql` (DEC-4, DEC-12),
+MySQL 9.7.4 of the 9.7 LTS line. Ghost connects to the Service `mysql`
+with `applications.mysql.database` and `.user` and the key `password` of
+the Secret `mysql`. `database__client` stays `mysql`, the default of
+Ghost's production configuration. Ghost's compose file runs MySQL 8.0.46,
+and Ghost's CI runs its tests against MySQL 8.0 only
+(`.github/workflows/ci.yml` of v6.75.0). The install guide names no MySQL
+version. endoflife.date lists the end of life of MySQL 8.0 as 2026-04-30.
+On kind with the pinned images, Ghost created its schema on MySQL 9.7.4,
+and the smoke test writes and reads posts. Nothing upstream tests Ghost's
+later migrations on 9.7. A MySQL 8.0 component inside `ghost`, as the
+compose file runs it, was considered. It would run a release line past its
+end of life, and run MySQL a second way next to `mysql`, as DEC-20 argues
+for paperless-ngx. Ghost connects without TLS, because its knex
+configuration sets no `ssl` for `mysql2` (`configure-knex.ts` of v6.75.0).
+
+Ghost exits when its database does not answer at start. On kind, with
+`mysql` scaled to zero, the pod restarted twice in 45 seconds with
+`ECONNREFUSED` on port 3306. Ghost's compose file starts it once `db` is
+healthy. The init container `wait-for-database` of Ghost's image waits
+until the Service `mysql` accepts connections on port 3306, as DEC-121
+does for umami. The Service has an endpoint only once MySQL is ready, and
+the image's BusyBox carries `nc`.
+
+DEC-212: `ghost` has one probe, the readiness probe `GET /` on port `http`
+with the header `X-Forwarded-Proto: https`, at the generator's period of 10
+seconds, timeout of 5 seconds and 3 failures. The image has no
+`HEALTHCHECK`, and the install guide names no check. Ghost opens its port
+about a second after start and answers 503 while it boots. Its first boot
+on kind spent 28 seconds creating the schema. Without the probe the Service
+would send requests to it during that time. The front page reads posts from
+the database. On kind it answered 503 during the boot, 200 afterwards and
+500 while `mysql` was scaled to zero, with an `http` and with an `https`
+URL. Without the header, Ghost answers the front page under an `https` URL
+with 301 to HTTPS on the host the request named. The kubelet follows a
+redirect to the same host (`pkg/probe/http/http.go` of Kubernetes). On
+kind, under an `https` URL and without the header, the pod never became
+ready, and the kubelet reported
+`server gave HTTP response to HTTPS client`. The header marks the probe's
+request as HTTPS, so Ghost renders the page under either scheme. A probe of `/ghost/api/admin/site/` was
+considered. It answered 200 while `mysql` was down. A liveness probe was
+considered. A database migration of a new Ghost version runs in the booting
+process, and a restart in the middle of it would start it again.
+
+DEC-213: `ghost` renders no owner account. The first visitor of
+`/ghost/#/setup` names the site and creates the owner, as with Ghost's
+compose file. Ghost 6.75.0 reads no account from its configuration. The
+Admin API's `POST /authentication/setup/` creates the owner without a
+login while none exists, and answers 403 afterwards
+(`api/endpoints/authentication.js`). A Job that posts the setup with a
+credential parameter was considered. It would add a workload that no
+Ghost artifact has, and as the setup fails once an owner exists, a
+changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+setup, and the README asks for the setup before the exposure. Members, the
+readers who subscribe to a site, sign up through Ghost's Portal by a link
+that Ghost mails. Who may sign up is a setting of the site in the
+database, which the recipe leaves at Ghost's default.
+
+DEC-214: `ghost` configures no mail. The image's configuration sets
+Ghost's transport `Direct`, which delivers to the recipient's mail server
+from the pod. Ghost mails staff invitations, password resets and members'
+sign-in links, and with `security.staffDeviceVerification`, `true` by
+default, a code for each login from a browser without a verified session.
+The first login of a user that never logged in skips the code
+(`api/endpoints/session.js`). On kind, the owner's first login after the
+setup got a session, and a second login answered 500 with
+`Failed to send email`. The recipe keeps the verification on. Mail needs
+an account at a mail provider, which only the target can name, so the
+README names the settings and says that logins after the first need them.
+Turning the verification off by default was considered. It would remove
+the check of a new device for every installation, also once mail works.
+
+- RCP-290: `ghost` MUST run `docker.io/library/ghost` in the variant
+  `alpine` of DEC-210, pinned to its index, as the StatefulSet `ghost`
+  with UID, GID and `fsGroup` 1000 and `security_profile: restricted`. It
+  MUST mount the claim `content` at `/var/lib/ghost/content` and set `url`
+  from `applications.ghost.url`.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
+  - Since: #119
+
+- RCP-291: `ghost` MUST include `recipes.mysql` and connect to the
+  Service `mysql` with the database and user of `applications.mysql` and
+  the key `password` of the Secret `mysql`. Its init container
+  `wait-for-database` MUST wait until the Service `mysql` accepts
+  connections on port 3306.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #119
+
+- RCP-292: `ghost` MUST have the readiness probe of DEC-212 and no
+  liveness or startup probe.
+
+  - Test: manual: review; CI `check` job, which waits for the rollout
+  - Since: #119
+
+- RCP-293: The `tests/smoke` of `ghost` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace before
+  it starts a pod of its own, and no restart of the pod `ghost-0`. From
+  that pod, through the Service `ghost` on port 2368, it MUST get the
+  setup status `false`, and a front page whose generator tag names the
+  major and minor version of the image tag. It MUST create the owner
+  through `POST /ghost/api/admin/authentication/setup/`, get 403 for a
+  second setup, get no session for a wrong password and log in. With the
+  session it MUST publish a post through `/ghost/api/admin/posts/` and
+  read it without the session on its URL, and upload a PNG through
+  `/ghost/api/admin/images/upload/` and fetch it byte for byte. Once the
+  pod `ghost-0` was deleted and its successor is ready, it MUST read the
+  post and the PNG again and reach `/ghost/api/admin/users/me/` with the
+  session of the login.
+
+  The setup goes through the Service as a visitor's would (DEC-213). The
+  image brings Node.js 22, whose `fetch` makes the requests, so the test
+  needs no image besides Ghost's. The post comes back from
+  MySQL, the PNG from the claim, and the session from the table
+  `sessions` in MySQL.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #119
+
+- RCP-294: Renovate MUST NOT need a release timestamp for the image of
+  `ghost`.
+
+  Docker Hub listed 2571 tags of `library/ghost` on 2026-11-05, so
+  Renovate gets no release timestamps for it, as for `wordpress`
+  (RCP-184). Renovate's docker versioning proposes only tags with the
+  suffix `-alpine`, which keeps the variant.
+
+  - Test: manual: Renovate dry run
+  - Since: #119
+
+- AC-290 (RCP-290 to RCP-293): `check ghost --level deploys` passes in CI
+  on each Kubernetes minor, its report lists the objects of `mysql` as
+  included, and its smoke test reads the post and the PNG after the
+  restart.
+
+Not proven: Ghost's migrations of later releases on MySQL 9.7, mail with
+any transport, the members' sign-up and newsletters, the admin app in a
+browser, and a route or Ingress in front of the Service.
+
 ## Umami
 
 Umami is web analytics without cookies. A tracker script on each website
@@ -6749,6 +6951,7 @@ feature's design (OQ-6).
 | open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
 | mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
+| ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
