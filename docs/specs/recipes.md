@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.16.0 implements renders and deploys, for charts
+Status: Draft. check 0.17.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -860,8 +860,10 @@ For a compose source and a designed recipe, `renders`, also as part of
   that only identify an object (`app`, `name`, `app.kubernetes.io/name`,
   `app.kubernetes.io/instance`, `app.kubernetes.io/component`,
   `app.kubernetes.io/part-of`, `chart`, `release`, `heritage`, `component`),
-  and image digests on the recipe side. Secrets the chart generates are
-  compared by key.
+  the labels the API server adds to the pod template of a Job
+  (`controller-uid`, `batch.kubernetes.io/controller-uid`, `job-name`,
+  `batch.kubernetes.io/job-name`), and image digests on the recipe side.
+  Secrets the chart generates are compared by key.
 
   Keeping the identifying labels would force a recipe to copy the chart's
   label scheme. What selects on them is checked by RCP-10 instead. Every
@@ -877,8 +879,19 @@ For a compose source and a designed recipe, `renders`, also as part of
   ConfigMaps, so a recipe cannot carry these labels, and `heritage: Helm`
   would name a manager that does not manage the object.
 
+  When it creates a Job, also in a dry run, the API server sets the
+  `controller-uid` labels to the Job's UID, which differs on each side, and
+  selects on `batch.kubernetes.io/controller-uid`. That selector difference
+  is of the class Selector scheme (RCP-12). A chart that adds a Job, such
+  as one that creates an admin through `extraDeploy`, would otherwise never
+  compare equal. The `job-name` labels name the Job, which the pairing
+  already compares. A Job with `manualSelector: true` gets none of these
+  labels, but the `kubernetes` generator has no key for it, and Kubernetes
+  advises against it.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; `chart`, `release`, `heritage`, `component`: #29
+  - Since: #2; `chart`, `release`, `heritage`, `component`: #29; the
+    labels of a Job: this change
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
@@ -6884,8 +6897,8 @@ feature's design (OQ-6).
   digest, with a long flow-style line, and passes on cert-manager.
 - AC-2 (RCP-8 to RCP-12): `check`'s tests run the comparison on fixtures
   that differ by a dropped label, an unchanged selector that no longer
-  matches, a lost RoleBinding to a group, and an accepted difference of
-  each class, and fail or pass accordingly.
+  matches, a lost RoleBinding to a group, a Job from two dry runs, and an
+  accepted difference of each class, and fail or pass accordingly.
 - AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
   --level migrates` in CI. Met so far up to `deploys`.
 - AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
