@@ -1,0 +1,49 @@
+parameters:
+  components:
+    navidrome:
+      application: navidrome
+      type: statefulset
+      # renovate: upstream
+      image: docker.io/deluan/navidrome:0.64.2@sha256:38dc2727bfcfd5ede290f8ada114fc90368146f265ae4701ddddbcbe2a44ee52
+      # The compose file's read_only. SQLite's migrations need a writable
+      # /tmp, the emptyDir below (DEC-215).
+      read_only_root_filesystem: true
+      security_profile: restricted
+      # The compose file's commented user: 1000:1000 (DEC-217).
+      workload_security_context:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      ports:
+        http:
+          container_port: 4533
+          service_port: 4533
+      service:
+        type: ClusterIP
+      volume_mounts:
+        data:
+          mount_path: /data
+        # The compose file's commented music mount, on a claim (DEC-216).
+        music:
+          mount_path: /music
+          read_only: true
+        tmp:
+          mount_path: /tmp
+      volumes:
+        tmp:
+          emptyDir: {}
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        music:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
