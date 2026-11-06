@@ -551,7 +551,9 @@ def lint_output(name, objects, chart_names):
 
 
 def read_only_rbac_errors(objects):
-    """RCP-308: the RBAC of a designed recipe only reads, and binds only roles the recipe renders."""
+    """RCP-308: the RBAC of a designed recipe only reads, and binds only roles the recipe renders itself.
+    objects are the recipe's own: a binding to a role of an included recipe fails, because the included
+    role's rules need not only read."""
     rbac = [o for o in objects if o.get("kind") in compare.RBAC_KINDS]
     # A ClusterRole is cluster-scoped, so a namespace in its metadata does not count.
     roles = {(o["kind"], (o.get("metadata") or {}).get("namespace") if o["kind"] == "Role" else None,
@@ -567,7 +569,9 @@ def read_only_rbac_errors(objects):
                 if extra := sorted(set(rule.get("verbs") or []) - READ_VERBS):
                     errors.append(f"{compare.ident(o)}: verbs {', '.join(extra)}, a designed recipe only reads (RCP-308)")
                 named = [*(rule.get("apiGroups") or []), *(rule.get("resources") or [])]
-                if bad := sorted({n for n in named if n == "*" or n.split("/")[0] == "secrets"}):
+                if "*" in named:
+                    errors.append(f"{compare.ident(o)}: *, a designed recipe names the groups and resources it reads (RCP-308)")
+                if bad := sorted({r for r in rule.get("resources") or [] if r.split("/")[0] == "secrets"}):
                     errors.append(f"{compare.ident(o)}: {', '.join(bad)}, a designed recipe reads no Secret (RCP-308)")
                 if rule.get("nonResourceURLs"):
                     errors.append(f"{compare.ident(o)}: nonResourceURLs, a designed recipe reads only resources (RCP-308)")
