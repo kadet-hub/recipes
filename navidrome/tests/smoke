@@ -55,9 +55,12 @@ kubectl wait pod/navidrome-smoke --for=condition=Ready --timeout=120s >/dev/null
 run() { kubectl exec navidrome-smoke -- "$@"; }
 fail() { echo "$1" >&2; kubectl logs navidrome-0 --tail=40 >&2; exit 1; }
 # The Service gets the ready pod as its endpoint a moment after the pod is ready.
+# /ping answers "." (Heartbeat of go-chi/chi). The last answer or curl error
+# goes into the failure.
 reachable() {
-  for _ in $(seq 30); do [[ $(run curl -fsS -m 5 "$url/ping" 2>/dev/null) == . ]] && return; sleep 2; done
-  fail "/ping does not answer through the Service navidrome"
+  local out
+  for _ in $(seq 30); do out=$(run curl -fsS -m 5 "$url/ping" 2>&1) && [[ $out == . ]] && return; sleep 2; done
+  fail "/ping does not answer . through the Service navidrome: $out"
 }
 # A Subsonic call as admin, or as the user and password given after it.
 subsonic() {
