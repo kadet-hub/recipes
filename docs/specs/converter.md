@@ -129,6 +129,19 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   - Test: `check/tests/test_convert.py` (`Render.test_generated_fields`)
   - Since: #100
 
+- CNV-20: The converter MUST NOT read the output directory as the chart. It
+  MUST reject an `--out` that resolves to the same path as the chart
+  argument, before it creates the directory or runs a command.
+
+  check 0.16.0 created `--out` before it pulled the chart. With
+  `oauth2-proxy --repo <url> --out oauth2-proxy`, it found the new empty
+  directory, took it for a local chart and stopped with
+  `Chart.yaml file is missing`. Pulling the chart before creating `--out`
+  would still read an existing empty directory of that name as the chart.
+
+  - Test: `check/tests/test_convert.py` (`Cli.test_out_named_like_the_chart`)
+  - Since: #112
+
 ## Mapping
 
 | Kind | Section |
@@ -381,7 +394,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 - AC-141 (CNV-1, CNV-11, CNV-13 to CNV-19): the CI `convert` job converts
   podinfo 6.17.0 and exits 0; its report shows 4 objects equal, the 3 test
   pods left out, the selector note, and the value map.
-- AC-142 (CNV-3 to CNV-10, CNV-12): `check/tests/test_convert.py` passes in
+- AC-142 (CNV-3 to CNV-10, CNV-12, CNV-20): `check/tests/test_convert.py` passes in
   the `test` job.
 
 ## Open questions

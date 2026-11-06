@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.qdrant.api_key
+    description: API key that every request to Qdrant's REST and gRPC API must send.
+    secret: true
