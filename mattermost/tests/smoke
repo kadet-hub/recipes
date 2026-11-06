@@ -81,11 +81,13 @@ read_back() {
 read_back "after the post"
 old=$(kubectl get pod -l name=mattermost-mattermost-team-edition -o name)
 kubectl delete "$old" --wait=true >/dev/null
+ready=
 for _ in $(seq 60); do
   new=$(kubectl get pod -l name=mattermost-mattermost-team-edition -o name)
-  [[ $new && $new != "$old" ]] && kubectl wait "$new" --for=condition=Ready --timeout=10s >/dev/null 2>&1 && break
+  [[ $new && $new != "$old" ]] && kubectl wait "$new" --for=condition=Ready --timeout=10s >/dev/null 2>&1 && ready=1 && break
   sleep 5
 done
+[[ $ready ]] || fail "pod never became ready: no ready pod replaced the deleted $old"
 forward
 read_back "after the pod was replaced"
 echo "Mattermost Team Edition $tag: the admin from mmctl --local created team, channel and $reader and posted a message with a file, which $reader read before and after the pod was replaced; sign-up without an invitation got 403; the pods pass Pod Security restricted"
