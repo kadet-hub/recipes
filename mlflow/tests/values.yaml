@@ -1,0 +1,39 @@
+# MLflow on the PostgreSQL of the included recipe postgresql, artifacts on
+# the chart's claim, served through the tracking server, and basic auth with
+# the admin password and the Flask secret key from the Secret the recipe
+# renders, which the chart reads as a user creates it next to the chart
+# (RCP-243).
+server:
+  value_options:
+    app_name: basic-auth
+    allowed_hosts: mlflow-mlflow:5000,mlflow-mlflow.mlflow:5000,mlflow-mlflow.mlflow.svc:5000,mlflow-mlflow.mlflow.svc.cluster.local:5000
+  flag_options:
+    - serve_artifacts
+storage:
+  enabled: true
+mlflow:
+  backendStoreUriFrom:
+    secretKeyRef:
+      name: postgresql-cluster-app
+      key: uri
+  artifactsDestination: /mlflow/artifacts
+env:
+  - name: MLFLOW_AUTH_CONFIG_PATH
+    value: /etc/mlflow/basic_auth.ini
+  - name: MLFLOW_AUTH_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: mlflow-mlflow
+        key: admin-password
+  - name: MLFLOW_FLASK_SERVER_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: mlflow-mlflow
+        key: flask-secret-key
+extraVolumes:
+  - name: auth
+    secret:
+      secretName: mlflow-mlflow
+extraVolumeMounts:
+  - name: auth
+    mountPath: /etc/mlflow

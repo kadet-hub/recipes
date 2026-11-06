@@ -81,6 +81,18 @@ class Compare(unittest.TestCase):
             " ".join(self.unaccepted(self.run_compare())),
         )
 
+    def test_explicit_default_false_needs_the_service_account_false(self):
+        for objs in (self.chart, self.recipe):
+            find(objs, "ServiceAccount")["automountServiceAccountToken"] = False
+        find(self.recipe, "Deployment")["spec"]["template"]["spec"]["automountServiceAccountToken"] = False
+        found = {(d.cls, d.where()) for d in self.run_compare()["differences"]}
+        self.assertIn((compare.EXPLICIT_DEFAULT, "spec.template.spec.automountServiceAccountToken"), found)
+        find(self.chart, "ServiceAccount")["automountServiceAccountToken"] = True
+        self.assertIn(
+            "spec.template.spec.automountServiceAccountToken",
+            " ".join(self.unaccepted(self.run_compare())),
+        )
+
     def test_empty_container_security_context_is_an_explicit_default(self):
         container = find(self.recipe, "Deployment")["spec"]["template"]["spec"]["containers"][0]
         container["securityContext"] = {}

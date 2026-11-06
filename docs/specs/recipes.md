@@ -938,7 +938,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   | Class | Example | Why it is accepted |
   |---|---|---|
   | Selector scheme | the generator selects on `name`, the chart on `app.kubernetes.io/*` | RCP-10 proves the same selection |
-  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, a container's empty `securityContext`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
+  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, or `false` where its ServiceAccount sets `false`, a container's empty `securityContext`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
   | Port by name | `targetPort: http-metrics` against `9402` | resolves to the same container port |
   | Derived name | container named after the component, webhook configuration `<ns>-<component>`, sorted container ports | names the generator derives, no change in behaviour |
   | Referenced Secret | a Secret only in the recipe that a pod of the chart side reads through a `secretKeyRef` | the chart reads a Secret that the user creates, RCP-243 |
@@ -949,6 +949,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   `check` accepts a difference only where its class holds: a selector
   difference where RCP-10 found the same selection, `true` where the other
   side is unset and the pod's ServiceAccount does not disable the token,
+  `false` where the other side is unset and that ServiceAccount does,
   `{}` as a container's `securityContext` where the other side has none,
   `Always` as a cert-manager Certificate's `privateKey.rotationPolicy`
   where the other side leaves it unset, a port name that resolves to the other side's number in the selected pods
@@ -969,7 +970,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   cert-manager 1.18 or later with that gate on, and its README says so.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103; a pod's `false`: #116
 
 DEC-166: `check` accepts a Secret that only the recipe renders when pods
 of the chart side read it by name (Referenced Secret, RCP-243). A chart
@@ -7947,6 +7948,156 @@ default and not part of the recipe. The chart's Helm tests are left out
   `postgresql` as included, and its smoke test gets the reply with the
   virtual key after the pod was replaced.
 
+## MLflow
+
+MLflow tracks machine learning experiments. Clients log runs with their
+parameters, metrics and artifacts to the tracking server, and its model
+registry keeps named, versioned models that point at a run's artifacts.
+The server keeps runs and the registry in a database and the artifacts in
+an artifact store. mlflow/mlflow is Apache-2.0.
+
+DEC-250: `mlflow` is a chart recipe on the chart `mlflow` 3.18.0, which
+mlflow/mlflow keeps in `charts/` and its release workflow publishes at
+`oci://ghcr.io/mlflow/charts/mlflow` with each stable release, after the
+images. The chart's version follows MLflow's, and 3.18.0 of 2026-11-04 was
+the newest release on 2026-11-05. The repository also carries
+`docker-compose/docker-compose.yml`, which runs MLflow with PostgreSQL and
+RustFS as an S3 store. DEC-10 puts the project's chart first. The image
+`ghcr.io/mlflow/mlflow` alone, as a designed recipe, was considered. DEC-11
+takes an image only where the project ships no chart, Kustomize base or
+compose file. The charts of community-charts and Bitnami are third-party
+charts, which DEC-11 rejects as a source.
+
+The recipe runs the chart's default image `ghcr.io/mlflow/mlflow:v3.18.0-full`,
+pinned to its index for amd64 and arm64. The `-full` variant installs
+MLflow with the extras `db` and `auth`, so it carries the PostgreSQL driver
+and the basic auth app, which the plain variant does not install
+(`docker/Dockerfile.full` of v3.18.0). The chart names its objects
+`<release>-mlflow`, so they are `mlflow-mlflow`. It runs the server as UID
+1000 with a read-only root filesystem and an `emptyDir` at `/tmp`, which
+passes Pod Security `restricted`.
+
+DEC-251: `mlflow` includes the recipe `postgresql` as its backend store and
+registry store (DEC-20). `tests/values.yaml` sets the chart's
+`mlflow.backendStoreUriFrom` to the key `uri` of the Secret `<cluster>-app`,
+so the chart reads the URI from that Secret, and MLflow uses the same URI
+for the registry. The chart's quick start, SQLite on the claim, was
+considered. SQLite admits one writer at a time, while the chart starts four
+workers, and the claim would hold the runs and the registry next to the
+artifacts.
+
+DEC-252: `mlflow` keeps the artifacts on the chart's claim `mlflow-mlflow`,
+10Gi with ReadWriteOnce at `/mlflow`, below `/mlflow/artifacts`
+(`mlflow.artifactsDestination`), and the server proxies uploads and
+downloads with `--serve-artifacts`. With the claim the chart's strategy is
+`Recreate`, so one pod at a time mounts it. `--serve-artifacts` is MLflow's
+default (`mlflow/utils/cli_args.py` of v3.18.0), and the flag keeps the
+mode from depending on it. An S3 store, as the compose file runs it, was
+considered. No recipe renders an object store, and clients would need its
+credentials.
+
+DEC-253: `mlflow` turns on MLflow's basic auth with `--app-name basic-auth`
+and creates its admin `admin` from the required parameter
+`applications.mlflow.admin_password`, as DEC-165 does for stirling-pdf.
+MLflow 3.18.0 ships no default admin password. On its first start against
+an empty user store it creates the admin from `MLFLOW_AUTH_ADMIN_PASSWORD`
+and refuses to start without it (`create_admin_user` in
+`mlflow/server/auth/__init__.py`). The basic auth app also refuses to start
+without `MLFLOW_FLASK_SERVER_SECRET_KEY`, which the recipe takes from
+`applications.mlflow.secret_key`. Creating a user needs an admin
+(`validate_can_create_user`), so there is no self-registration to switch
+off. The admin's name stays MLflow's default `admin`.
+
+MLflow reads the URI of its user store only from the file that
+`MLFLOW_AUTH_CONFIG_PATH` names (`read_auth_config` in
+`mlflow/server/auth/config.py`). Its default, `sqlite:///basic_auth.db`, is
+relative to the working directory `/`, which the read-only root filesystem
+does not let MLflow write. The recipe's `basic_auth.ini` sets
+`sqlite:////mlflow/basic_auth.db`, so the users live on the claim. The file
+is a key of the Secret `mlflow-mlflow` next to the admin password and the
+secret key, mounted at `/etc/mlflow`. `tests/values.yaml` reads the Secret
+through the chart's `env` and `extraVolumes`, so `check` accepts it as a
+Referenced Secret (DEC-166). A ConfigMap for the file was considered.
+`check` accepts only a Secret that the recipe alone renders. The users in
+PostgreSQL were considered too. The URI holds the password that the
+operator generates, and MLflow does not expand variables in the file.
+
+DEC-254: `mlflow` passes `--allowed-hosts` with the Service's names in the
+cluster on port 5000, from `applications.mlflow.allowed_hosts`. MLflow
+3.5.0 and later answer a request whose `Host` header is not localhost or a
+private address with 403, against DNS rebinding
+(`get_default_allowed_hosts` in `mlflow/server/security_utils.py`). A
+client in the cluster that reaches `http://mlflow-mlflow:5000` sends that
+name, so with the chart's default only clients that use the Service's IP
+would get through. `*` was considered. It switches the protection off for
+every name, also for a browser behind an Ingress. The README asks the
+target to add the host name of its Ingress or route.
+
+The chart leaves the pod's `automountServiceAccountToken` unset and sets it
+to `false` on its ServiceAccount. The `kubernetes` generator always writes
+the field on the pod, here as `false`, so the pod mounts no token on either
+side. `check` accepts that difference as an Explicit default, which RCP-12
+extends with this recipe. The chart's Ingress, HorizontalPodAutoscaler,
+NetworkPolicy, ServiceMonitor, garbage collection CronJob, TLS and External
+Secrets objects are off by default and not part of the recipe. The chart
+renders no hook, and its ServiceAccount has no role.
+
+- RCP-330: `mlflow` MUST render the chart's Deployment, Service,
+  ServiceAccount and claim `mlflow-mlflow` with the values of DEC-251 to
+  DEC-254, and `ghcr.io/mlflow/mlflow:v3.18.0-full` pinned to its index.
+
+  - Test: `check mlflow`; CI `check` job
+  - Since: #116
+
+- RCP-331: `mlflow` MUST set `MLFLOW_AUTH_ADMIN_PASSWORD` and
+  `MLFLOW_FLASK_SERVER_SECRET_KEY` from the keys `admin-password` and
+  `flask-secret-key` of the Secret `mlflow-mlflow`, whose values are
+  `applications.mlflow.admin_password` and `.secret_key`, and MUST leave
+  both parameters unset.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, as a ref (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); CI `check` job, report lines
+    `difference: Referenced Secret` and `smoke`
+  - Since: #116
+
+- RCP-332: `mlflow` MUST keep the users of basic auth in
+  `/mlflow/basic_auth.db` and the artifacts below `/mlflow/artifacts`, both
+  on the claim `mlflow-mlflow`, and MUST serve the artifacts through the
+  tracking server.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #116
+
+- RCP-333: The `tests/smoke` of `mlflow` MUST, from a pod of the mlflow
+  image and through the Service `mlflow-mlflow` on port 5000, get 401 for
+  a request and a user sign-up without a login and for a wrong password.
+  As `admin` with the password of the Secret it MUST log a run with a
+  parameter, a metric and an artifact, register a model version from the
+  run, and read all of it back. Once the pod was deleted and its successor
+  is ready, it MUST read all of it again.
+
+  The client sends the Service's name as `Host`, so the test also needs
+  DEC-254. The successor reads the run and the version from PostgreSQL, the
+  artifact from the claim and the admin from the user store on the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #116
+
+- RCP-334: `applications.mlflow.allowed_hosts` MUST default to the names
+  `mlflow-mlflow`, `mlflow-mlflow.<namespace>`, `mlflow-mlflow.<namespace>.svc`
+  and `mlflow-mlflow.<namespace>.svc.cluster.local`, each on port 5000.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #116
+
+- AC-330 (RCP-330 to RCP-334): `check mlflow --level deploys` passes in CI
+  on each Kubernetes minor, with differences of the classes Selector
+  scheme, Derived name, Explicit default and Referenced Secret only, and
+  its smoke test reads the run, the artifact and the model version after
+  the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -8884,3 +9035,4 @@ feature's design (OQ-6).
 | memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
 | homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
 | litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.14.0, level `deploys` (RCP-315 to RCP-318) |
+| mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
