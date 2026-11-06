@@ -6425,6 +6425,213 @@ exiting on its first start.
   `applications.ejabberd.admin_password` or `erlang_cookie` stops the
   compile with `Interpolation key` and that key.
 
+## Matrix Synapse
+
+Synapse is the Matrix homeserver of element-hq. Clients such as Element
+Web log in through its client API, and with federation other homeservers
+reach it through its federation API. `matrix-synapse` deploys Synapse
+1.164.2, the newest release on 2026-11-05, with its database on the
+included recipe `postgresql`, Element Web as the option `element-web` and
+login through OpenID Connect as the option `oidc`. Synapse and Element Web
+are AGPL-3.0, and the recipe copies no text of either.
+
+DEC-280: `matrix-synapse` is a designed recipe on the image
+`ghcr.io/element-hq/synapse`, which element-hq builds for amd64 and arm64
+and documents in `docker/README.md` of element-hq/synapse. element-hq also
+publishes it as `docker.io/matrixdotorg/synapse`. The recipe takes GHCR,
+the registry of the organization that holds the source.
+
+The project's Kubernetes chart is the Element Server Suite Community
+chart `matrix-stack` of element-hq/ess-helm, AGPL-3.0-only, at
+`oci://ghcr.io/element-hq/ess-helm/matrix-stack`, 26.11.0 on 2026-11-05.
+DEC-10 puts it first, but it cannot be the source. Rendered for Synapse
+and Element Web without its other components, its StatefulSet
+`<release>-synapse-main` sets `podManagementPolicy: Parallel` and
+`topologySpreadConstraints`, for which the `kubernetes` generator has no
+key in 1.14.0 or 1.15.0, so the migration stops on a gap (RCP-7). The
+chart also has no value for an extra object or a sidecar, so the first
+admin of DEC-283 would be an object only in the recipe, which `renders`
+refuses. The recipe moves to the chart once a generator renders both
+fields and the chart can register an admin.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The chart `matrix-stack` 26.11.0 | the gap above. It also puts HAProxy in front of Synapse and renders Synapse's and HAProxy's configuration, about 16 KB of AGPL-3.0-only text, that the recipe would carry (RCP-42) |
+| `contrib/docker/docker-compose.yml` of element-hq/synapse, which the installation guide names next to the image | An example to edit: Synapse's configuration comes from a manual `generate` run into the bind mount `./files`, the file publishes port 8448, for which the generated configuration has no listener, and it carries Traefik labels as the other way to expose Synapse. |
+
+DEC-281: Synapse reads its configuration from the ConfigMap
+`matrix-synapse` at `/config`. The image's `start.py` passes
+`--config-path /config`, and Synapse reads every `*.yaml` of the directory
+in name order, a later file replacing the top-level keys of an earlier one.
+`homeserver.yaml` holds the server name, `public_baseurl`, the paths on the
+claim and the database. `federation.yaml` holds the listener and the
+federation settings of DEC-284. The shared secret comes from the Secret
+`matrix-synapse` as a file through `registration_shared_secret_path`, and
+the database password from `postgresql-cluster-app` as `PGPASSWORD`, which
+psycopg2 reads for a password the arguments leave out. `report_stats` is
+`false`: Synapse refuses to start until the configuration sets it.
+Synapse signs its macaroons with the shared secret when no
+`macaroon_secret_key` is set (`synapse/config/key.py`), so the recipe asks
+for no second secret.
+
+DEC-282: Synapse creates its signing key on its first start on the claim
+`data`, at `/data/signing.key`, next to the media. Without a mode flag
+Synapse generates missing key files and runs (`--generate-missing-and-run`
+in `synapse/config/_base.py`). The key signs the server's events and
+requests to other servers, so the claim is what a target backs up with
+the database. The key as a required parameter, as the chart `matrix-stack`
+takes it from a Secret, was considered. A target would have to produce it
+in Synapse's own format with Synapse's tooling before the first compile.
+
+DEC-283: Registration stays off, Synapse's default. The Job
+`matrix-synapse-admin` registers the first admin from
+`applications.matrix-synapse.admin.username` and `.password` with
+`register_new_matrix_user --exists-ok --admin`, which reads the shared
+secret through `homeserver.yaml` and calls the admin API of the Service
+`matrix-synapse`. Its init container waits until `/health` answers through
+that Service, so the Job does not spend its retries while Synapse waits
+for the database. `--exists-ok` leaves an existing account as it is, so
+the password changes only in a client or through the admin API. The Job
+goes 600 seconds after it finished, so a new version of the recipe creates
+it again instead of changing an immutable pod template.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A container next to Synapse in its pod that registers the account and then sleeps | A failing registration would restart the container and mark the pod not ready, which takes Synapse out of its Service. |
+| `registration_shared_secret_path` without a Secret, so that Synapse writes a new secret on the claim | The Job needs the secret before Synapse has written it, and the target would not know it. |
+
+DEC-284: Federation is off by default. The listener on port 8008 serves
+the client API only, so the federation API and the server keys answer
+404, and `federation_domain_whitelist: []` denies federation with every
+server, the way Synapse's configuration manual recommends.
+`trusted_key_servers: []` keeps Synapse from asking matrix.org for keys.
+The option `federation` replaces `federation.yaml`: the listener also
+serves the federation API and the server keys, the trusted key server is
+matrix.org again, Synapse's default, and `serve_server_wellknown: true`
+serves `/.well-known/matrix/server`, which sends other servers to port 443
+of `server_name` instead of 8448. Routes and TLS are the target's, and the
+README names the three ways other servers can reach Synapse.
+
+DEC-285: Synapse runs as UID, GID and `fsGroup` 991, the user `start.py`
+switches to when it starts as root. Started as 991, `start.py` runs Synapse
+directly with jemalloc preloaded. Element Web runs as `nginx`, UID 101 in
+its image's `/etc/passwd`, with `ELEMENT_WEB_PORT=8080`, as its install
+guide advises for a non-root user. Both pass Pod Security `restricted`.
+
+DEC-286: Element Web 1.12.33 is the option `element-web`, from
+`ghcr.io/element-hq/element-web`, built for amd64 and arm64. Its
+`config.json` names `public_baseurl` and `server_name` as the default
+homeserver and nothing else. The sample configuration of Element Web's
+Kubernetes guide adds Element's integration manager, bug report endpoint,
+Jitsi server and room directory, which the recipe leaves to the target.
+Element Web as part of the recipe without an option was considered. A
+homeserver serves every client, and the recipe's source is Synapse.
+
+Synapse requires the collation `C` for its database and refuses to start
+on another one unless `allow_unsafe_locale` is set. CloudNativePG runs
+`initdb` with `--lc-collate C --lc-ctype C` unless the Cluster sets
+otherwise (`api/v1/cluster_types.go` of v1.30.1), and `postgresql` sets
+neither, so a new Cluster of `postgresql` fits. Synapse connects with
+`sslmode=require`, which encrypts the connection without verifying the
+server's certificate.
+
+DEC-287: The option `oidc` adds one OpenID Connect provider for login as
+the file `oidc.yaml` of the ConfigMap, after the Keycloak example of
+Synapse's `docs/openid.md`: the scopes `openid` and `profile`, the
+localpart from `preferred_username`, the display name from `name`. The
+target sets the issuer, the client ID and, as a ref, the client secret,
+which Synapse reads through `client_secret_path` from the Secret
+`matrix-synapse`. The button's name defaults to `Single sign-on`. Synapse
+1.164.2 loads the provider's metadata in the background when it starts
+and keeps running when that fails (`preload_metadata` in
+`synapse/app/_base.py`). `tests/target.yml` therefore includes the option
+with an issuer that does not resolve, and the login flows still name the
+provider. A login through a provider is not proven, because `check` runs
+no identity provider. The provider's `enable_registration` defaults to
+true, so Synapse creates an account on the first login through it, also
+with registration off. Leaving OpenID Connect to a file the target adds
+was considered. The SSO stacks that follow this recipe would each write
+the same file.
+
+- RCP-360: `matrix-synapse` MUST run
+  `ghcr.io/element-hq/synapse:v1.164.2`, pinned to its index, as the
+  StatefulSet `matrix-synapse` with the ConfigMap and Secret
+  `matrix-synapse` of DEC-281, the claim `data` at `/data` and the Service
+  `matrix-synapse` on port 8008, as UID, GID and `fsGroup` 991 under
+  `security_profile: restricted`.
+
+  - Test: `check lint`; CI `check` job
+  - Since: #124
+
+- RCP-361: `matrix-synapse` MUST take the server name, the shared secret
+  and the first admin's localpart and password from
+  `applications.matrix-synapse.server_name`, `.registration_shared_secret`,
+  `.admin.username` and `.admin.password`, and MUST leave them unset.
+  `public_baseurl` MUST default to `https://<server_name>/`.
+
+  - Test: `check lint` (RCP-262)
+  - Since: #124
+
+- RCP-362: Without the option `federation`, Synapse MUST serve neither
+  the federation API nor the server keys and MUST deny federation with
+  every server. With it, Synapse MUST serve both and
+  `/.well-known/matrix/server`.
+
+  - Test: CI `check` job, report line `smoke`, for the default; manual:
+    on kind with Kubernetes 1.37 and the option, `/_matrix/federation/v1/version`,
+    `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered
+  - Since: #124
+
+- RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, the
+  version of the image tag from `/_synapse/admin/v1/server_version`
+  through the Service, 404 from the federation API and the server keys,
+  and 403 for a registration. The admin of the Job MUST log in and create a
+  second user, a room, an upload and a message. The second user MUST join
+  and read the message and the upload, and read both again once the pod
+  was deleted and its successor is ready, with the same signing key. The
+  login flows MUST name the provider of the option `oidc`. The test MUST
+  reach Element Web through its Service and the homeserver at
+  the URL its `config.json` names.
+
+  The message comes from PostgreSQL, and the upload and the signing key
+  from the claim, so the reads after the restart need both.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #124
+
+- RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
+  with `register_new_matrix_user --exists-ok --admin` and the shared
+  secret of `homeserver.yaml` once Synapse answers through its Service,
+  and go 600 seconds after it finished.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #124
+
+- RCP-365: The option `element-web` MUST run
+  `ghcr.io/element-hq/element-web:v1.12.33`, pinned to its index, as the
+  Deployment and Service `matrix-synapse-element-web` on port 80, with a
+  `config.json` that names `public_baseurl` and `server_name`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #124
+
+- RCP-366: The option `oidc` MUST add the provider `oidc` of DEC-287 from
+  `applications.matrix-synapse.oidc.issuer`, `.oidc.client_id` and
+  `.oidc.client_secret`, which it MUST leave unset, and the login flows
+  MUST name it.
+
+  - Test: `check lint` (RCP-262); CI `check` job, report line `smoke`
+  - Since: #124
+
+- AC-360 (RCP-360 to RCP-366): `check matrix-synapse --level deploys`
+  passes in CI on each Kubernetes minor with the options `element-web` and
+  `oidc`, its
+  report lists the objects of `postgresql` as included and `cnpg` as
+  installed, and its smoke test reads the message and the upload after
+  the restart.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -7353,3 +7560,4 @@ feature's design (OQ-6).
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
+| matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
