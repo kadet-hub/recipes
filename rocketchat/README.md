@@ -46,10 +46,14 @@ parameters:
       admin_password: <ref>
     mongodb:
       password: <ref>
+      users:
+        rocketchat:
+          value: <ref>
 ```
 
-The recipe includes `recipes.mongodb` and its option
-`recipes.mongodb.replica-set`. Pin only this recipe in the fetch
+The recipe includes `recipes.mongodb` and its options
+`recipes.mongodb.replica-set` and `recipes.mongodb.users`. Pin only this
+recipe in the fetch
 inventory. The consumer workflow adds `mongodb` at the digest this
 version's index record lists under `includes`. Kapitan's `--fetch` reads no
 index, so for a local compile pull it by digest as the recipe's page on
@@ -66,12 +70,15 @@ does, and Rocket.Chat builds its links from it.
 the user `admin`, which Rocket.Chat creates on its first start.
 
 `applications.mongodb.password`, which the included recipe `mongodb`
-requires, is the password of MongoDB's user `root`, with which Rocket.Chat
-connects. It is part of the MongoDB URL in the Secret
-`rocketchat-rocketchat`, so use letters and digits only.
+requires, is the password of MongoDB's user `root`.
 
-Set the two passwords as refs with the backend of your choice. Without one
-of the parameters the compile stops with
+`applications.mongodb.users.rocketchat.value` is the password of MongoDB's
+user `rocketchat`, with which Rocket.Chat connects. It is part of the
+MongoDB URL in the Secret `rocketchat-rocketchat`, so use letters and
+digits only.
+
+Set the three passwords as refs with the backend of your choice. Without
+one of the parameters the compile stops with
 `Interpolation key '<key>' not found`.
 
 ## Accounts
@@ -102,10 +109,26 @@ API works without them, as `tests/smoke` shows.
 ## MongoDB
 
 Rocket.Chat connects to the Service `mongodb` with
-`directConnection=true`, as the user `root` with `authSource=admin`, and
-keeps its data in the database `rocketchat`. `root` is the only user that
-`mongodb` creates. The option `replica-set` runs MongoDB as the replica set
-`rs0` with one member, which `mongodb`'s README describes.
+`directConnection=true`, as the user `rocketchat`, and keeps its data in
+the database `rocketchat`. The option `users` of `mongodb` creates that
+user with `readWrite` on `rocketchat` as its only role. The option
+`replica-set` runs MongoDB as the replica set `rs0` with one member.
+`mongodb`'s README describes both.
+
+That role covers what Rocket.Chat 8.9.1 does in MongoDB: its queries, its
+transactions and its change stream on the collection `instances`. It
+reads no oplog. Its `serverStatus` call needs `clusterMonitor`, which the
+user lacks, so Rocket.Chat takes the version from `buildinfo` and reports
+the storage engine as `unknown`.
+
+A new password for `rocketchat` takes effect once the pod `mongodb-0`
+restarts, and Rocket.Chat connects again only after its own restart:
+
+```sh
+kubectl rollout restart statefulset/mongodb
+kubectl rollout status statefulset/mongodb
+kubectl rollout restart deployment/rocketchat-rocketchat
+```
 
 Rocket.Chat 8.9.1 opens a change stream at startup. On kind, against
 `mongodb` without the option, it logged
@@ -190,6 +213,13 @@ messages delivers the admin's message. Registration is refused with
 `error-user-registration-disabled`. After the MongoDB and the Rocket.Chat
 pod are deleted, the member is primary again and the admin reads both
 messages.
+
+Every connection from Rocket.Chat's pod that authenticated in MongoDB did
+so as `rocketchat`, which `$currentOp` shows. The change stream on the
+messages runs as that user. `listDatabases` names only `rocketchat` to it,
+and it gets `Unauthorized` for a read of `local.oplog.rs`, a write in
+`admin`, `serverStatus` and `createUser`. After the MongoDB pod is
+deleted, the user still has `readWrite` on `rocketchat` as its only role.
 
 ## Replacing a Helm release
 
