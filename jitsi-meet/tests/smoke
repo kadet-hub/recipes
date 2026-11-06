@@ -20,7 +20,7 @@ jvb=$(kubectl get pod -l name=jitsi-meet-jvb -o jsonpath='{.items[0].status.podI
 # offers a session to its participants. Its REST API on the loopback address
 # reports the bridges it knows.
 for _ in $(seq 60); do
-  kubectl exec deploy/jitsi-meet-jicofo -- curl -fsS http://127.0.0.1:8888/stats |
+  kubectl exec deploy/jitsi-meet-jicofo -- curl -fsS http://127.0.0.1:8888/stats 2>/dev/null |
     grep -q '"operational_bridge_count":[1-9]' && break
   sleep 3
 done
@@ -47,8 +47,17 @@ send() { # name stanzas [attributes of body]
   echo "$sid $((rid + 1)) $dom" >"/tmp/bosh-$1"
   r=$(post "<body rid='$rid' sid='$sid' xmlns='http://jabber.org/protocol/httpbind' ${3-}>$2</body>")
   printf '%s\n' "$r" >>"/tmp/bosh-$1.log"
+  # Answer disco#info with jicofo's default features, as a Jitsi client
+  # answers it. jicofo counts a participant as joined only after the answer
+  # or its 15 second timeout, which races its 15 second wait for the first
+  # participant of a new meeting.
+  { grep -o "<iq [^>]*type='get'[^>]*><query xmlns='http://jabber.org/protocol/disco#info'" <<<"$r" || true; } |
+    while read -r iq; do
+      send "$1" "<iq $c type='result' to='$(attr from "$iq")' id='$(attr id "$iq")'><query xmlns='http://jabber.org/protocol/disco#info'><feature var='urn:xmpp:jingle:apps:rtp:audio'/><feature var='urn:xmpp:jingle:apps:rtp:video'/><feature var='urn:xmpp:jingle:transports:dtls-sctp:1'/></query></iq>" >/dev/null
+    done
   printf '%s\n' "$r"
 }
+attr() { sed -n "s/.* $1='\([^']*\)'.*/\1/p" <<<"$2"; }
 expect() { # name regex: polls for up to 60 seconds until a stanza matches
   local _
   for _ in $(seq 30); do
@@ -117,9 +126,12 @@ conference guest new other@muc.meet.jitsi | grep -q "<not-authorized" || fail "j
 
 send mod "<presence $c to=\"smoke@muc.meet.jitsi/moderator\"><x xmlns=\"http://jabber.org/protocol/muc\"/></presence>" >/dev/null
 expect mod "<status code=.110."
+# jicofo asks each member for its features before the member counts as joined.
+expect mod "disco#info"
 conference guest join smoke@muc.meet.jitsi | grep -q "ready=.true." || fail "jicofo kept the guest out of the open meeting"
 send guest "<presence $c to=\"smoke@muc.meet.jitsi/guest\"><x xmlns=\"http://jabber.org/protocol/muc\"/></presence>" >/dev/null
 expect guest "<status code=.110."
+expect guest "disco#info"
 expect mod "from=.smoke@muc.meet.jitsi/guest."
 # jicofo allocates the meeting on the bridge and offers its ICE candidates.
 expect mod "action=.session-initiate."

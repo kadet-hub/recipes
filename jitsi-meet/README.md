@@ -189,7 +189,8 @@ From there, through the Services, it
   session
 - logs in as the moderator and as an anonymous guest, and requires that
   jicofo refuses the guest a new meeting
-- has the moderator open a meeting and join its room, and the guest join it
+- has the moderator open a meeting and join its room, and the guest join it,
+  each answering jicofo's disco#info query as a Jitsi client does
 - requires jicofo's Jingle offer to the moderator, which names a UDP
   candidate on port 10000 at jvb's pod IP, so jicofo allocated the meeting
   on the bridge
