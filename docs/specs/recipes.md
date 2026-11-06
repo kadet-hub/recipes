@@ -860,9 +860,10 @@ For a compose source and a designed recipe, `renders`, also as part of
   that only identify an object (`app`, `name`, `app.kubernetes.io/name`,
   `app.kubernetes.io/instance`, `app.kubernetes.io/component`,
   `app.kubernetes.io/part-of`, `chart`, `release`, `heritage`, `component`),
-  the labels the API server adds to a Job and its pod template
+  the labels the API server adds to the pod template of a Job
   (`controller-uid`, `batch.kubernetes.io/controller-uid`, `job-name`,
-  `batch.kubernetes.io/job-name`), and image digests on the recipe side.
+  `batch.kubernetes.io/job-name`), also on a Job whose labels equal its
+  template's, and image digests on the recipe side.
   Secrets the chart generates are compared by key.
 
   Keeping the identifying labels would force a recipe to copy the chart's
@@ -884,8 +885,9 @@ For a compose source and a designed recipe, `renders`, also as part of
   differs on each side, and selects on `batch.kubernetes.io/controller-uid`.
   That selector difference is of the class Selector scheme (RCP-12). A Job
   without labels of its own gets those of its pod template, the generated
-  ones included, while the `kubernetes` generator always labels a Job. A
-  chart that adds a Job, such as one that creates an admin through
+  ones included, while the `kubernetes` generator always labels a Job.
+  The labels of a Job that differ from its template's are its own and
+  stay, also a `job-name` the chart sets. A chart that adds a Job, such as one that creates an admin through
   `extraDeploy`, would otherwise never compare equal. The `job-name` labels
   name the Job, which the pairing already compares. A Job with
   `manualSelector: true` gets none of these labels, but the `kubernetes`
