@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# RCP-293: the pods under Pod Security restricted and Ghost without a
+# restart, then from a pod of the Ghost image and through the Service ghost
+# on port 2368 the setup of the owner, a login, a post read on its URL and a
+# PNG uploaded and fetched, and all three again after ghost-0 restarted.
+set -euo pipefail
+image=$(kubectl get statefulset ghost -o jsonpath='{.spec.template.spec.containers[?(@.name=="ghost")].image}')
+tag=${image#*:}
+tag=${tag%@*}
+version=${tag%%-*}
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod, which runs as root.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+# The init container waited for MySQL, so Ghost did not exit at its start.
+restarts=$(kubectl get pod ghost-0 -o jsonpath='{.status.containerStatuses[0].restartCount}')
+[[ $restarts == 0 ]] || { echo "ghost restarted $restarts times" >&2; exit 1; }
+
+# The image brings Node.js, whose fetch makes the requests, so the test pod
+# needs no other image.
+kubectl run ghost-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod ghost-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/ghost-smoke --for=condition=Ready --timeout=120s >/dev/null
+# Each step is a module on stdin. The first keeps what the second needs in
+# /tmp/state.json of the test pod.
+step() {
+  kubectl exec -i ghost-smoke -- env VERSION="$version" node --input-type=module - || {
+    kubectl logs ghost-0 --tail=40 >&2
+    exit 1
+  }
+}
+common='
+import fs from "node:fs";
+const url = "http://ghost:2368";
+const fail = (m) => { console.error(m); process.exit(1); };
+// Every request names the site as its Origin.
+const call = async (path, options = {}) => {
+  const r = await fetch(url + path, {redirect: "manual", ...options, headers: {Origin: url, ...options.headers}});
+  return {status: r.status, headers: r.headers, body: Buffer.from(await r.arrayBuffer())};
+};
+const post = (path, data, headers = {}) =>
+  call(path, {method: "POST", headers: {"Content-Type": "application/json", ...headers}, body: JSON.stringify(data)});
+// The Service gets the ready pod as its endpoint a moment after the pod is ready.
+for (let i = 0; ; i++) {
+  if (await call("/").then((r) => r.status === 200, () => false)) break;
+  if (i === 30) fail("/ does not answer through the Service ghost");
+  await new Promise((r) => setTimeout(r, 2000));
+}
+'
+
+step <<JS
+$common
+const email = "owner@example.com", password = "kadet-hub-check-1", marker = "smoke-post-kept-in-mysql";
+const setup = (owner) => post("/ghost/api/admin/authentication/setup/", {setup: [{blogTitle: "Smoke", ...owner}]});
+let r = await call("/ghost/api/admin/authentication/setup/");
+if (JSON.parse(r.body).setup[0].status !== false) fail("Ghost is set up before the test: " + r.body);
+r = await call("/");
+const generator = '<meta name="generator" content="Ghost ' + process.env.VERSION.split(".").slice(0, 2).join(".") + '">';
+if (!r.body.toString().includes(generator)) fail("the front page has no " + generator);
+
+r = await setup({name: "Owner", email, password});
+if (r.status !== 201) fail("the setup answered " + r.status + ": " + r.body);
+r = await setup({name: "Other", email: "other@example.com", password: "kadet-hub-check-2"});
+if (r.status !== 403) fail("a second setup answered " + r.status);
+r = await post("/ghost/api/admin/session/", {username: email, password: "kadet-hub-wrong-1"});
+if (r.status === 201 || r.headers.get("set-cookie")) fail("a wrong password got " + r.status + " and a session");
+r = await post("/ghost/api/admin/session/", {username: email, password});
+if (r.status !== 201) fail("the login answered " + r.status + ": " + r.body);
+const cookie = r.headers.get("set-cookie").split(";")[0];
+
+r = await post("/ghost/api/admin/posts/?source=html",
+  {posts: [{title: "Smoke", html: "<p>" + marker + "</p>", status: "published"}]}, {Cookie: cookie});
+if (r.status !== 201) fail("the post answered " + r.status + ": " + r.body);
+const link = JSON.parse(r.body).posts[0].url;
+// A 16x16 PNG.
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mMwTptJEmIY1TCqYfhqAABIfDIQX3O2awAAAABJRU5ErkJggg==", "base64");
+const form = new FormData();
+form.append("file", new Blob([png], {type: "image/png"}), "smoke.png");
+r = await call("/ghost/api/admin/images/upload/", {method: "POST", body: form, headers: {Cookie: cookie}});
+if (r.status !== 201) fail("the upload answered " + r.status + ": " + r.body);
+const image = JSON.parse(r.body).images[0].url;
+fs.writeFileSync("/tmp/state.json", JSON.stringify({cookie, link, image, marker, email, png: png.toString("base64")}));
+JS
+
+# Without the session: the post from MySQL, the PNG from the claim.
+check='
+const state = JSON.parse(fs.readFileSync("/tmp/state.json"));
+let r = await fetch(state.link);
+if (r.status !== 200 || !(await r.text()).includes(state.marker)) fail(state.link + " does not show the post");
+r = await fetch(state.image);
+if (!Buffer.from(await r.arrayBuffer()).equals(Buffer.from(state.png, "base64"))) fail(state.image + " differs from the upload");
+'
+step <<JS
+$common
+$check
+JS
+
+kubectl delete pod ghost-0 --wait >/dev/null
+kubectl wait pod/ghost-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/ghost-0 --for=condition=Ready --timeout=300s >/dev/null
+step <<JS
+$common
+$check
+// The session lives in MySQL, so the new pod knows it.
+r = await call("/ghost/api/admin/users/me/", {headers: {Cookie: state.cookie}});
+if (r.status !== 200 || JSON.parse(r.body).users[0].email !== state.email) fail("the session ended with the restart: " + r.status);
+console.log("Ghost " + process.env.VERSION + " set up its owner through the Service ghost, published " + state.link
+  + " and served " + state.image + ", both again after ghost-0 restarted, with the session of the owner. The pods pass Pod Security restricted.");
+JS
