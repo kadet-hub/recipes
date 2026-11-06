@@ -83,13 +83,16 @@ moderator() { # the first login after a start waits until prosody, jicofo and th
 EOF
 )
 run() { kubectl exec -i jitsi-meet-smoke -- bash -s -- "$password" "$jvb" <<<"$client"$'\n'"password=\$1 jvb=\$2"$'\n'"$1"; }
-# On a failure, what jicofo and jvb logged about the meeting, addresses masked.
+# On a failure, what jvb and jicofo logged about the meeting, addresses
+# masked, short enough for the 3000 characters of stderr that check keeps.
 logs() {
-  for w in jitsi-meet-jicofo jitsi-meet-jvb; do
-    echo "--- $w" >&2
-    kubectl logs "deploy/$w" --since=10m | grep -E 'WARNING|SEVERE|doAllocate|session-initiate|[Bb]ridge' |
-      sed -E 's/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<ip>/g' | tail -30 >&2
-  done
+  local mask='s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<ip>/g'
+  kubectl logs deploy/jitsi-meet-jvb --since=10m | grep -E 'SEVERE|[Cc]onference|[Ee]ndpoint' |
+    sed -E "$mask" | cut -c1-200 | tail -4 >&2
+  kubectl exec deploy/jitsi-meet-jicofo -- curl -fsS http://127.0.0.1:8888/stats |
+    grep -oE '"(operational_bridge_count|bridge_failures)":(\{[^}]*\}|[0-9]+)' >&2
+  kubectl logs deploy/jitsi-meet-jicofo --since=10m | grep -E 'smoke@muc|SEVERE|WARNING' | grep -v nodeVer |
+    sed -E "$mask" | cut -c1-220 | tail -9 >&2
 }
 
 run '
