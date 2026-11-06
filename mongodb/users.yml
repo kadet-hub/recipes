@@ -1,0 +1,66 @@
+parameters:
+  components:
+    mongodb:
+      application: mongodb
+      # The option replica-set sets the postStart hook of the container
+      # mongodb, so the users get a container and a hook of their own.
+      additional_containers:
+        users:
+          image: ${components.mongodb.image}
+          # Waits without holding up the pod's deletion on SIGTERM.
+          command:
+            - sh
+            - -c
+            - trap 'exit 0' TERM; sleep infinity & wait
+          env:
+            MONGODB_ROOT_PASSWORD:
+              secretKeyRef:
+                name: mongodb
+                key: password
+          # The container is not running, so the pod not ready, before the
+          # hook returns. It creates each user of applications.mongodb.users
+          # in the database of its name, or sets password and role of one
+          # that exists, once the server is a writable primary.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    for i in $(seq 90); do
+                      out=$(mongosh --quiet --username ${components.mongodb.env.MONGODB_INITDB_ROOT_USERNAME} \
+                        --password="$MONGODB_ROOT_PASSWORD" --authenticationDatabase admin --eval '
+                          if (!db.hello().isWritablePrimary) throw new Error("not the primary yet")
+                          const fs = require("fs")
+                          for (const name of fs.readdirSync("/etc/mongodb-users").filter(f => !f.startsWith("."))) {
+                            const user = {pwd: fs.readFileSync("/etc/mongodb-users/" + name, "utf8"), roles: [{role: "readWrite", db: name}]}
+                            const users = db.getSiblingDB(name)
+                            if (users.getUser(name)) users.updateUser(name, user)
+                            else users.createUser({user: name, ...user})
+                          }
+                        ' 2>&1) && exit 0
+                      sleep 2
+                    done
+                    echo "$out" >&2
+                    exit 1
+          volume_mounts:
+            users:
+              mount_path: /etc/mongodb-users
+          # mongosh peaked at 154 MiB running the hook (DEC-331).
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        users:
+          secret:
+            secretName: mongodb-users
+  generators:
+    kubernetes:
+      secrets:
+        # One key per user, its value the password.
+        mongodb-users:
+          string_data: ${applications.mongodb.users}
