@@ -217,7 +217,8 @@ cx curl -fsS $tls "imaps://$host:993/INBOX" --user "b@$domain:$b_password" -X NO
 
 # RCP-349: a renewed certificate is served without a restart. cert-manager issues a new one with a new
 # serial into the Secret that the sidecar reload-tls watches.
-serial() { cx sh -c "openssl s_client -connect $svc:465 -servername $host </dev/null 2>/dev/null | openssl x509 -noout -serial"; }
+# timeout ends a handshake that hangs while Stalwart reloads or restarts.
+serial() { cx sh -c "timeout 10 openssl s_client -connect $svc:465 -servername $host </dev/null 2>/dev/null | openssl x509 -noout -serial"; }
 old=$(serial)
 kubectl delete secret stalwart-tls >/dev/null
 for _ in $(seq 60); do
