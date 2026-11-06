@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# RCP-341 to RCP-349: after stalwart-apply applied the plan, a client pod in
+# the namespace talks to the Service stalwart. Mail goes from the mailbox a to
+# a second mailbox b over submission with TLS and AUTH, b reads it over IMAP
+# with TLS, and its DKIM signature verifies against the record that PowerDNS
+# answers. Every address is in example.test (RFC 2606), so nothing leaves the
+# cluster.
+set -euo pipefail
+eml=$(mktemp)
+trap 'rm -f "$eml"; kubectl delete pod stalwart-smoke stalwart-smoke-ban --ignore-not-found --wait=false >/dev/null' EXIT
+domain=example.test
+host=mail.$domain
+image=$(kubectl get statefulset stalwart -o jsonpath='{.spec.template.spec.containers[?(@.name=="stalwart")].image}')
+kubectl wait --for=condition=complete job/stalwart-apply --timeout=300s >/dev/null
+
+# client <name>: a pod that runs the server's image as a client, which brings bash, curl and openssl.
+client() {
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $1
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 2000, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: client
+      image: $image
+      command: [sleep, "3600"]
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+YAML
+  kubectl wait --for=condition=Ready "pod/$1" --timeout=120s >/dev/null
+}
+client stalwart-smoke
+cx() { kubectl exec -i stalwart-smoke -- "$@"; }
+svc=$(kubectl get service stalwart -o jsonpath='{.spec.clusterIP}')
+# The issuer of tests/target.yml is self-signed, so its certificate is its own CA.
+ca() { kubectl get secret stalwart-tls -o jsonpath='{.data.ca\.crt}' | base64 -d | kubectl exec -i "${1:-stalwart-smoke}" -- sh -c 'cat >/tmp/ca.crt'; }
+ca
+tls="--cacert /tmp/ca.crt --resolve $host:465:$svc --resolve $host:993:$svc --resolve $host:443:$svc --resolve mta-sts.$domain:443:$svc"
+admin_password=$(kubectl get secret stalwart-apply -o jsonpath='{.data.password}' | base64 -d)
+a_password=$(kubectl get secret stalwart-apply -o jsonpath='{.data.plan\.ndjson}' | base64 -d | python3 -c '
+import json, sys
+for line in sys.stdin:
+    op = json.loads(line) if line.strip() else {}
+    if op.get("id") == "#mailbox":
+        print(op["value"]["credentials/0"]["secret"])')
+b_password="second mailbox of the smoke test"
+# jmap <user:password> <method calls>: one JMAP request over HTTPS with the certificate verified.
+jmap() {
+  cx curl -fsS $tls -u "$1" -H 'Content-Type: application/json' "https://$host/jmap/" \
+    -d "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:stalwart:jmap\"],\"methodCalls\":$2}"
+}
+field() { python3 -c "import json, sys; r = json.load(sys.stdin); print($1)"; }
+
+# RCP-341: the admin of the required parameters creates the mailbox b next to the first mailbox a.
+domain_id=$(jmap "admin:$admin_password" '[["x:Domain/get",{"ids":null},"0"]]' |
+  field "next(d['id'] for d in r['methodResponses'][0][1]['list'] if d['name'] == '$domain')")
+jmap "admin:$admin_password" "[[\"x:Account/set\",{\"create\":{\"b\":{\"@type\":\"User\",\"name\":\"b\",\"domainId\":\"$domain_id\",\"credentials\":{\"0\":{\"@type\":\"Password\",\"secret\":\"$b_password\"}}}}},\"0\"]]" |
+  field "r['methodResponses'][0][1]['created']['b']['id']" >/dev/null
+
+# RCP-342: submission on 465 and IMAP on 993 with TLS and the certificate verified, AUTH as a.
+send() { # subject, body
+  printf 'From: a@%s\r\nTo: b@%s\r\nSubject: %s\r\nMessage-ID: <%s@%s>\r\n\r\n%s\r\n' \
+    "$domain" "$domain" "$1" "$1" "$domain" "$2" |
+    cx curl -fsS --ssl-reqd $tls "smtps://$host:465" --mail-from "a@$domain" --mail-rcpt "b@$domain" \
+      --user "a@$domain:$a_password" --upload-file -
+}
+fetch() { # subject: the stored message of b
+  local uid
+  for _ in $(seq 20); do
+    uid=$(cx curl -fsS $tls "imaps://$host:993/INBOX" --user "b@$domain:$b_password" -X "UID SEARCH SUBJECT $1" |
+      tr -dc '0-9 \n' | awk 'NF { print $NF }')
+    [[ -n $uid ]] && break
+    sleep 2
+  done
+  [[ -n $uid ]] || { echo "b has no message with the subject $1 after 40 seconds" >&2; return 1; }
+  cx curl -fsS $tls "imaps://$host:993/INBOX;UID=$uid" --user "b@$domain:$b_password"
+}
+send smoke-plain "hello from a"
+fetch smoke-plain >"$eml"
+grep -q 'hello from a' "$eml"
+
+# RCP-345: the records of the zone, as the option powerdns published them, answered through the Service powerdns.
+dns=$(kubectl get service powerdns -o jsonpath='{.spec.clusterIP}')
+dig() { kubectl exec statefulset/powerdns -c powerdns -- sdig "$dns" 53 "$1" "$2"; }
+expect() { # name, type, pattern of the answer
+  local out
+  out=$(dig "$1" "$2")
+  grep -qE "$3" <<<"$out" || { echo "$1 $2: $out" >&2; exit 1; }
+}
+expect "$domain" MX "IN\s+MX\s+10 $host\."
+expect "$domain" TXT '"v=spf1 mx -all"'
+expect "_dmarc.$domain" TXT '"v=DMARC1; p=quarantine; rua=mailto:postmaster@example\.test"'
+expect "_mta-sts.$domain" TXT '"v=STSv1; id=1"'
+expect "mta-sts.$domain" CNAME "IN\s+CNAME\s+$host\."
+expect "_smtp._tls.$domain" TXT '"v=TLSRPTv1; rua=mailto:postmaster@example\.test"'
+expect "_submissions._tcp.$domain" SRV "IN\s+SRV\s+0 1 465 $host\."
+expect "_imaps._tcp.$domain" SRV "IN\s+SRV\s+0 1 993 $host\."
+expect "autoconfig.$domain" CNAME "IN\s+CNAME\s+$host\."
+
+# RCP-344: the DKIM-Signature of the stored message verifies with the key of the TXT record that
+# PowerDNS answers, rsa-sha256 with relaxed canonicalization, checked here and not by Stalwart.
+dig "stalwart._domainkey.$domain" TXT | python3 -c '
+import base64, hashlib, re, sys
+txt = "".join(re.findall(r"\"((?:[^\"\\\\]|\\\\.)*)\"", sys.stdin.read()))
+tags = dict(t.strip().split("=", 1) for t in txt.split(";") if t.strip())
+der = base64.b64decode(tags["p"])
+
+def tlv(b, i):  # one DER element at i: tag, value, next index
+    tag, n = b[i], b[i + 1]
+    i += 2
+    if n & 0x80:
+        k = n & 0x7F
+        n = int.from_bytes(b[i:i + k], "big")
+        i += k
+    return tag, b[i:i + n], i + n
+
+_, spki, _ = tlv(der, 0)
+_, _, i = tlv(spki, 0)
+_, bits, _ = tlv(spki, i)
+_, rsa, _ = tlv(bits[1:], 0)
+_, n, i = tlv(rsa, 0)
+_, e, _ = tlv(rsa, i)
+n, e = int.from_bytes(n, "big"), int.from_bytes(e, "big")
+
+msg = open(sys.argv[1], "rb").read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+head, body = msg.split(b"\r\n\r\n", 1)
+fields = []
+for line in head.split(b"\r\n"):
+    if line[:1] in (b" ", b"\t"):
+        fields[-1] += b"\r\n" + line
+    else:
+        fields.append(line)
+
+def relaxed(field):
+    name, value = field.split(b":", 1)
+    value = re.sub(rb"[ \t]+", b" ", value.replace(b"\r\n", b"")).strip()
+    return name.strip().lower() + b":" + value
+
+sig = next(f for f in fields if f.lower().startswith(b"dkim-signature:"))
+t = dict(x.strip().split("=", 1) for x in relaxed(sig).split(b":", 1)[1].decode().split(";") if x.strip())
+assert t["a"] == "rsa-sha256" and t["c"] == "relaxed/relaxed", t
+assert t["d"] == "example.test" and t["s"] == "stalwart", t
+lines = [re.sub(rb"[ \t]+", b" ", l).rstrip(b" ") for l in body.split(b"\r\n")]
+while lines and not lines[-1]:
+    lines.pop()
+canon = b"".join(l + b"\r\n" for l in lines)
+assert base64.b64encode(hashlib.sha256(canon).digest()).decode() == re.sub(r"\s", "", t["bh"]), "body hash"
+data, used = b"", {}
+for name in [h.strip().lower().encode() for h in t["h"].split(":")]:
+    found = [f for f in fields if f.split(b":", 1)[0].strip().lower() == name]
+    used[name] = used.get(name, 0) + 1
+    if used[name] <= len(found):
+        data += relaxed(found[-used[name]]) + b"\r\n"
+data += re.sub(rb"(\bb=)[^;]*", rb"\1", relaxed(sig))
+k = (n.bit_length() + 7) // 8
+em = pow(int.from_bytes(base64.b64decode(re.sub(r"\s", "", t["b"])), "big"), e, n).to_bytes(k, "big")
+info = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(data).digest()
+assert em == b"\x00\x01" + b"\xff" * (k - len(info) - 3) + b"\x00" + info, "signature"
+' "$eml"
+
+# RCP-345: Stalwart serves the MTA-STS policy over HTTPS under the name mta-sts.<domain>.
+policy=$(cx curl -fsS $tls "https://mta-sts.$domain/.well-known/mta-sts.txt")
+grep -q '^version: STSv1' <<<"$policy" && grep -q '^mode: testing' <<<"$policy" && grep -q "^mx: $host" <<<"$policy" ||
+  { echo "$policy" >&2; exit 1; }
+
+# talk <port> <command>...: plain SMTP from the client pod, the last reply of each command.
+talk() {
+  cx bash -c '
+    exec 3<>/dev/tcp/stalwart/$1; shift
+    while read -r -t 15 l <&3; do [[ $l =~ ^[0-9]{3}\  ]] && break; done
+    for c in "$@"; do
+      printf "%s\r\n" "$c" >&3
+      while read -r -t 15 l <&3; do [[ $l =~ ^[0-9]{3}[\ -] ]] && echo "$l"; [[ $l =~ ^[0-9]{3}\  ]] && break; done
+    done' talk "$@"
+}
+# RCP-343: no relay for a sender without authentication to a domain the server does not host.
+relay=$(talk 25 "EHLO client.example.org" "MAIL FROM:<x@example.org>" "RCPT TO:<y@example.net>" QUIT)
+grep -q '^550 5.7.1' <<<"$relay" || { echo "$relay" >&2; exit 1; }
+# RCP-342: port 25 offers no AUTH and refuses it without TLS.
+plain=$(talk 25 "EHLO client.example.org" "AUTH PLAIN AGFAYQ==" QUIT)
+! grep -q AUTH <<<"$(grep '^250' <<<"$plain")" && grep -q '^503' <<<"$plain" || { echo "$plain" >&2; exit 1; }
+# RCP-342: plain HTTP on 8080 answers the probes and refuses the API.
+pod=$(kubectl get pod stalwart-0 -o jsonpath='{.status.podIP}')
+[[ $(cx curl -s -o /dev/null -w '%{http_code}' "http://$pod:8080/healthz/ready") == 200 ]]
+[[ $(cx curl -s -o /dev/null -w '%{http_code}' -u "admin:$admin_password" "http://$pod:8080/jmap/session") == 403 ]]
+
+# RCP-347: the option relay set the route relay and sends mail for other domains to it.
+routes=$(jmap "admin:$admin_password" '[["x:MtaRoute/get",{"ids":null},"0"],["x:MtaOutboundStrategy/get",{"ids":["singleton"]},"1"]]')
+field "next(x for x in r['methodResponses'][0][1]['list'] if x['name'] == 'relay')['host']" <<<"$routes" | grep -qx relay.example.test
+field "r['methodResponses'][1][1]['list'][0]['route']['else']" <<<"$routes" | grep -qx "'relay'"
+
+# RCP-348: b registers an S/MIME certificate whose key is generated in the client pod and never leaves
+# it. A message stored for b is then an S/MIME enveloped part without the text, and the key decrypts it.
+cx bash -c 'umask 077; mkdir -p /tmp/b && openssl req -x509 -newkey rsa:3072 -nodes -keyout /tmp/b/key.pem \
+  -out /tmp/b/cert.pem -days 2 -subj /emailAddress=b@example.test -addext subjectAltName=email:b@example.test \
+  -addext keyUsage=critical,digitalSignature,keyEncipherment -addext extendedKeyUsage=emailProtection 2>/dev/null'
+cert=$(cx awk '{ printf "%s\\n", $0 }' /tmp/b/cert.pem)
+b_account=$(cx curl -fsS $tls -u "b@$domain:$b_password" "https://$host/jmap/session" |
+  field "r['primaryAccounts']['urn:stalwart:jmap']")
+jmap "b@$domain:$b_password" "[[\"x:PublicKey/set\",{\"accountId\":\"$b_account\",\"create\":{\"k\":{\"key\":\"$cert\",\"description\":\"smoke\"}}},\"0\"],[\"x:AccountSettings/set\",{\"accountId\":\"$b_account\",\"update\":{\"singleton\":{\"encryptionAtRest\":{\"@type\":\"Enabled\",\"publicKey\":\"#k\",\"headerProtection\":\"noConfidentiality\",\"encryptOnAppend\":false,\"allowSpamTraining\":false}}}},\"1\"]]" |
+  field "r['methodResponses'][1][1]['updated']" >/dev/null
+send smoke-sealed "sealed-text-for-b"
+fetch smoke-sealed | cx sh -c 'cat >/tmp/b/stored.eml'
+cx grep -qi '^Content-Type: application/pkcs7-mime; smime-type=enveloped-data' /tmp/b/stored.eml
+if cx grep -q sealed-text-for-b /tmp/b/stored.eml; then echo 'the stored message holds the text' >&2; exit 1; fi
+cx sh -c 'openssl cms -decrypt -inkey /tmp/b/key.pem -recip /tmp/b/cert.pem -in /tmp/b/stored.eml | grep -q sealed-text-for-b'
+
+# RCP-346: Stalwart's default allows 100 failed logins from one address and bans it at the 101st.
+# The second pod logs in first, so a ban and not its TLS setup makes the last login fail.
+# Other addresses still connect.
+client stalwart-smoke-ban
+ca stalwart-smoke-ban
+kubectl exec stalwart-smoke-ban -- bash -c "set -e
+  curl -fsS $tls imaps://$host:993/INBOX --user 'b@$domain:$b_password' -X NOOP >/dev/null
+  for i in \$(seq 101); do curl -s $tls imaps://$host:993/INBOX --user b@$domain:wrong >/dev/null || true; done
+  ! curl -s --max-time 10 $tls imaps://$host:993/INBOX --user 'b@$domain:$b_password' -X NOOP >/dev/null"
+cx curl -fsS $tls "imaps://$host:993/INBOX" --user "b@$domain:$b_password" -X NOOP >/dev/null
+
+# RCP-349: a renewed certificate is served without a restart. cert-manager issues a new one with a new
+# serial into the Secret that the sidecar reload-tls watches.
+# timeout ends a handshake that hangs while Stalwart reloads or restarts.
+serial() { cx sh -c "timeout 10 openssl s_client -connect $svc:465 -servername $host </dev/null 2>/dev/null | openssl x509 -noout -serial"; }
+old=$(serial)
+kubectl delete secret stalwart-tls >/dev/null
+for _ in $(seq 60); do
+  new=$(serial || true)
+  [[ -n $new && $new != "$old" ]] && break
+  sleep 5
+done
+[[ -n $new && $new != "$old" ]] || { echo "still serving $old" >&2; exit 1; }
+ca
+
+# RCP-349: mailboxes, mail and settings outlive the pod.
+uid=$(kubectl get pod stalwart-0 -o jsonpath='{.metadata.uid}')
+kubectl delete pod stalwart-0 --wait=true >/dev/null
+for _ in $(seq 90); do
+  state=$(kubectl get pod stalwart-0 -o jsonpath='{.metadata.uid} {.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+  [[ $state != "$uid "* && $state == *' True' ]] && break
+  sleep 2
+done
+[[ $state != "$uid "* && $state == *' True' ]]
+fetch smoke-plain | grep -q 'hello from a'
+
+# check reports the last line.
+echo "a sent to b over 465 with TLS and AUTH, b read it over 993 with TLS, its DKIM signature verified against the record PowerDNS answers, no relay without AUTH, no AUTH without TLS, S/MIME encryption at rest for b, a ban at the 101st failed login, a renewed certificate served without a restart, and the mail again after stalwart-0 restarted"

@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# RCP-338: the pods pass Pod Security restricted. LibreChat answers /health
+# through its Service and refuses a registration. The first user, created
+# with LibreChat's create-user script as the README says, logs in as admin
+# and chats with the OpenAI-compatible stub that tests/target.yml
+# configures. LibreChat stores the conversation in MongoDB, and the user
+# reads it back after the LibreChat and MongoDB pods were replaced.
+set -euo pipefail
+email=smoke@example.com
+password=smoke-password-1
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the pods of the test.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The OpenAI-compatible endpoint of tests/target.yml: one model, stub, and
+# the same reply to every chat completion, streamed or not.
+kubectl apply -f - >/dev/null <<'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: librechat-stub
+data:
+  v1: |
+    #!/bin/sh
+    body=$(head -c "${CONTENT_LENGTH:-0}")
+    case "$PATH_INFO" in
+    /models)
+      printf 'Content-Type: application/json\r\n\r\n'
+      echo '{"object":"list","data":[{"id":"stub","object":"model","created":0,"owned_by":"stub"}]}' ;;
+    *)
+      case "$body" in
+      *'"stream":true'*)
+        printf 'Content-Type: text/event-stream\r\n\r\n'
+        printf 'data: {"id":"stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{"role":"assistant","content":"stub reply"},"finish_reason":null}]}\n\n'
+        printf 'data: {"id":"stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+        printf 'data: [DONE]\n\n' ;;
+      *)
+        printf 'Content-Type: application/json\r\n\r\n'
+        echo '{"id":"stub","object":"chat.completion","created":0,"model":"stub","choices":[{"index":0,"message":{"role":"assistant","content":"stub reply"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}' ;;
+      esac ;;
+    esac
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: librechat-stub
+spec:
+  selector:
+    matchLabels:
+      name: librechat-stub
+  template:
+    metadata:
+      labels:
+        name: librechat-stub
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: librechat-stub
+          image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          command: [httpd, -f, -p, "8080", -h, /www]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: cgi
+              mountPath: /www/cgi-bin
+      volumes:
+        - name: cgi
+          configMap:
+            name: librechat-stub
+            defaultMode: 0555
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: librechat-stub
+spec:
+  selector:
+    name: librechat-stub
+  ports:
+    - port: 8080
+EOF
+kubectl rollout status deployment/librechat-stub --timeout 120s >/dev/null
+
+# The first user, as the README creates it, with the password at the
+# script's prompt. LibreChat makes the first user of a new database an admin.
+printf '%s\n' "$password" | kubectl exec -i deployment/librechat-librechat -- \
+  npm run create-user -- "$email" Smoke smoke --email-verified=true >/dev/null
+
+# The image brings node, so the test pod needs no other image.
+image=$(kubectl get deployment librechat-librechat -o jsonpath='{.spec.template.spec.containers[0].image}')
+kubectl run librechat-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod librechat-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/librechat-smoke --for=condition=Ready --timeout=300s >/dev/null
+
+client() {
+  kubectl exec -i librechat-smoke -- node --input-type=module - "$@" <<'EOF'
+const [phase, email, password, conversation] = process.argv.slice(2);
+const url = 'http://librechat-librechat:3080';
+// LibreChat refuses chat requests from clients that are no browser.
+const agent = 'Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const fail = (message) => {
+  console.error(message);
+  process.exit(1);
+};
+
+async function call(path, { token, body } = {}) {
+  const headers = { 'User-Agent': agent, 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(url + path, { method: body ? 'POST' : 'GET', headers, body: JSON.stringify(body) });
+  const text = await res.text();
+  try {
+    return { status: res.status, json: JSON.parse(text) };
+  } catch {
+    return { status: res.status, json: text };
+  }
+}
+
+// The Service gets the ready pod as its endpoint a moment after the pod is ready.
+for (let i = 0; (await call('/health').catch(() => ({}))).json !== 'OK'; i++) {
+  if (i === 60) fail('/health does not answer through the Service librechat-librechat');
+  await sleep(2000);
+}
+const registration = { name: 'Other', email: 'other@example.com', username: 'other', password, confirm_password: password };
+const registered = await call('/api/auth/register', { body: registration });
+if (registered.status !== 403) fail(`a registration got ${registered.status}, not 403`);
+const login = await call('/api/auth/login', { body: { email, password } });
+if (login.status !== 200 || login.json.user?.role !== 'ADMIN') fail(`the first user cannot log in as admin: ${login.status}`);
+const token = login.json.token;
+
+const replied = (messages) =>
+  Array.isArray(messages) &&
+  messages.some((m) => m.isCreatedByUser && m.text === 'Say hello') &&
+  messages.some((m) => !m.isCreatedByUser && m.content?.some((c) => c.text === 'stub reply'));
+
+if (phase === 'write') {
+  const models = await call('/api/models', { token });
+  if (!models.json.openAI?.includes('stub')) fail('the endpoint openAI does not offer the model stub');
+  const message = {
+    text: 'Say hello',
+    sender: 'User',
+    isCreatedByUser: true,
+    parentMessageId: '00000000-0000-0000-0000-000000000000',
+    conversationId: null,
+    messageId: crypto.randomUUID(),
+    endpoint: 'openAI',
+    model: 'stub',
+  };
+  const started = await call('/api/agents/chat/openAI', { token, body: message });
+  const id = started.json.conversationId;
+  if (!id) fail(`the chat did not start: ${JSON.stringify(started.json)}`);
+  // The reply streams in the background and lands in MongoDB.
+  for (let i = 0; !replied((await call(`/api/messages/${id}`, { token })).json); i++) {
+    if (i === 60) fail('the stub reply did not reach the conversation');
+    await sleep(1000);
+  }
+  console.log(id);
+} else {
+  const convos = await call('/api/convos', { token });
+  if (!convos.json.conversations?.some((c) => c.conversationId === conversation && c.endpoint === 'openAI'))
+    fail('the conversation is not listed');
+  if (!replied((await call(`/api/messages/${conversation}`, { token })).json)) fail('the messages are gone');
+  console.log(`conversation ${conversation} with the reply of the model stub on the endpoint openAI`);
+}
+EOF
+}
+
+conversation=$(client write "$email" "$password" | tail -1)
+
+# LibreChat keeps nothing of the conversation in its pod, and MongoDB keeps
+# it on its claim.
+old=$(kubectl get pod -l name=librechat-librechat -o jsonpath='{.items[0].metadata.name}')
+kubectl delete pod "$old" mongodb-0 --wait >/dev/null
+for _ in $(seq 60); do
+  new=$(kubectl get pod -l name=librechat-librechat -o jsonpath='{.items[*].metadata.name}')
+  [[ -n $new ]] && break
+  sleep 1
+done
+[[ -n $new ]] || { echo "no pod replaced $old" >&2; exit 1; }
+# The StatefulSet creates mongodb-0 again a moment after the delete.
+kubectl wait pod/mongodb-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/"$new" pod/mongodb-0 --for=condition=Ready --timeout=600s >/dev/null
+# check reports the last line.
+echo "$(client read "$email" "$password" "$conversation" | tail -1), read back as the admin from create-user after LibreChat and MongoDB were replaced; registration got 403. The pods pass Pod Security restricted."

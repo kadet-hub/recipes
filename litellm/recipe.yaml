@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.litellm.master_key
+    description: Master key of the proxy, the admin credential that every request without a virtual key must send as a bearer token.
+    secret: true
+  - path: applications.litellm.model_list
+    description: The proxy's model_list, the models it serves and the providers it routes each one to.
+    secret: false

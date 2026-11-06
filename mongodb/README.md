@@ -39,6 +39,8 @@ that holds the value of the old ref.
 ```yaml
 classes:
   - recipes.mongodb
+  - recipes.mongodb.replica-set   # a replica set of one member
+  - recipes.mongodb.users         # users with rights on their database only
 parameters:
   namespace: mongodb
   kapitan:
@@ -47,6 +49,9 @@ parameters:
   applications:
     mongodb:
       password: <ref>
+      users:
+        app:
+          value: <ref>
 ```
 
 ## Required parameters
@@ -54,6 +59,11 @@ parameters:
 `applications.mongodb.password`, the password of the user `root`, must be
 set as a ref with the backend of your choice. Without it the compile stops
 with `Interpolation key 'applications.mongodb.password' not found`.
+
+With the option `users`, `applications.mongodb.users` maps the name of
+each user to an entry whose `value` is the user's password, set as a ref.
+Without the map the compile stops with
+`Interpolation key 'applications.mongodb.users' not found`.
 
 ## Settings
 
@@ -73,6 +83,61 @@ The image runs as the user `mongod`, so the recipe sets its UID, 1000, for
 root user on a first `mongod` bound to localhost, so the port opens on the
 pod IP once that is done.
 
+## The option `replica-set`
+
+`recipes.mongodb.replica-set` runs MongoDB as the replica set `rs0` with
+one member, which change streams and transactions need. A postStart hook
+of the container initiates it with the member `localhost:27017` on the
+first start and waits on every start until the member is primary. Clients
+connect through the Service `mongodb` with `directConnection=true`,
+because the member's address `localhost:27017` reaches it only from its
+own pod.
+
+mongod needs a key file once authorization and a replica set are on, and
+an init container writes a random one into an `emptyDir` on each pod
+start. With one member no other server authenticates with it. A second
+member is not supported: it would need the same key and an address that
+the other members and clients reach.
+
+Adding the option to a running `mongodb` restarts the pod with the
+replica set on the data it has, which MongoDB documents as converting a
+standalone server to a replica set. That path is not tested. The name
+`rs0` is `applications.mongodb.replica_set`. Change it only before the
+first start, because the hook does not rename a replica set that exists.
+
+## The option `users`
+
+`recipes.mongodb.users` creates a user per application, so that the
+application connects with rights on its own database instead of as
+`root`. Each user is created in the database of its name, and
+authenticates there, with `readWrite` on that database as its only role.
+A client connects with `mongodb://<name>:<password>@mongodb:27017/<name>`,
+and with the option `replica-set` adds `directConnection=true`. The map
+`applications.mongodb.users` becomes the Secret `mongodb-users` as it is,
+which is why an entry has the shape of a Secret entry of the `kubernetes`
+generator, `value` included.
+
+The container `users` in the pod applies the map in its postStart hook,
+on every start of the pod. Once the server answers `root` as a writable
+primary, the hook creates each user that does not exist and sets password
+and role of each one that does. The pod becomes ready only after that.
+When the hook fails 90 times, 2 seconds apart, the pod's event
+`FailedPostStartHook` shows mongosh's last output, and the container
+starts again. Its own process waits and exits on `SIGTERM`. Its memory
+limit is 256Mi, as mongosh needed up to 154 MiB for the hook.
+
+A changed password changes the Secret but not the pod, so it takes effect
+once the pod restarts:
+
+```sh
+kubectl rollout restart statefulset/mongodb
+```
+
+Restart the client after that, as it reads its password when it starts.
+A role granted to such a user by hand is gone after the next start. A
+user removed from the map stays in MongoDB until an admin drops it with
+`dropUser`.
+
 ## Proof
 
 `check mongodb --level deploys` with `tests/target.yml` on kind for each
@@ -80,3 +145,21 @@ Kubernetes minor CI tests. The image has no Kubernetes objects to compare
 with, so the recipe is proven by deploying it (RCP-44). `tests/smoke` runs
 `ping` after mongosh authenticates as the user `root` in `admin`, through
 the Service `mongodb`, the check of the kadet-hub/examples recipe.
+
+`tests/target.yml` includes the option `users` with the user `app`.
+`tests/smoke` writes and reads a document as `app`, puts a new password
+into the Secret `mongodb-users` and deletes the pod. It then requires that
+the new password logs in, that the old one is refused and that `app` has
+`readWrite` on `app` as its only role. `check` counts the Secret
+`mongodb-users` as an object of `mongodb` because this target renders it,
+which keeps it out of the comparison of a parent with its chart.
+
+`tests/target.yml` leaves out the option `replica-set`. The CI check of
+`rocketchat`, which includes both options, proves them on a replica set
+(RCP-50): the member is primary before and after its pod is replaced, a
+change stream as Rocket.Chat's user delivers a document that Rocket.Chat
+wrote, and that user gets `Unauthorized` outside its database.
+
+Without the option `users` the recipe renders as before the option
+existed. A compile of `tests/target.yml` of the commit before it, alone
+and with `replica-set`, gave the same files with and without the change.

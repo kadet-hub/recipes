@@ -2,10 +2,29 @@
 # The kadet-hub/examples recipe's check through the Service (RCP-45):
 # mongosh authenticates as root in admin and runs ping, connecting to the
 # Service mongodb on port 27017.
+# RCP-404: the user app of the option users writes and reads its database.
+# After a new password in the Secret mongodb-users and a restart of the pod,
+# the new password logs in, the old one is refused and app keeps its one role.
 set -euo pipefail
 password=$(kubectl get secret mongodb -o jsonpath='{.data.password}' | base64 -d)
+app_password=$(kubectl get secret mongodb-users -o jsonpath='{.data.app}' | base64 -d)
+# mongosh <user> <password> <database to authenticate in> <script>
 # --password= keeps a password that starts with "-" from being read as an option.
-out=$(kubectl exec statefulset/mongodb -c mongodb -- mongosh --quiet --host mongodb --port 27017 \
-  -u root --password="$password" --authenticationDatabase admin --eval 'db.runCommand({ping: 1}).ok')
-[[ $out == 1 ]]
-echo "ping as the user root, authenticated in admin, through the Service mongodb"
+mongosh() {
+  kubectl exec statefulset/mongodb -c mongodb -- mongosh --quiet --host mongodb --port 27017 \
+    -u "$1" --password="$2" --authenticationDatabase "$3" --eval "$4"
+}
+[[ $(mongosh root "$password" admin 'db.runCommand({ping: 1}).ok') == 1 ]]
+[[ $(mongosh app "$app_password" app 'db.getSiblingDB("app").smoke.insertOne({n: 1}); db.getSiblingDB("app").smoke.countDocuments()') == 1 ]]
+
+kubectl patch secret mongodb-users --type merge -p '{"stringData": {"app": "cccccccccccc"}}' >/dev/null
+kubectl delete pod/mongodb-0 --wait=true >/dev/null
+kubectl wait pod/mongodb-0 --for=create --timeout=300s >/dev/null
+kubectl wait pod/mongodb-0 --for=condition=Ready --timeout=600s >/dev/null
+[[ $(mongosh app cccccccccccc app 'db.getSiblingDB("app").smoke.countDocuments()') == 1 ]]
+if ! grep -q 'Authentication failed' <<<"$(mongosh app "$app_password" app 'db.runCommand({ping: 1})' 2>&1)"; then
+  echo "the old password of app was not refused" >&2
+  exit 1
+fi
+[[ $(mongosh root "$password" admin 'EJSON.stringify(db.getSiblingDB("app").getUser("app").roles)') == '[{"role":"readWrite","db":"app"}]' ]]
+echo "ping as the user root through the Service mongodb; the user app wrote and read its database, and after a new password and a restart of the pod only the new one logged in, with readWrite on app as its only role"

@@ -4,3 +4,7 @@ required:
   - path: applications.mongodb.password
     description: Password of the user root.
     secret: true
+  - path: applications.mongodb.users
+    description: Users of the option users, each name mapped to an entry whose value is the user's password.
+    secret: false
+    option: users

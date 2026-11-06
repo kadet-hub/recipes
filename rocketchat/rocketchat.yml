@@ -1,0 +1,97 @@
+parameters:
+  components:
+    rocketchat-rocketchat:
+      application: rocketchat
+      # renovate: upstream
+      image: docker.io/rocketchat/rocket.chat:8.9.1@sha256:180984d4a2b0e9348484f662cf9c34f549aacbe744e0ad907ccb871e85475f0d
+      update_strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 1
+      service_account:
+        create: true
+        automount_service_account_token: true
+      # The chart leaves the token at the API default, true.
+      automount_service_account_token: true
+      workload_security_context:
+        runAsUser: 65533
+        fsGroup: 65533
+      security_context:
+        runAsUser: 65533
+      pod_annotations:
+        # The chart's checksum of its Secret with tests/values.yaml. It does
+        # not follow a change of the recipe.
+        checksum/secret: 64fd85052afd90ca388af234a161d1c168b6ebff8ef4d366042f9861d6f3cecb
+      env:
+        DEPLOY_PLATFORM: helm-chart
+        INSTANCE_IP:
+          fieldRef:
+            fieldPath: status.podIP
+        MONGO_URL:
+          secretKeyRef:
+            name: rocketchat-rocketchat
+            key: mongo-uri
+        ROOT_URL: https://${applications.rocketchat.host}
+        OVERWRITE_SETTING_Prometheus_Enabled: "true"
+        OVERWRITE_SETTING_Prometheus_Port: "9100"
+        # Rocket.Chat creates the user admin with these on its first start.
+        ADMIN_EMAIL: ${applications.rocketchat.admin_email}
+        ADMIN_PASS:
+          secretKeyRef:
+            name: rocketchat
+            key: admin-password
+        # The registration form's initial value. Rocket.Chat's default is
+        # Public, open self-registration.
+        Accounts_RegistrationForm: Disabled
+      ports:
+        http:
+          container_port: 3000
+          service_port: 80
+          # The chart sets no appProtocol.
+          app_protocol: ""
+        metrics:
+          service_port: 9100
+      service:
+        type: ClusterIP
+        annotations:
+          prometheus.io/path: /metrics
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9100"
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 60
+          period_seconds: 15
+        readiness:
+          type: http
+          port: http
+          path: /health
+          initial_delay_seconds: 10
+          period_seconds: 15
+      volume_mounts:
+        rocket-data:
+          mount_path: /app/uploads
+        tmp:
+          mount_path: /tmp
+      volumes:
+        tmp:
+          emptyDir: {}
+        rocket-data:
+          emptyDir: {}
+  generators:
+    kubernetes:
+      # Component Secrets would also be mounted as volumes.
+      secrets:
+        rocketchat-rocketchat:
+          string_data:
+            # The user rocketchat of the included recipe mongodb's option
+            # users, through its Service to the one member of its replica set.
+            mongo-uri:
+              value: mongodb://rocketchat:${applications.mongodb.users.rocketchat.value}@mongodb:27017/rocketchat?directConnection=true
+        rocketchat:
+          string_data:
+            admin-password:
+              value: ${applications.rocketchat.admin_password}

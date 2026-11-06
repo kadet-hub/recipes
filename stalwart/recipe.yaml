@@ -1,0 +1,39 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.stalwart.domain
+    description: Mail domain of the first mailbox, such as example.com.
+    secret: false
+  - path: applications.stalwart.admin.password
+    description: Password of the administrator admin, who has full access to Stalwart and its API.
+    secret: true
+  - path: applications.stalwart.mailbox.name
+    description: Local part of the first mailbox, such as alice for alice@example.com.
+    secret: false
+  - path: applications.stalwart.mailbox.password
+    description: Password of the first mailbox, without double quotes or backslashes. Stalwart refuses weak passwords.
+    secret: true
+  - path: applications.stalwart.dkim.private_key
+    description: RSA private key in PEM that signs outgoing mail with DKIM.
+    secret: true
+    option: dkim
+  - path: applications.stalwart.issuer
+    description: Name and kind of the cert-manager issuer of the certificate.
+    secret: false
+    option: certificate
+  - path: applications.stalwart.relay.host
+    description: Host name of the outbound relay (smarthost).
+    secret: false
+    option: relay
+  - path: applications.stalwart.relay.username
+    description: User name at the outbound relay.
+    secret: false
+    option: relay
+  - path: applications.stalwart.relay.password
+    description: Password at the outbound relay, without double quotes or backslashes.
+    secret: true
+    option: relay
+  - path: applications.powerdns.api_key
+    description: Key of PowerDNS's HTTP API, which the included recipe powerdns requires.
+    secret: true
+    option: powerdns

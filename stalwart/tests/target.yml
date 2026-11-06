@@ -1,0 +1,51 @@
+classes:
+  - recipes.stalwart
+  - recipes.stalwart.certificate
+  - recipes.stalwart.relay
+  - recipes.stalwart.powerdns
+parameters:
+  namespace: stalwart
+  kapitan:
+    vars:
+      target: stalwart
+  applications:
+    stalwart:
+      domain: example.test
+      # Stalwart refuses weak mailbox passwords, so these are phrases.
+      admin:
+        password: admin of the smoke test
+      mailbox:
+        name: a
+        password: first mailbox of the smoke test
+      issuer:
+        name: stalwart-selfsigned
+        kind: Issuer
+      # tests/smoke checks that the route exists. Nothing is sent to it.
+      relay:
+        host: relay.example.test
+        username: relay
+        password: relay of the smoke test
+    powerdns:
+      zone: example.test
+      api_key: smoke-api-key
+  generators:
+    certmanager:
+      issuers:
+        stalwart-selfsigned:
+          spec:
+            selfSigned: {}
+      certs:
+        # The DKIM key in place of the option dkim: a key in the repository
+        # fails the registry's secret scan, and a key that a Kapitan ref
+        # function generates fails its read-only compile.
+        stalwart-dkim:
+          spec:
+            secretName: stalwart-dkim
+            commonName: dkim
+            issuerRef:
+              name: stalwart-selfsigned
+              kind: Issuer
+            privateKey:
+              algorithm: RSA
+              size: 2048
+              encoding: PKCS8

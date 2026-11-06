@@ -1,0 +1,54 @@
+classes:
+  - recipes.powerdns
+parameters:
+  components:
+    stalwart:
+      application: stalwart
+      init_containers:
+        # Writes the zone of the init container dns into the zone of the
+        # included recipe powerdns through its API (RCP-345). The mail domain
+        # lies in applications.powerdns.zone. A failure only warns, so mail
+        # starts without DNS.
+        powerdns:
+          image: ${components.stalwart.image}
+          command:
+            - bash
+            - -c
+            - |
+              awk '
+                /^\$TTL/ { ttl = $2; next }
+                NF {
+                  c = $0; sub(/^[^ ]+ IN [A-Z]+ /, "", c); gsub(/"/, "\\\"", c)
+                  k = $1 " " $3
+                  if (k in r) r[k] = r[k] ","; else o[++n] = k
+                  r[k] = r[k] "{\"content\":\"" c "\",\"disabled\":false}"
+                }
+                END {
+                  printf "{\"rrsets\":["
+                  for (i = 1; i <= n; i++) {
+                    split(o[i], p, " ")
+                    printf "%s{\"name\":\"%s\",\"type\":\"%s\",\"ttl\":%s,\"changetype\":\"REPLACE\",\"records\":[%s]}", (i > 1 ? "," : ""), p[1], p[2], ttl, r[o[i]]
+                  }
+                  print "]}"
+                }' /run/stalwart-dns/zone |
+                curl -fsS --retry 20 --retry-all-errors --retry-delay 3 -X PATCH -H "X-API-Key: $PDNS_API_KEY" \
+                  -H 'Content-Type: application/json' --data-binary @- \
+                  http://powerdns:8081/api/v1/servers/localhost/zones/${applications.powerdns.zone}. &&
+                echo "published the zone into ${applications.powerdns.zone} on powerdns" ||
+                echo "warning: the zone was not published into powerdns"
+          # The Secret of the included recipe powerdns.
+          env:
+            PDNS_API_KEY:
+              secretKeyRef:
+                name: powerdns
+                key: api-key
+          volume_mounts:
+            zone:
+              mount_path: /run/stalwart-dns
+              read_only: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi

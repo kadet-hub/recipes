@@ -1,0 +1,7 @@
+classes:
+  - recipes.home-assistant
+parameters:
+  namespace: home-assistant
+  kapitan:
+    vars:
+      target: home-assistant

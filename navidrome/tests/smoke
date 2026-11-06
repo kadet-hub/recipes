@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# RCP-297: the pod under Pod Security restricted, then from a pod of the
+# Navidrome image that mounts the claim music-navidrome-0 a FLAC file of
+# silence on the claim, and through the Service navidrome on port 4533 the
+# first admin, a scan, the track found and downloaded through the Subsonic
+# API, and the admin and the track again after navidrome-0 restarted.
+set -euo pipefail
+url=http://navidrome:4533
+password=aaaaaaaaaaaa
+title=Smoke-Silence
+image=$(kubectl get statefulset navidrome -o jsonpath='{.spec.template.spec.containers[?(@.name=="navidrome")].image}')
+
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image brings curl and ffmpeg, so the test pod needs no other image. It
+# runs as Navidrome's user and mounts the claim that Navidrome reads, which
+# kind's one node allows for a ReadWriteOnce claim.
+kubectl apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: navidrome-smoke
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: smoke
+      image: $image
+      command:
+        - sleep
+        - "900"
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      volumeMounts:
+        - name: music
+          mountPath: /music
+  volumes:
+    - name: music
+      persistentVolumeClaim:
+        claimName: music-navidrome-0
+EOF
+trap 'kubectl delete pod navidrome-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/navidrome-smoke --for=condition=Ready --timeout=120s >/dev/null
+run() { kubectl exec navidrome-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs navidrome-0 --tail=40 >&2; exit 1; }
+# The Service gets the ready pod as its endpoint a moment after the pod is ready.
+# /ping answers "." (Heartbeat of go-chi/chi). The last answer or curl error
+# goes into the failure.
+reachable() {
+  local out
+  for _ in $(seq 30); do out=$(run curl -fsS -m 5 "$url/ping" 2>&1) && [[ $out == . ]] && return; sleep 2; done
+  fail "/ping does not answer . through the Service navidrome: $out"
+}
+# A Subsonic call as admin, or as the user and password given after it.
+subsonic() {
+  local call=$1 user=${2:-admin} pass=${3:-$password}
+  run curl -fsS -G "$url/rest/$call" --data-urlencode "u=$user" --data-urlencode "p=$pass" \
+    -d v=1.16.1 -d c=smoke -d f=json "${@:4}"
+}
+status() { jq -r '."subsonic-response" | .status + " " + (.error.code // "" | tostring)'; }
+song() { subsonic search3 admin "$password" --data-urlencode "query=$title" | jq -c '."subsonic-response".searchResult3.song // [] | .[0] // empty'; }
+
+run mkdir -p /music/kadet-hub
+run ffmpeg -hide_banner -loglevel error -f lavfi -i anullsrc=r=44100:cl=mono -t 3 \
+  -metadata title="$title" -metadata artist=kadet-hub -metadata album=Smoke -c:a flac /music/kadet-hub/silence.flac
+sum=$(run sha256sum /music/kadet-hub/silence.flac | cut -d' ' -f1)
+
+reachable
+[[ $(subsonic ping | status) == "failed 40" ]] || fail "/rest/ping does not refuse a user before the first admin exists"
+admin() {
+  run curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    --data "$(jq -nc --arg u "$1" --arg p "$2" '{username: $u, password: $p}')" "$url/auth/createAdmin"
+}
+status=$(admin admin "$password")
+[[ $status == 200 ]] || fail "/auth/createAdmin answered $status"
+status=$(admin other bbbbbbbbbbbb)
+[[ $status == 403 ]] || fail "a second /auth/createAdmin answered $status"
+[[ $(subsonic ping | status) == "ok " ]] || fail "/rest/ping refuses the admin"
+[[ $(subsonic ping admin wrong-password | status) == "failed 40" ]] || fail "/rest/ping accepts a wrong password"
+
+[[ $(subsonic startScan | status) == "ok " ]] || fail "/rest/startScan failed"
+for _ in $(seq 60); do
+  track=$(song)
+  [[ -n $track ]] && break
+  sleep 2
+done
+[[ -n $track ]] || fail "the scan did not find $title"
+[[ $(jq -r .duration <<<"$track") == 3 ]] || fail "the track is not 3 seconds long: $track"
+id=$(jq -r .id <<<"$track")
+[[ $(run sh -c "curl -fsS -G '$url/rest/download' -d u=admin -d p='$password' -d v=1.16.1 -d c=smoke -d id='$id' | sha256sum" | cut -d' ' -f1) == "$sum" ]] ||
+  fail "/rest/download differs from the file on the claim"
+
+kubectl delete pod navidrome-0 --wait >/dev/null
+kubectl wait pod/navidrome-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/navidrome-0 --for=condition=Ready --timeout=300s >/dev/null
+reachable
+# The admin and the track come from the database on the claim data.
+[[ $(subsonic ping | status) == "ok " ]] || fail "the admin is gone after the restart"
+[[ $(song | jq -r .id) == "$id" ]] || fail "the track is gone after the restart"
+# check reports the last line.
+echo "Navidrome scanned $title from the claim music, found it through the Subsonic API and served it byte for byte, and after navidrome-0 restarted the admin and the track were still there. The pod passes Pod Security restricted."

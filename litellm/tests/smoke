@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# RCP-317: /health/readiness through the Service, /health with the master
+# key, the model of tests/target.yml in /v1/models, a chat completion with
+# the master key from LiteLLM's mock_response, 401 without a key. With the
+# option postgresql: a virtual key from /key/generate that completes, whose
+# spend LiteLLM records, and that still works once the pod was replaced.
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+
+kubectl get --raw "/api/v1/namespaces/$ns/services/litellm:http/proxy/health/readiness" |
+  jq -e '.status == "healthy" and .db == "connected"' >/dev/null
+
+key=$(kubectl get secret litellm-masterkey -o jsonpath='{.data.masterkey}' | base64 -d)
+pf=
+forward() {
+  kubectl port-forward service/litellm 14000:4000 >/dev/null &
+  pf=$!
+  for _ in $(seq 30); do
+    kill -0 "$pf" 2>/dev/null || { echo "kubectl port-forward to the Service litellm ended" >&2; return 1; }
+    curl -fsS -o /dev/null http://localhost:14000/health/readiness 2>/dev/null && kill -0 "$pf" 2>/dev/null && return
+    sleep 2
+  done
+  echo "the Service litellm does not answer" >&2
+  return 1
+}
+trap 'kill $pf 2>/dev/null' EXIT
+forward
+url=http://localhost:14000
+api() { local k=$1; shift; curl -fsS -H "Authorization: Bearer $k" -H 'Content-Type: application/json' "$@"; }
+chat() {
+  api "$1" "$url/v1/chat/completions" \
+    --data '{"model": "smoke", "messages": [{"role": "user", "content": "Hello"}]}' |
+    jq -e '.choices[0].message.content == "Hello from LiteLLM"' >/dev/null
+}
+
+api "$key" "$url/health" | jq -e '.healthy_count == 1 and .unhealthy_count == 0' >/dev/null
+api "$key" "$url/v1/models" | jq -e '[.data[].id] == ["smoke"]' >/dev/null
+chat "$key"
+[[ $(curl -sS -o /dev/null -w '%{http_code}' "$url/v1/models") == 401 ]]
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' "$url/v1/chat/completions" \
+  --data '{"model": "smoke", "messages": [{"role": "user", "content": "Hello"}]}') == 401 ]]
+
+# Virtual keys live in the database of the included recipe postgresql.
+virtual=$(api "$key" "$url/key/generate" --data '{"models": ["smoke"]}' | jq -r .key)
+chat "$virtual"
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer sk-wrong' "$url/v1/models") == 401 ]]
+spent=
+for _ in $(seq 30); do
+  spent=$(api "$key" "$url/key/info?key=$virtual" | jq -e '.info.spend > 0' 2>/dev/null) && break
+  sleep 2
+done
+[[ $spent == true ]] || { echo "LiteLLM recorded no spend for the virtual key" >&2; exit 1; }
+
+kill "$pf" 2>/dev/null || true
+pod=$(kubectl get pods -l name=litellm -o jsonpath='{.items[0].metadata.name}')
+kubectl delete pod "$pod" --wait=true >/dev/null
+next=
+for _ in $(seq 60); do
+  next=$(kubectl get pods -l name=litellm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  [[ -n $next && $next != "$pod" ]] && break
+  sleep 2
+done
+[[ -n $next && $next != "$pod" ]] || { echo "no pod replaced $pod" >&2; exit 1; }
+kubectl wait --for=condition=Ready "pod/$next" --timeout=600s >/dev/null
+forward
+chat "$virtual"
+echo "health, model list, completion with the master key, 401 without a key;" \
+  "a virtual key completes, its spend is recorded, and it works after the pod was replaced"

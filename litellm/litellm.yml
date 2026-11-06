@@ -1,0 +1,83 @@
+parameters:
+  components:
+    litellm:
+      application: litellm
+      image: ghcr.io/berriai/litellm:1.108.0@sha256:c560d317136880ea92d62334d4367ab10955b1af189dd3ea24f6551290b1d6c1
+      pull_policy: Always
+      args:
+        config:
+          - --config
+          - /etc/litellm/config.yaml
+      env:
+        HOST: 0.0.0.0
+        PORT: "4000"
+        PROXY_MASTER_KEY:
+          secretKeyRef:
+            name: litellm-masterkey
+            key: masterkey
+        LITELLM_LOG: INFO
+      ports:
+        http:
+          service_port: 4000
+          # The chart's Service port has no appProtocol.
+          app_protocol: ""
+      service:
+        type: ClusterIP
+      healthcheck:
+        startup:
+          type: http
+          port: http
+          path: /health/readiness
+          period_seconds: 10
+          timeout_seconds: 5
+          failure_threshold: 30
+        liveness:
+          type: http
+          port: http
+          path: /health/liveliness
+          period_seconds: 15
+          timeout_seconds: 5
+          failure_threshold: 5
+        readiness:
+          type: http
+          port: http
+          path: /health/readiness
+          period_seconds: 10
+          timeout_seconds: 5
+          failure_threshold: 3
+      grace_period: 90
+      # The chart runs the pod as the namespace's ServiceAccount default and
+      # leaves its token unset.
+      automount_service_account_token: true
+      service_account:
+        enabled: true
+        name: default
+      volume_mounts:
+        litellm-config:
+          mount_path: /etc/litellm/config.yaml
+          sub_path: config.yaml
+      volumes:
+        litellm-config:
+          configMap:
+            name: litellm-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+      # The chart's hash of its rendered configmap-litellm.yaml. It does not
+      # follow a change of applications.litellm.config.
+      pod_annotations:
+        checksum/config: 4c067e22d0f1e02d05e2101f2b25ef76a8e4d358b96c5304123e66a66626080a
+  generators:
+    kubernetes:
+      configs:
+        litellm-config:
+          data:
+            config.yaml:
+              value: ${yaml:applications.litellm.config}
+      # The target sets master_key. A component Secret would also be mounted
+      # as a volume, which the chart does not.
+      secrets:
+        litellm-masterkey:
+          string_data:
+            masterkey:
+              value: ${applications.litellm.master_key}
