@@ -18,7 +18,8 @@ forward() {
   kubectl port-forward service/qdrant 16333:6333 >/dev/null &
   pf=$!
   for _ in $(seq 30); do
-    curl -fsS -o /dev/null http://localhost:16333/readyz 2>/dev/null && return
+    kill -0 "$pf" 2>/dev/null || { echo "kubectl port-forward to the Service qdrant ended" >&2; return 1; }
+    curl -fsS -o /dev/null http://localhost:16333/readyz 2>/dev/null && kill -0 "$pf" 2>/dev/null && return
     sleep 2
   done
   echo "the Service qdrant does not answer" >&2
