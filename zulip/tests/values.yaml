@@ -1,0 +1,81 @@
+# Zulip on the included recipes postgresql, rabbitmq, memcached and valkey,
+# with the chart's Bitnami subcharts off.
+zulip:
+  environment:
+    SETTING_EXTERNAL_HOST: chat.example.com
+    SETTING_ZULIP_ADMINISTRATOR: admin@example.com
+    SECRETS_secret_key:
+      valueFrom:
+        secretKeyRef:
+          name: zulip
+          key: secret-key
+    # The operator generates the RabbitMQ user's name, which the chart's
+    # externalRabbitmq.user takes only as a string.
+    SETTING_RABBITMQ_USERNAME:
+      valueFrom:
+        secretKeyRef:
+          name: rabbitmq-default-user
+          key: username
+    # Read by the post-setup script below.
+    ZULIP_OWNER_PASSWORD:
+      valueFrom:
+        secretKeyRef:
+          name: zulip
+          key: owner-password
+postSetup:
+  scripts:
+    create-organization.sh: |
+      #!/bin/bash
+      # Creates the organization and its owner on the first start.
+      set -euo pipefail
+      manage=/home/zulip/deployments/current/manage.py
+      if runuser -u zulip -- "$manage" list_realms | grep -q "^[0-9]* *''"; then
+        exit 0
+      fi
+      # A file the user zulip reads, so the password is in no process list.
+      password_file=$(mktemp)
+      trap 'rm -f "$password_file"' EXIT
+      printf '%s' "$ZULIP_OWNER_PASSWORD" >"$password_file"
+      chown zulip "$password_file"
+      # create_realm commits the organization before it sets the owner's
+      # password, so a password Zulip rejects would leave it without an owner.
+      runuser -u zulip -- "$manage" shell -c "import sys; from zproject.backends import check_password_strength as strong; sys.exit(0 if strong(open('$password_file').read().strip()) else 'ZULIP_OWNER_PASSWORD is too weak for Zulip.')"
+      runuser -u zulip -- "$manage" create_realm Zulip "$SETTING_ZULIP_ADMINISTRATOR" Owner \
+        --password-file "$password_file"
+postgresql:
+  enabled: false
+rabbitmq:
+  enabled: false
+memcached:
+  enabled: false
+redis:
+  enabled: false
+externalPostgresql:
+  host: postgresql-cluster-rw
+  user: app
+  database: app
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: postgresql-cluster-app
+        key: password
+externalRabbitmq:
+  host: rabbitmq
+  user: ""
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: rabbitmq-default-user
+        key: password
+externalMemcached:
+  host: memcached
+  # The included recipe memcached has no authentication. Without a
+  # password Zulip connects without SASL.
+  password: ""
+externalRedis:
+  host: valkey
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: valkey-auth
+        key: default-password

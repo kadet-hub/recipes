@@ -246,6 +246,13 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
+      "description": "RCP-294: Docker Hub gives no release timestamps for the ghost image, which has more than 1000 tags, so the timestamp is optional; the tag's -alpine suffix keeps the variant",
+      "matchPackageNames": [
+        "docker.io/library/ghost"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "RCP-16: the Keycloak Operator's chart and the Keycloak image move in one pull request; one operator supports only the Keycloak version it was released with",
       "matchPackageNames": [
         "quay.io/keycloak/keycloak-operator-helm",
@@ -336,6 +343,14 @@
         "docker.io/actualbudget/actual-server"
       ],
       "groupName": "actual"
+    },
+    {
+      "description": "RCP-16: ejabberd's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "processone/ejabberd",
+        "ghcr.io/processone/ejabberd"
+      ],
+      "groupName": "ejabberd"
     },
     {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
