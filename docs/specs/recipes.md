@@ -5513,9 +5513,9 @@ content of `master.toml` are text of the subchart's templates, so
   `/api/public/otel/v1/traces`, read it back with its input from
   `/api/public/v2/observations`, and read the file that Langfuse names for
   it from the bucket through SeaweedFS' filer. It MUST get 422 and
-  `Sign up is disabled.` from `/api/auth/signup`, a session as the owner of
-  the organization for the email and password of the first user, and no
-  session with a wrong password. Once the pods of web, worker, ClickHouse
+  `Sign up is disabled.` from `/api/auth/signup`, 200 and a session as the
+  owner of the organization for the email and password of the first user,
+  and 401 and no session with a wrong password. Once the pods of web, worker, ClickHouse
   and SeaweedFS were deleted and their successors are ready, it MUST read
   the same span and file, log in again and send and read a second span.
 

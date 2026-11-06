@@ -181,8 +181,9 @@ file in the bucket and queues a job in Valkey, and the worker writes it to
 ClickHouse. The test reads the span with its input back from
 `/api/public/v2/observations` and the stored file from the bucket through
 SeaweedFS' filer. `/api/auth/signup` answers 422 with
-`Sign up is disabled.`, the first user logs in as the owner of the
-organization and a wrong password gets no session. It then deletes the
+`Sign up is disabled.`, the first user's login gets 200 and a session as
+the owner of the organization, and a wrong password gets 401 and no
+session. It then deletes the
 pods of web, worker, ClickHouse and SeaweedFS and, once their successors
 are ready, reads the same span and file, logs in again and sends and reads
 a second span. Langfuse 4 takes traces only through OpenTelemetry by
