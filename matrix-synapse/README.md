@@ -109,6 +109,11 @@ these routes of the target:
   `public_baseurl` (Synapse's `docs/delegate.md`);
 - port 8448 of `server_name` with TLS to the Service, without delegation.
 
+Synapse does not federate with addresses in private ranges such as
+`10.0.0.0/8`, its default `ip_range_blacklist`. Servers that reach each
+other on such addresses, such as two in one cluster, need those ranges in
+`ip_range_whitelist`, in a file of the ConfigMap (Settings).
+
 ## OpenID Connect
 
 The option `oidc` adds one provider to the ConfigMap's file `oidc.yaml`,
@@ -190,7 +195,14 @@ message and the upload, again after the test deleted the pod
 `matrix-synapse-0`, with the same signing key on the claim. The login
 flows name the provider of the option `oidc`. Element Web answers through
 its Service, and the homeserver answers at the URL its `config.json`
-names. A login through an OpenID Connect provider is not tested.
+names. In Chrome, driven through ChromeDriver, Element Web's login page
+names `example.com` and the provider `Single sign-on`, which it read from
+the homeserver at that URL. GitHub's runners bring Chrome and
+ChromeDriver. Elsewhere set `CHROMEDRIVER` to a ChromeDriver of the
+installed Chrome's version. A login through an OpenID Connect provider is
+not tested.
 
-The option `federation` is proven by hand on kind: the federation API, the
-server keys and `/.well-known/matrix/server` answered.
+`check` deploys one target, so the option `federation` is proven by hand
+on kind. Two targets with the option federated, and with the option off
+on one of them the join got 404 (RCP-362 in
+[docs/specs/recipes.md](../docs/specs/recipes.md)).
