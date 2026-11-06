@@ -5583,6 +5583,12 @@ every verb on pods in all namespaces and which the all-in-one server does
 not use. The ServiceAccount stays, as the subchart renders it without a
 value to turn it off.
 
+The chart builds the identities file with `toJson`. The recipe writes
+`applications.langfuse.s3.access_key_id` and `.secret_access_key` into that
+JSON text as they are, because a ref's value is not known at the
+interpolation and cannot be escaped there. Neither may contain `"`, `\`
+or a control character.
+
 | Alternative | Why it was not taken |
 |---|---|
 | MinIO, as the compose file and chart 1.x run it | minio/minio is archived, its README says it is no longer maintained, and its last release is of 2025-10-15. `docker.io/minio/minio` and `quay.io/minio/minio` refused anonymous pulls on 2026-11-05. |
