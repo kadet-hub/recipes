@@ -6825,6 +6825,228 @@ the same file.
   installed, and its smoke test reads the message and the upload after
   the restart.
 
+## MongoDB as a replica set
+
+A replica set is MongoDB's unit of replication. Its oplog lets clients
+open change streams on collections, and MongoDB runs multi-document
+transactions only on replica sets and sharded clusters. `mongodb` runs one
+server without a replica set (Designed recipes). Rocket.Chat opens a
+change stream at startup and uses transactions (Rocket.Chat), so
+`mongodb` has the option `replica-set`, which a target or a parent
+includes as `recipes.mongodb.replica-set`.
+
+DEC-320: The replica set is an option of `mongodb`, not its default. A
+target that includes `recipes.mongodb` alone compiles the same
+StatefulSet as before this change, so its pod does not restart and
+nothing changes for clients that need no replica set.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A replica set by default | Every target of `mongodb` would get the init container, the hook and a restart for a feature that only `rocketchat` asks for. |
+| A recipe of its own | It would render the StatefulSet, Service and Secret `mongodb` a second time, and two recipes in one target would collide. |
+| MongoDB's operator, MongoDB Controllers for Kubernetes | No kadet-hub generator renders its resources (DEC-14, Designed recipes). |
+
+DEC-321: The replica set has one member, named `localhost:27017`, and
+clients connect through the Service `mongodb` with
+`directConnection=true`. mongod looks for itself among the members'
+addresses when the replica set is initiated and on every start.
+`localhost` reaches only its own pod, so mongod finds itself whatever DNS
+and the Service answer. A client that connects with `replicaSet=rs0`
+would take the member's address from the server and could not reach it.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The member named after the Service, `mongodb:27017` | mongod could recognize itself only by connecting through the Service to its own pod, which needs the pod to be an endpoint first. Not tested. |
+| The member named after the pod, `mongodb-0.<headless Service>`, with `replicaSet=rs0` in the clients' URL | The layout for several members. It adds a headless Service for a second member that nothing else in the recipe supports, such as a shared key (DEC-322). |
+
+DEC-322: An init container generates the key file on every pod start.
+mongod 9.0.4 refuses to start with authorization and a replica set but no
+key file, with `BadValue: security.keyFile is required when authorization
+is enabled with replica sets`. It also refuses a key file its group may
+read, with `permissions on <file> are too open`. Both came from the pinned
+image under Docker, the second for a file of mode 0440 owned by root and
+the group 1000, which is what the kubelet makes of a Secret volume under
+the pod's `fsGroup`. The init container `key`, on the same image, writes
+756 random bytes as base64, 1008 characters, into the `emptyDir` `key` and
+sets the mode 0400 for the UID 1000. With one member the key authenticates
+no other server, so a new key per pod changes nothing. A key as a required
+parameter, copied from a Secret by the init container, was considered. The
+target would keep a ref that no server reads.
+
+DEC-323: A postStart hook initiates the replica set. The image's
+entrypoint passes `--replSet` to mongod but does not initiate the replica
+set: under Docker, mongod 9.0.4 stayed uninitialized with and without
+authorization. MongoDB's guide "Install MongoDB Community with
+Docker" shows `--replSet` for a single-node replica set and does not say
+who initiates it. The entrypoint, a Rust binary, also has an undocumented
+path behind `MONGODB_INITDB_REPL_SET_HOST`, which stopped the container
+with `Could not find replSetName in configuration` when tried, so the
+recipe does not use it.
+
+The hook runs mongosh as `root` against `localhost` every 2 seconds, up to
+90 times. While the entrypoint's first mongod creates `root` without the
+replica set, the call fails and the hook tries again. When `rs.status()`
+answers `NotYetInitialized`, the hook calls `rs.initiate()` with the one
+member. It ends once `db.hello().isWritablePrimary` is true, also on every
+later start. Kubernetes documents that a container does not reach the
+running state before its postStart hook returns, and that it kills the
+container when the hook fails. The pod therefore becomes ready only with a
+primary, and after 90 failed tries the container starts again.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A Job that initiates the replica set | It would have to wait for the pod, and a Job's pod template cannot change, so a new image needs the Job deleted first (`kubernetes` generator README). |
+| An exec probe that initiates the replica set | A probe with a side effect, and its timeout would cut mongosh's start. |
+
+- RCP-400: With the option `replica-set`, `mongodb` MUST run mongod with
+  `--replSet` and the name `applications.mongodb.replica_set`, `rs0` by
+  default, and with `--keyFile` on a file of mode 0400 that an init
+  container generates in the pod. Without the option it MUST render
+  neither.
+
+  - Test: `rocketchat/tests/smoke`; manual: a compile of
+    `mongodb/tests/target.yml`, which leaves the option out
+  - Since: #129
+
+- RCP-401: The postStart hook of the option MUST initiate the replica set
+  with the one member `localhost:27017` when it is not initiated, MUST
+  leave an initiated replica set unchanged, and MUST NOT end before the
+  member is primary.
+
+  - Test: `rocketchat/tests/smoke`, the member primary before and after
+    its pod is replaced; CI `check` job of `rocketchat`
+  - Since: #129
+
+`tests/target.yml` of `mongodb` leaves the option out, so `check mongodb`
+keeps proving the server without a replica set. `check rocketchat` proves
+the option, and CI runs it for every change to `mongodb` (RCP-50).
+
+## Rocket.Chat
+
+Rocket.Chat is a team chat. Its server, a Meteor application on Node.js,
+serves the web client, the REST API and the realtime API on port 3000 and
+keeps its data in MongoDB, uploaded files included. Rocket.Chat is MIT
+outside its `ee/` directories, whose code is under Rocket.Chat's
+Enterprise license and ships in the same image. The repository of its
+chart has no license file. The recipe carries no template, file or values
+text of the chart.
+
+DEC-324: `rocketchat` is a chart recipe on the chart `rocketchat` 7.1.0 of
+RocketChat/helm-charts, tag `rocketchat-7.1.0`, which Rocket.Chat
+publishes in the HTTP repository `https://rocketchat.github.io/helm-charts`.
+On 2026-11-06 it was the newest release of the chart. The compose files of
+RocketChat/rocketchat-compose were considered as the source. DEC-10 puts
+the chart first, and their MongoDB runs without authentication.
+
+DEC-325: `rocketchat` runs Rocket.Chat 8.9.1 as
+`docker.io/rocketchat/rocket.chat:8.9.1`, pinned to its index for amd64
+and arm64. The chart's `appVersion` is 8.6.1, and the notes of the patch
+releases 8.6.2 and 8.6.4 list security hotfixes. 8.9.1 was the newest
+release on 2026-11-06. The chart's default registry,
+`registry.rocket.chat`, fronts the Docker Hub repository that the chart's
+`values.yaml` links. On 2026-11-06 it answered manifest requests with 429
+and Docker Hub's rate-limit headers, its own anonymous quota used up. The
+index's annotations name Rocket.Chat's build run on GitHub Actions.
+`tests/values.yaml` sets `image.repository` and `image.tag`, and Renovate
+moves the tag there with the class line (RCP-16). Docker Hub listed 9088
+tags of the repository on 2026-11-06 and gives no release timestamps for
+it, so its updates need none.
+
+DEC-326: Rocket.Chat keeps its data on the included recipe `mongodb` with
+the option `replica-set`, on MongoDB 9.0, and `tests/values.yaml` switches
+the chart's Bitnami MongoDB subchart off. Rocket.Chat does not name
+MongoDB 9.0. The release notes of 8.9.1 name MongoDB 8.0 as the engine
+version. The system requirements on docs.rocket.chat, updated on
+2026-10-07, ask for MongoDB 8.0 or later. The notes of 8.0.0 drop 5.x and
+6.x, deprecate 7.x and ask for 8.2 before the upgrade.
+`apps/meteor/server/startup/serverRunning.ts` of 8.9.1 stops the server
+below 7.0 and warns below 8.0. MongoDB 9.0 is the release line of
+`mongodb` and was chosen for this recipe. `tests/smoke` proves it on
+9.0.4, and on kind Rocket.Chat printed `MongoDB Version: 9.0.4` in its
+startup banner without a warning.
+
+Against `mongodb` without the option, on kind, Rocket.Chat logged
+`Error in InstanceStatus change stream` with `The $changeStream stage is
+only supported on replica sets or mongos`. Its admin could still create a
+member, and both exchanged messages through the REST API. The replica set
+keeps the change stream and the transactions working. The chart's own
+subchart runs MongoDB as a replica set of one member as well.
+
+DEC-327: Rocket.Chat connects as the user `root` of `mongodb`, the only
+user that recipe creates, with the URL
+`mongodb://root:<password>@mongodb:27017/rocketchat?authSource=admin&directConnection=true`
+in the Secret `rocketchat-rocketchat`, which the chart renders from
+`externalMongodbUrl`. The password stands in the URL unencoded, so the
+README asks for letters and digits, as for open-webui. A user
+`rocketchat` with rights on its database only, as the chart's subchart
+creates, was considered. `mongodb` creates no user from parameters, and
+adding that is a change of its own.
+
+DEC-328: Rocket.Chat runs as one process, without microservices and NATS.
+The chart's default `microservices.enabled: true` runs it as several
+services, which its `values.yaml` marks as available to Enterprise users
+only, and the chart's own `tests/monolith-values.yaml` turns it off. With
+`microservices.enabled: false` alone, helm 4.3.1 still rendered the NATS
+subchart, whose condition is `nats.enabled, microservices.enabled`, so
+`tests/values.yaml` sets `nats.enabled: false` as well.
+
+DEC-329: Rocket.Chat creates its first admin from the required parameters
+and starts with registration closed (DEC-165). The recipe sets `ADMIN_EMAIL`
+and `ADMIN_PASS` from `applications.rocketchat.admin_email` and
+`applications.rocketchat.admin_password`, the latter through the Secret
+`rocketchat`, which the chart's container reads through `extraEnv`.
+Rocket.Chat creates the user `admin` from them when no user has the role
+`admin` (`insertAdminUserFromEnv` in
+`apps/meteor/server/startup/initialData.ts`). `Accounts_RegistrationForm`
+is `Disabled`, where Rocket.Chat's default is `Public`. A variable named
+after a setting gives the setting its first value only (`overrideSetting`
+in `apps/meteor/server/settings/SettingsRegistry.ts`), so an admin can
+open registration later. `OVERWRITE_SETTING_Accounts_RegistrationForm` was
+considered. It would reset that choice on every start. The setup wizard
+stays `in_progress` for the admin's first login. The chart skips it with
+`OVERWRITE_SETTING_Show_Setup_Wizard=completed` only together with a
+license, and the REST API works without it.
+
+`applications.rocketchat.host` is required and sets `ROOT_URL` to
+`https://<host>`, as the chart's `host` does. The image's default
+`http://localhost:3000` is no address users reach. Rocket.Chat serves
+plain HTTP on port 80 of its Service, and the recipe renders no Ingress or
+route, as the chart's `ingress.enabled` defaults to false.
+
+The chart renders no hook and no Role. Its PodMonitor needs the API
+`monitoring.coreos.com/v1`, which `check` does not install, so the chart
+side renders none. The ServiceAccount keeps the API default
+`automountServiceAccountToken: true`, as on the chart side. Uploads go to
+GridFS, Rocket.Chat's default `FileUpload_Storage_Type`, and
+`/app/uploads` is an `emptyDir`, as the chart's `persistence.enabled`
+defaults to false. The recipe is at level `deploys`.
+
+- RCP-402: `rocketchat` MUST render the chart's Deployment, Service,
+  ServiceAccount and Secret `rocketchat-rocketchat` with the values of
+  DEC-325 to DEC-329, and the Secret `rocketchat` with the key
+  `admin-password`.
+
+  - Test: `check rocketchat`; CI `check` job
+  - Since: #129
+
+- RCP-403: The `tests/smoke` of `rocketchat` MUST reach Rocket.Chat
+  through the Service `rocketchat-rocketchat`, log in as `admin` with the
+  role `admin`, create a member, and have the admin and the member each
+  read the other's message in the channel `general` through the REST API.
+  It MUST require that Rocket.Chat reports MongoDB 9.0, that the replica
+  set `rs0` has its member as primary, that Rocket.Chat logged no error
+  for its change stream, that a change stream on Rocket.Chat's messages
+  delivers the admin's message, and that registration is refused. After
+  it deletes the MongoDB and the Rocket.Chat pod, it MUST require the
+  member as primary and both messages again.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #129
+
+- AC-400 (RCP-400 to RCP-403): `check rocketchat --level deploys` passes
+  in CI on each Kubernetes minor. On kind, with `rocketchat` compiled
+  without the option `replica-set`, `tests/smoke` fails.
+
 ## Memos
 
 Memos is a note-taking app. Its users write short Markdown notes, memos,
@@ -8123,5 +8345,7 @@ feature's design (OQ-6).
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
 | matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
+| mongodb option `replica-set` | `recipes.mongodb.replica-set`, replica set `rs0` of one member `localhost:27017` (DEC-321), key file generated by the init container `key` (DEC-322), initiated by a postStart hook (DEC-323) (RCP-400, RCP-401) |
+| rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) as `root` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403) |
 | memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
 | homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |

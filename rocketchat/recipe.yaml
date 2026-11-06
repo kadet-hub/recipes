@@ -1,0 +1,15 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.rocketchat.host
+    description: Host name users reach Rocket.Chat at, ROOT_URL https://<host>.
+    secret: false
+  - path: applications.rocketchat.admin_email
+    description: Email address of the user admin, which the first start creates.
+    secret: false
+  - path: applications.rocketchat.admin_password
+    description: Password of the user admin, which the first start creates.
+    secret: true
+  - path: applications.mongodb.password
+    description: Password of MongoDB's user root, with which Rocket.Chat connects; letters and digits only, as it is part of a URL.
+    secret: true

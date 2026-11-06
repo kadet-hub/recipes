@@ -239,6 +239,13 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
+      "description": "RCP-16: Docker Hub gives no release timestamps for the rocket.chat image, which has more than 1000 tags, so the timestamp is optional; the weekly window bundles its updates",
+      "matchPackageNames": [
+        "docker.io/rocketchat/rocket.chat"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "RCP-184: Docker Hub gives no release timestamps for the wordpress image, which has more than 1000 tags, so the timestamp is optional; the tag's -php8.5-apache suffix keeps PHP and the variant",
       "matchPackageNames": [
         "docker.io/library/wordpress"
