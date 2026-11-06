@@ -81,6 +81,55 @@ parameters:
           mount_path: /mattermost/data
         mattermost-plugins:
           mount_path: /mattermost/client/plugins
+    # Creates the first admin through the API once Mattermost answers.
+    # Mattermost makes the first account a system admin. Once an account
+    # exists it refuses the sign-up, and the Job leaves the accounts as they
+    # are. curl's {{...:json}} writes each value as a JSON string.
+    mattermost-admin:
+      application: mattermost
+      type: job
+      # renovate: upstream
+      image: docker.io/curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+      # The image's user curl_user.
+      workload_security_context:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      # A finished Job goes, so that applying a new version of the recipe
+      # creates it again instead of changing its pod template.
+      ttl_seconds_after_finished: 600
+      env:
+        ADMIN_USERNAME: ${applications.mattermost.admin.username}
+        ADMIN_EMAIL: ${applications.mattermost.admin.email}
+        ADMIN_PASSWORD:
+          secretKeyRef:
+            name: mattermost-admin
+            key: password
+      command:
+        - sh
+        - -c
+      args:
+        script: |
+          url=http://mattermost-team-edition:8065
+          until curl -fsS -o /dev/null $url/api/v4/system/ping; do sleep 5; done
+          status=$(curl -sS -o /tmp/answer -w '%{http_code}' \
+            --variable %ADMIN_USERNAME --variable %ADMIN_EMAIL --variable %ADMIN_PASSWORD \
+            --expand-json '{"username": "{{ADMIN_USERNAME:json}}", "email": "{{ADMIN_EMAIL:json}}", "password": "{{ADMIN_PASSWORD:json}}"}' \
+            $url/api/v4/users)
+          case $status in
+            201) grep -q system_admin /tmp/answer && echo "created the system admin $ADMIN_USERNAME" && exit 0 ;;
+            400|403) grep -qE 'api.user.create_user.no_open_server|app.user.save.username_exists' /tmp/answer &&
+              echo "Mattermost has accounts, created none" && exit 0 ;;
+          esac
+          echo "unexpected answer $status: $(cat /tmp/answer)"
+          exit 1
   generators:
     kubernetes:
       services:
@@ -93,6 +142,11 @@ parameters:
               service_port: 8065
               container_port: http
       secrets:
+        # The first admin's password for the Job mattermost-admin.
+        mattermost-admin:
+          string_data:
+            password:
+              value: ${applications.mattermost.admin.password}
         # MM_<SECTION>_<SETTING> overrides of Mattermost's configuration.
         mattermost-mattermost-team-edition-config:
           string_data:

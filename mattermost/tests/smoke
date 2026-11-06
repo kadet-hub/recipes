@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # RCP-372: the pods pass Pod Security restricted, and the Service answers the
-# ping. The first admin is created with mmctl in local mode as the README
-# says. Through the API Mattermost reports the image tag as a Team Edition
-# build, refuses a sign-up without an invitation, and lets the admin create
-# a team, a channel and a second user and post a message with a file, which
-# the second user reads. After the pod is replaced the second user reads the
-# message and the file again.
+# ping. The Job mattermost-admin creates the first admin from the target
+# (RCP-374). Through the API Mattermost reports the image tag as a Team
+# Edition build, refuses a sign-up without an invitation, and lets the admin
+# create a team, a channel and a second user and post a message with a file,
+# which the second user reads. The Job run again creates no account. After
+# the pod is replaced the second user reads the message and the file again.
 set -euo pipefail
 fail() { echo "$*" >&2; exit 1; }
 kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
@@ -17,9 +17,12 @@ kubectl get --raw "/api/v1/namespaces/$ns/services/mattermost-team-edition:8065/
   jq -e '.status == "OK"' >/dev/null
 
 deploy=deployment/mattermost-mattermost-team-edition
-admin=smoke-admin reader=smoke-reader password=aaaaaaaaaaaaaaaa
-kubectl exec "$deploy" -- mmctl --local user create --email "$admin@example.com" \
-  --username "$admin" --password "$password" --system-admin >/dev/null
+# The Job creates the admin once Mattermost answers.
+kubectl wait job/mattermost-admin --for=condition=Complete --timeout=480s >/dev/null
+kubectl logs job/mattermost-admin | grep -q 'created the system admin' || fail "the Job created no admin: $(kubectl logs job/mattermost-admin)"
+admin=$(kubectl get job mattermost-admin -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_USERNAME")].value}')
+password=$(kubectl get secret mattermost-admin -o jsonpath='{.data.password}' | base64 -d)
+reader=smoke-reader
 
 url=http://localhost:18065
 pf=
@@ -79,6 +82,20 @@ read_back() {
   [[ $(api "$token" "$url/api/v4/files/$file") == "$content" ]] || fail "$reader does not read the file $1"
 }
 read_back "after the post"
+
+# The Job run again creates no account and leaves the admin's password.
+users() { api "$token" "$url/api/v4/users/stats" | jq -er .total_users_count; }
+count=$(users)
+job=$(kubectl get job mattermost-admin -o json | jq 'del(.metadata.uid, .metadata.resourceVersion,
+  .metadata.creationTimestamp, .metadata.managedFields, .status, .spec.selector,
+  .spec.template.metadata.labels["controller-uid", "batch.kubernetes.io/controller-uid", "job-name", "batch.kubernetes.io/job-name"])')
+kubectl delete job mattermost-admin --wait=true >/dev/null
+kubectl create -f - <<<"$job" >/dev/null
+kubectl wait job/mattermost-admin --for=condition=Complete --timeout=120s >/dev/null || fail "the Job run again failed: $(kubectl logs job/mattermost-admin)"
+kubectl logs job/mattermost-admin | grep -q 'created none' || fail "the Job run again did not leave the accounts: $(kubectl logs job/mattermost-admin)"
+[[ $(users) == "$count" ]] || fail "the Job run again changed the number of accounts from $count"
+token=$(login "$admin")
+[[ $token ]] || fail "the admin cannot log in after the Job ran again"
 old=$(kubectl get pod -l name=mattermost-mattermost-team-edition -o name)
 kubectl delete "$old" --wait=true >/dev/null
 ready=
@@ -90,4 +107,4 @@ done
 [[ $ready ]] || fail "pod never became ready: no ready pod replaced the deleted $old"
 forward
 read_back "after the pod was replaced"
-echo "Mattermost Team Edition $tag: the admin from mmctl --local created team, channel and $reader and posted a message with a file, which $reader read before and after the pod was replaced; sign-up without an invitation got 403; the pods pass Pod Security restricted"
+echo "Mattermost Team Edition $tag: the admin from the Job created team, channel and $reader and posted a message with a file, which $reader read before and after the pod was replaced; the Job run again created no account; sign-up without an invitation got 403; the pods pass Pod Security restricted"

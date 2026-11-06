@@ -36,3 +36,65 @@ containerSecurityContext:
   capabilities:
     drop:
       - ALL
+# renovate: upstream docker.io/curlimages/curl
+adminJobCurlTag: 8.23.0
+# The Job mattermost-admin of the recipe, as a user adds it next to the
+# chart. It reads the password from the Secret mattermost-admin, which the
+# recipe renders. extraDeploy goes through tpl, so curl's {{ and }} are
+# written as {{"{{"}} and {{"}}"}}.
+extraDeploy:
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: mattermost-admin
+    spec:
+      backoffLimit: 1
+      completions: 1
+      parallelism: 1
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: mattermost-admin
+              image: docker.io/curlimages/curl:{{ .Values.adminJobCurlTag }}
+              command:
+                - sh
+                - -c
+              args:
+                - |
+                  url=http://mattermost-team-edition:8065
+                  until curl -fsS -o /dev/null $url/api/v4/system/ping; do sleep 5; done
+                  status=$(curl -sS -o /tmp/answer -w '%{http_code}' \
+                    --variable %ADMIN_USERNAME --variable %ADMIN_EMAIL --variable %ADMIN_PASSWORD \
+                    --expand-json '{"username": "{{"{{"}}ADMIN_USERNAME:json{{"}}"}}", "email": "{{"{{"}}ADMIN_EMAIL:json{{"}}"}}", "password": "{{"{{"}}ADMIN_PASSWORD:json{{"}}"}}"}' \
+                    $url/api/v4/users)
+                  case $status in
+                    201) grep -q system_admin /tmp/answer && echo "created the system admin $ADMIN_USERNAME" && exit 0 ;;
+                    400|403) grep -qE 'api.user.create_user.no_open_server|app.user.save.username_exists' /tmp/answer &&
+                      echo "Mattermost has accounts, created none" && exit 0 ;;
+                  esac
+                  echo "unexpected answer $status: $(cat /tmp/answer)"
+                  exit 1
+              env:
+                - name: ADMIN_USERNAME
+                  value: smoke-admin
+                - name: ADMIN_EMAIL
+                  value: smoke-admin@example.com
+                - name: ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mattermost-admin
+                      key: password
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

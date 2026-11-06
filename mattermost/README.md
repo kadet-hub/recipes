@@ -52,6 +52,12 @@ parameters:
   kapitan:
     vars:
       target: mattermost
+  applications:
+    mattermost:
+      admin:
+        username: admin
+        email: admin@example.com
+        password: <ref>
 ```
 
 The recipe includes `recipes.postgresql`. Pin only this recipe in the fetch
@@ -62,24 +68,32 @@ kadet-hub.org shows.
 
 ## Required parameters
 
-No parameter has to be set.
+`applications.mattermost.admin.username`,
+`applications.mattermost.admin.email` and
+`applications.mattermost.admin.password` are the first admin's account.
+Set the password as a ref with the backend of your choice. Mattermost
+requires at least 8 characters. Without one of the parameters the compile
+stops with `Interpolation key '<key>' not found`. `postgresql` requires no
+parameter.
 
 ## The first admin
 
-The recipe creates no account (DEC-295). Until the first account exists,
-Mattermost makes the first account that signs up a system admin, also with
-open sign-up off. Create the admin right after the first rollout, before
-the target exposes the Service. The image turns on mmctl's local mode, so
-from a shell with access to the namespace:
+Mattermost makes the first account a system admin, also one that signs up
+with open sign-up off. The Job `mattermost-admin` creates that account
+from the parameters through the API as soon as Mattermost answers through
+the Service `mattermost-team-edition`
+(DEC-295 in [docs/specs/recipes.md](../docs/specs/recipes.md)). Once an
+account exists, Mattermost refuses the request, and the Job leaves the
+accounts as they are. A later change of the password in the target
+therefore does not reach the account. Change it in Mattermost. The Job
+goes 10 minutes after it finished, and applying a new version of the
+recipe creates it again.
 
-```sh
-kubectl exec deployment/mattermost-mattermost-team-edition -- \
-  mmctl --local user create --username <login> --email <address> \
-  --password '<password>' --system-admin
-```
-
-The password needs at least 8 characters. The admin then creates the
-other accounts or invites people through the System Console or the API.
+Between the moment the pod is ready and the Job's request, a sign-up
+through an exposed Service would still become the admin, and the Job would
+create no account. Expose the Service only after the Job completed. Its
+log says whether it created the admin. The admin creates the other
+accounts or invites people through the System Console or the API.
 
 ## Settings
 
@@ -130,16 +144,22 @@ the component, the chart's `mattermost-team-edition`. The pod sets
 `automountServiceAccountToken: true`, the API default the chart leaves
 unset. The chart binds no role. Its Helm test
 `Pod/mattermost-mattermost-team-edition-test` is left out.
+`tests/values.yaml` adds the Job `mattermost-admin` through the chart's
+`extraDeploy`, as a user would next to the chart. The Secret
+`mattermost-admin` with its password is only in the recipe, and the
+chart's side reads it.
 `tests/target.yml` runs one PostgreSQL instance.
 
 `tests/smoke` checks that the pods pass Pod Security `restricted` and that
-`/api/v4/system/ping` answers through the Service. It creates the admin
-with `mmctl --local` as above. Through the API the client configuration
-names the image tag and a Team Edition build, and a sign-up without an
-invitation gets 403. The admin creates a team, a channel and a second
-user, and posts a message with a file. The second user reads both, and
-reads them again after the test deleted the pod and its successor is
-ready, which needs the database and the claim.
+`/api/v4/system/ping` answers through the Service. It waits for the Job
+`mattermost-admin` and logs in as its admin. Through the API the client
+configuration names the image tag and a Team Edition build, and a sign-up
+without an invitation gets 403. The admin creates a team, a channel and a
+second user, and posts a message with a file. The second user reads both,
+and reads them again after the test deleted the pod and its successor is
+ready, which needs the database and the claim. The test also runs the Job
+again, which completes without a new account, and the admin still logs
+in.
 
 ## Replacing a Helm release
 
