@@ -6767,7 +6767,7 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   adds through `extraDeploy`.
 
   - Test: `check mattermost`; CI `check` job
-  - Since: #122; the Job: this change
+  - Since: #122; the Job: #130
 
 - RCP-371: `mattermost` MUST connect to the Cluster of `postgresql` with a
   connection string without a password and `sslmode=require`, and MUST set
@@ -6794,7 +6794,7 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   read after the restart needs both.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #122; the Job: this change
+  - Since: #122; the Job: #130
 
 - RCP-373: The README of `mattermost` MUST say that the Job
   `mattermost-admin` creates the first admin and leaves existing accounts
@@ -6802,7 +6802,7 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   completed.
 
   - Test: manual: review
-  - Since: #122; the Job: this change
+  - Since: #122; the Job: #130
 
 - RCP-374: `mattermost` MUST take the first admin's username, email
   address and password from `applications.mattermost.admin.username`,
@@ -6812,7 +6812,7 @@ with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
   refuses the request because accounts exist.
 
   - Test: `check lint` (RCP-262); CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #130
 
 - AC-370 (RCP-370 to RCP-372, RCP-374): `check mattermost --level
   deploys` passes in CI on each Kubernetes minor, with differences of the
