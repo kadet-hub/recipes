@@ -7027,6 +7027,172 @@ creates the admin already.
   and reads the memo after the restart. `tests/target.yml` without `applications.memos.instance_url`
   stops the compile with `Interpolation key` and that key.
 
+## homepage
+
+homepage is a dashboard: a page of links to services, with widgets that
+show their status, and bookmarks. gethomepage/homepage, GPL-3.0, builds the
+image `ghcr.io/gethomepage/homepage`. Its repository holds no chart,
+Kustomize base or compose file.
+
+DEC-225: `homepage` is a designed recipe on
+`ghcr.io/gethomepage/homepage:v2.7.0` (Designed recipes). The project's
+README and its Docker installation page carry a compose example. It
+bind-mounts the absolute placeholder path `/path/to/config` at
+`/app/config` and, as optional, the Docker socket, and Compose sources stop
+on both. The Kubernetes installation page (`docs/installation/k8s.md`)
+shows manifests in code blocks, which no source type of DEC-9 takes, and
+the Helm chart it names is unofficial, which DEC-11 rejects. The recipe
+follows that page where the image leaves a choice open: the user, the
+ClusterRole and the files below `/app/config`. Taking the compose example
+with new mappings for an absolute placeholder path and an optional Docker
+socket was considered. Those mappings would serve this one recipe, and the
+Kubernetes page already says how the pod looks on a cluster.
+
+v2.7.0 of 2026-10-23 was the newest release on 2026-11-05. The tag is an
+index for amd64 and arm64, and its `org.opencontainers.image.revision` is
+`2e5f10134ae3961bb936d3e7c441f9a1f4a4bf4f`. Every advisory of
+gethomepage/homepage published by 2026-11-05 names 2.6.0 or an earlier
+release as fixed.
+
+The Deployment `homepage` runs one replica as UID and GID 1000 under
+`security_profile: restricted`, as the Kubernetes page sets its container.
+The image's `/app/.next` belongs to UID 1000, and its entrypoint changes no
+ownership when it does not start as root (`docker-entrypoint.sh`). Port 3000
+becomes port 3000 of the Service `homepage`. The image's `HEALTHCHECK` gets
+`/api/healthcheck` from `127.0.0.1` every 10 seconds with a timeout of 3
+seconds. It becomes the readiness probe with Docker's default of 3 retries,
+and there is no liveness probe, as a compose `healthcheck` maps.
+`/app/config` is an `emptyDir`. homepage copies each file of its
+configuration that it does not find there from `src/skeleton/` of the
+image, and exits when it cannot write it (`checkAndCopyConfig` in
+`src/utils/config/config.js`). It also writes its log to `logs/` there.
+
+DEC-226: `homepage` takes the dashboard from the parameters
+`applications.homepage.settings`, `.services`, `.bookmarks` and `.widgets`,
+written in the inventory as the YAML that homepage's documentation shows
+for `settings.yaml`, `services.yaml`, `bookmarks.yaml` and `widgets.yaml`.
+Kapitan's built-in resolver `yaml` turns each parameter into the text of
+its key in the component's ConfigMap `config`, which is `versioned`, and
+each key is mounted with `subPath` at `/app/config/<file>`. The recipe sets
+them to `{}` and `[]`. A changed parameter changes the ConfigMap's name and
+with it the pod template, so the Deployment rolls out a pod that reads the
+new files. A `subPath` mount does not follow a changed ConfigMap, so
+without the hash a change would wait for the next restart.
+
+The resolver dumps with PyYAML's defaults (`to_yaml` in Kapitan 0.36.3), so
+the keys of every mapping come out sorted. homepage orders the groups of the
+page by the keys of `layout` in `settings.yaml`. homepage 2.7.0 also takes
+`layout` as a list of one-key mappings in list order (`getSettings` in
+`src/utils/config/config.js`), and the README tells targets to write it so.
+
+| Alternative | Why it was not taken |
+|---|---|
+| Each file as a block string parameter | YAML inside a YAML string, which classes cannot merge and the inventory cannot check |
+| The image's sample files as defaults | A target's list is appended to the class's, so a target could not drop the sample services without a class that resets each list |
+| The ConfigMap mounted as the whole of `/app/config` | The mount is read-only, and homepage exits when it copies a file the ConfigMap lacks |
+| A claim at `/app/config` | The dashboard would be edited in the pod and would not follow the inventory |
+
+DEC-227: `homepage` requires `applications.homepage.allowed_hosts` and sets
+it as `HOMEPAGE_ALLOWED_HOSTS`. homepage 2.7.0 answers 400 to every request
+whose `Host` header is not in that comma-separated list or one of
+`localhost:3000`, `127.0.0.1:3000` and `[::1]:3000` (`isAllowedHost` in
+`src/utils/auth.js`, applied to every route by `src/proxy.js`). Its
+installation guide calls the variable required for access through any
+other address. The Kubernetes page sets the pod IP and a domain, the pod IP
+for its liveness probe over HTTP. The recipe's probe runs in the container
+against `127.0.0.1`, so the list needs no pod IP. A default of the
+Service's names in the cluster was considered. Users reach a dashboard
+through the host of their route or Ingress, which the recipe cannot know,
+and a default would answer them with 400 until the target overrides it.
+`*` turns the check off, which the guide advises against.
+
+DEC-228: The option `kubernetes` renders the ServiceAccount `homepage`, the
+ClusterRole `homepage` with the rules of the Kubernetes installation page,
+and the ClusterRoleBinding `homepage`, and writes
+`applications.homepage.kubernetes`, by default `mode: cluster`, to
+`/app/config/kubernetes.yaml`. homepage then lists the Ingresses of the
+cluster with the annotation `gethomepage.dev/enabled: "true"` as services,
+and with `gateway: true` or `traefik: true` HTTPRoutes or Traefik
+IngressRoutes. The rules grant `get` and `list` on Namespaces, Pods,
+Nodes, Ingresses in `extensions` and `networking.k8s.io`, IngressRoutes,
+HTTPRoutes, Gateways and the metrics of Nodes and Pods. The role comes from
+`generators.kubernetes.rbac.homepage`, because a component's
+`cluster_role` would be named `<namespace>-homepage` (RCP-3). The page's
+Secret of type `kubernetes.io/service-account-token` is left out. The
+kubelet mounts a projected token, which `loadFromCluster` of
+`@kubernetes/client-node` reads.
+
+RCP-44 kept every RBAC object out of a designed recipe, because no
+upstream artifact asks for one and nothing compares it. Here the project's
+documentation asks for exactly these rules, and the review compares them
+with the page. RCP-308 lets a designed recipe render roles that only read,
+and `check lint` enforces that, since it cannot compare the rules with
+documentation. Leaving the option out was considered. The Kubernetes page
+sets discovery up, and without it a target lists every service by hand.
+Allowing any RBAC was considered too. A designed recipe could then grant writes that
+neither `check` nor a source compares.
+
+DEC-229: `homepage` serves the dashboard without a login, homepage's
+default. homepage 2 has an optional gate with one password or OIDC behind
+`HOMEPAGE_AUTH_ENABLED`, and no accounts or registration. A required
+password, as `stirling-pdf` creates its first admin (DEC-165), was
+considered. The gate also needs `HOMEPAGE_AUTH_SECRET` and the external URL
+`HOMEPAGE_EXTERNAL_URL`, which a target sets anyway when it exposes the
+page, and homepage's documentation asks for authentication in a reverse
+proxy in front of a public deployment. The README names the variables.
+
+- RCP-305: `homepage` MUST run the image of its `Source` line as UID and
+  GID 1000 under `security_profile: restricted`, with an `emptyDir` at
+  `/app/config`, the readiness probe of the image's `HEALTHCHECK` and no
+  liveness probe. It MUST set `HOMEPAGE_ALLOWED_HOSTS` from
+  `applications.homepage.allowed_hosts` and MUST leave that parameter
+  unset.
+
+  - Test: `check lint` (RCP-23, RCP-262); RCP-309
+  - Since: #113
+
+- RCP-306: `homepage` MUST write `applications.homepage.settings`,
+  `.services`, `.bookmarks` and `.widgets` with the resolver `yaml` to the
+  keys `settings.yaml`, `services.yaml`, `bookmarks.yaml` and
+  `widgets.yaml` of the versioned ConfigMap `config` of its component, and
+  MUST mount each key at `/app/config/<key>`.
+
+  - Test: RCP-309
+  - Since: #113
+
+- RCP-307: The option `recipes.homepage.kubernetes` MUST render the
+  ServiceAccount, ClusterRole and ClusterRoleBinding of DEC-228 with the
+  rules of homepage's Kubernetes installation page at the image's tag, and
+  MUST write `applications.homepage.kubernetes` to
+  `/app/config/kubernetes.yaml`.
+
+  - Test: `check lint` (RCP-308); RCP-309; manual: review of the rules
+    against `docs/installation/k8s.md` at the tag
+  - Since: #113
+
+- RCP-309: The `tests/smoke` of `homepage` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From a
+  pod of its own and through the Service `homepage` on port 3000, it MUST
+  require 200 from `/api/healthcheck`, the title of `tests/target.yml` from
+  `/` and 400 from `/` with a `Host` outside the allowed hosts, and find the
+  service and the bookmark of `tests/target.yml` in `/api/services` and
+  `/api/bookmarks`. It MUST require that the ServiceAccount `homepage` may
+  list Ingresses and may not get Secrets, create Ingresses or delete Pods,
+  and find an Ingress it creates with homepage's annotations in
+  `/api/services`. It MUST compile `tests/target.yml` with a service
+  renamed, apply the result, and once the Deployment rolled out find the
+  new name in `/api/services` and not the old one.
+
+  The compile runs with the Kapitan of `check`'s environment and the
+  generator pulled by the digest that `check` verified (RCP-27), on the
+  recipe's class files, so the change takes the path a target's change
+  takes. The test runs `node` in a pod of homepage's image, whose `http`
+  client sends the `Host` header it is given.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #113
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -7958,3 +8124,4 @@ feature's design (OQ-6).
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
 | matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
 | memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
+| homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
