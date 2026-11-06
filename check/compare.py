@@ -26,7 +26,7 @@ DROP_LABELS = {
     "heritage",
     "component",
 }
-# The API server adds these to a Job's pod template, and to the Job without labels; the UIDs differ on each side.
+# The API server adds these to a Job's pod template, the UIDs differ on each side.
 JOB_LABELS = {"controller-uid", "batch.kubernetes.io/controller-uid", "job-name", "batch.kubernetes.io/job-name"}
 DROP_ANNOTATIONS = {"kubectl.kubernetes.io/last-applied-configuration"}
 HELM_PREFIXES = ("helm.sh/", "meta.helm.sh/")
@@ -100,7 +100,9 @@ def normalize(obj, side):
     for key in DROP_METADATA:
         meta.pop(key, None)
     generated = JOB_LABELS if obj.get("kind") == "Job" else frozenset()
-    _clean_metadata(meta, generated)
+    # A Job without labels of its own gets its template's, the generated ones included.
+    template_labels = (((obj.get("spec") or {}).get("template") or {}).get("metadata") or {}).get("labels")
+    _clean_metadata(meta, generated if meta.get("labels") == template_labels else frozenset())
     for _, template in pod_templates(obj):
         _clean_metadata(template.setdefault("metadata", {}), generated)
         if not template["metadata"]:

@@ -138,6 +138,13 @@ class Compare(unittest.TestCase):
         chart["metadata"]["labels"] = dict(chart["spec"]["template"]["metadata"]["labels"])
         recipe["metadata"]["labels"] = {"name": "demo-admin"}
         self.assertEqual(self.unaccepted(compare.compare([chart], [recipe])), [])
+        # A job-name label the Job sets itself stays.
+        chart["metadata"]["labels"] = {"job-name": "demo-admin"}
+        self.assertEqual(
+            self.unaccepted(compare.compare([chart], [recipe])),
+            ['NOT ACCEPTED: Job.batch/demo/demo-admin metadata.labels: chart {"job-name": "demo-admin"}, recipe <unset>'],
+        )
+        del chart["metadata"]["labels"]
         recipe["spec"]["template"]["metadata"]["labels"]["sidecar.istio.io/inject"] = "false"
         self.assertEqual(
             self.unaccepted(compare.compare([chart], [recipe])),
