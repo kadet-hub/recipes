@@ -380,13 +380,57 @@ class LintDesign(unittest.TestCase):
         self.assertEqual(lint.lint_design_output([statefulset, service], source), [])
         container["image"] = image.replace(":9.7.4@", ":9.7.3@")
         binding = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
-                   "metadata": {"name": "mysql", "namespace": "mysql"}}
+                   "metadata": {"name": "mysql", "namespace": "mysql"}, "roleRef": {"kind": "ClusterRole", "name": "edit"}}
         self.assertEqual(
             lint.lint_design_output([statefulset, service, binding], source),
             [
-                "RoleBinding.rbac.authorization.k8s.io/mysql/mysql: RBAC object, the source grants no API access (RCP-38)",
+                "RoleBinding.rbac.authorization.k8s.io/mysql/mysql: binds ClusterRole/edit, which the recipe does not render (RCP-308)",
                 f"no container runs the Source image {image} (RCP-23)",
             ],
+        )
+
+    def test_read_only_rbac(self):
+        """RCP-308: a designed recipe may bind its own roles that only read, and nothing else."""
+        rbac = "rbac.authorization.k8s.io/v1"
+        reads = {"apiGroups": ["", "networking.k8s.io"], "resources": ["pods", "ingresses"], "verbs": ["get", "list", "watch"]}
+        cluster_role = {"apiVersion": rbac, "kind": "ClusterRole", "metadata": {"name": "homepage"}, "rules": [reads]}
+        role = {"apiVersion": rbac, "kind": "Role", "metadata": {"name": "homepage", "namespace": "homepage"}, "rules": [reads]}
+        subjects = [{"kind": "ServiceAccount", "name": "homepage", "namespace": "homepage"}]
+        cluster_binding = {"apiVersion": rbac, "kind": "ClusterRoleBinding", "metadata": {"name": "homepage"},
+                           "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "homepage"},
+                           "subjects": subjects}
+        binding = {"apiVersion": rbac, "kind": "RoleBinding", "metadata": {"name": "homepage", "namespace": "homepage"},
+                   "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "homepage"}, "subjects": subjects}
+        self.assertEqual(lint.read_only_rbac_errors([cluster_role, role, cluster_binding, binding]), [])
+        # A ClusterRole is cluster-scoped: a namespace in its metadata does not hide it from its binding.
+        namespaced = {**cluster_role, "metadata": {"name": "homepage", "namespace": "homepage"}}
+        self.assertEqual(lint.read_only_rbac_errors([namespaced, cluster_binding]), [])
+        # A Role rendered without a namespace lands in the binding's, the target namespace.
+        unnamespaced = {**role, "metadata": {"name": "homepage"}}
+        self.assertEqual(lint.read_only_rbac_errors([unnamespaced, binding]), [])
+        writes = {**cluster_role, "rules": [reads, {"apiGroups": [""], "resources": ["configmaps"], "verbs": ["get", "update"]}]}
+        secrets = {**role, "rules": [{"apiGroups": [""], "resources": ["secrets", "secrets/status"], "verbs": ["get"]},
+                                     {"apiGroups": ["*"], "resources": ["pods"], "verbs": ["list"]}]}
+        urls = {**cluster_role, "metadata": {"name": "homepage-urls"}, "rules": [{"nonResourceURLs": ["/metrics"], "verbs": ["get"]}],
+                "aggregationRule": {"clusterRoleSelectors": []}}
+        admin = {**cluster_binding, "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "cluster-admin"}}
+        elsewhere = {**binding, "metadata": {"name": "homepage", "namespace": "other"}}
+        self.assertEqual(
+            lint.read_only_rbac_errors([writes, secrets, urls, admin, elsewhere]),
+            [
+                "ClusterRole.rbac.authorization.k8s.io/homepage: verbs update, a designed recipe only reads (RCP-308)",
+                "Role.rbac.authorization.k8s.io/homepage/homepage: secrets, secrets/status, a designed recipe reads no Secret (RCP-308)",
+                "Role.rbac.authorization.k8s.io/homepage/homepage: *, a designed recipe names the groups and resources it reads (RCP-308)",
+                "ClusterRole.rbac.authorization.k8s.io/homepage-urls: aggregationRule, a designed recipe grants only the rules it lists (RCP-308)",
+                "ClusterRole.rbac.authorization.k8s.io/homepage-urls: nonResourceURLs, a designed recipe reads only resources (RCP-308)",
+                "ClusterRoleBinding.rbac.authorization.k8s.io/homepage: binds ClusterRole/cluster-admin, which the recipe does not render (RCP-308)",
+                "RoleBinding.rbac.authorization.k8s.io/other/homepage: binds Role/homepage, which the recipe does not render (RCP-308)",
+            ],
+        )
+        # A compose recipe still renders no RBAC object at all (RCP-38).
+        self.assertEqual(
+            lint.lint_compose_output([cluster_role]),
+            ["ClusterRole.rbac.authorization.k8s.io/homepage: RBAC object, the source grants no API access (RCP-38)"],
         )
 
     def test_output_on_an_operator(self):

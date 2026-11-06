@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.16.0 implements renders and deploys, for charts
+Status: Draft. check 0.18.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -860,8 +860,11 @@ For a compose source and a designed recipe, `renders`, also as part of
   that only identify an object (`app`, `name`, `app.kubernetes.io/name`,
   `app.kubernetes.io/instance`, `app.kubernetes.io/component`,
   `app.kubernetes.io/part-of`, `chart`, `release`, `heritage`, `component`),
-  and image digests on the recipe side. Secrets the chart generates are
-  compared by key.
+  the labels the API server adds to the pod template of a Job
+  (`controller-uid`, `batch.kubernetes.io/controller-uid`, `job-name`,
+  `batch.kubernetes.io/job-name`), also on a Job whose labels equal its
+  template's, and image digests on the recipe side.
+  Secrets the chart generates are compared by key.
 
   Keeping the identifying labels would force a recipe to copy the chart's
   label scheme. What selects on them is checked by RCP-10 instead. Every
@@ -877,8 +880,22 @@ For a compose source and a designed recipe, `renders`, also as part of
   ConfigMaps, so a recipe cannot carry these labels, and `heritage: Helm`
   would name a manager that does not manage the object.
 
+  When it creates a Job, also in a dry run, the API server sets the
+  `controller-uid` labels of the pod template to the Job's UID, which
+  differs on each side, and selects on `batch.kubernetes.io/controller-uid`.
+  That selector difference is of the class Selector scheme (RCP-12). A Job
+  without labels of its own gets those of its pod template, the generated
+  ones included, while the `kubernetes` generator always labels a Job.
+  The labels of a Job that differ from its template's are its own and
+  stay, also a `job-name` the chart sets. A chart that adds a Job, such as one that creates an admin through
+  `extraDeploy`, would otherwise never compare equal. The `job-name` labels
+  name the Job, which the pairing already compares. A Job with
+  `manualSelector: true` gets none of these labels, but the `kubernetes`
+  generator has no key for it, and Kubernetes advises against it.
+
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; `chart`, `release`, `heritage`, `component`: #29
+  - Since: #2; `chart`, `release`, `heritage`, `component`: #29; the
+    labels of a Job: #127
 
 - RCP-10: Every selector on both sides MUST select the same objects, judged
   on the labels before normalization: a workload's selector its own pods, a
@@ -1134,6 +1151,11 @@ and the README lists the renames.
 | `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 | `init: true` where the image's start script runs the server as PID 1 and the server ends on `SIGTERM` | nothing | DEC-120 |
 | `depends_on` with `condition: service_healthy` on a service that becomes an included recipe, where the dependent exits while that service does not answer | an init container of the dependent's image that waits until the included recipe's Service accepts connections | DEC-121. It adds no image. |
+| a variable without a default that the documentation sets in `.env`, which it copies from an example file of the pinned repository | the example file's value. A credential becomes a parameter, and one that only a service of another compose file uses is left out. | DEC-306 |
+| bind mount of a directory below such a variable's directory, which the documentation has the user create empty | `volume_claims` with `volume_mounts` where the container writes data it keeps, nothing where it only reads | DEC-307 |
+| `aliases` on a network that every service shares | nothing. A reference to the alias, also through an image's default, is rewritten to the component's Service. | DEC-308 |
+| `read_only: true` | `read_only_root_filesystem: true` | DEC-309 |
+| `tmpfs` | `volumes` with an `emptyDir` of `medium: Memory` and the entry's `size` as `sizeLimit`, `volume_mounts` at its path | DEC-309. `mode` and `noexec` are dropped. |
 | bind mount of a file that the pinned repository does not contain, which the documentation copies from a file the image carries byte for byte at the mount target | nothing | DEC-301. The README names the file and its SHA-256. |
 
 What the table does not map is a gap, and so is each of these:
@@ -1142,9 +1164,9 @@ What the table does not map is a gap, and so is each of these:
 |---|---|
 | `build` without a published `image` | There is no image to pin |
 | `network_mode` | `host` puts the pod on the node's network, `service:` and `container:` share a network namespace, which only containers of one pod can |
-| bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
+| bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository other than above, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
 | `privileged`, `cap_add` other than above, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
-| `networks` that separate services, `aliases`, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
+| `networks` that separate services, `aliases` other than above, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
 | `extends` or `include` of a file outside the pinned repository | The content is not pinned |
 | a named volume of several services | `ReadWriteOnce` cannot be shared across nodes, and kind has no `ReadWriteMany` storage to prove it on |
 | `working_dir` | The `kubernetes` generator 1.7.0 has no key for `workingDir`. It is a generator request. |
@@ -1164,13 +1186,17 @@ What the table does not map is a gap, and so is each of these:
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
   (DEC-120, DEC-121). Revised in #118: the bind mount of a file
-  the image carries, for ejabberd (DEC-301).
+  the image carries, for ejabberd (DEC-301). Revised in #117: `.env`
+  from an example file, which was resolved without one, the bind mounts
+  below its configuration directory and `aliases`, which were gaps,
+  `read_only` and `tmpfs`, all for jitsi-meet (DEC-306 to DEC-309).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; file the image
-    carries: #118
+    carries: #118; `.env`, configuration directory, `aliases`,
+    `read_only`, `tmpfs`: #117
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -1355,17 +1381,46 @@ this as a constraint.
 
 - RCP-44: A designed recipe MUST be at level `deploys`. `check lint` and
   `check` MUST check it as RCP-38 describes for a compose recipe: no RBAC
-  object, every selector selecting pods, then one fresh kind cluster, with
-  a deploy and `tests/smoke` at `deploys` and the apply of RCP-26 without
-  a comparison at `renders`.
+  object except roles that only read (RCP-308), every selector selecting
+  pods, then one fresh kind cluster, with a deploy and `tests/smoke` at
+  `deploys` and the apply of RCP-26 without a comparison at `renders`.
 
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
-  would compare it. The `next` compile (RCP-24) runs unchanged.
+  would compare it. The `next` compile (RCP-24) runs unchanged. Revised in
+  #126: read access that the project's documentation asks for
+  (RCP-308).
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
     `renders`: `check/tests/test_check.py`
-  - Since: #14; `renders`: #45
+  - Since: #14; `renders`: #45; RCP-308: #126
+
+- RCP-308: `check lint` MUST accept an RBAC object in a designed recipe
+  only when it reads. Every rule of a Role or ClusterRole MUST grant no
+  verb but `get`, `list` and `watch`, MUST name no `*` in `apiGroups` or
+  `resources`, MUST name no `secrets` or Secret subresource in
+  `resources`, and MUST have no `nonResourceURLs`. A ClusterRole MUST have
+  no `aggregationRule`. Every binding MUST bind a Role or ClusterRole that
+  the recipe renders itself.
+
+  A project's documentation can ask for read access to the cluster, as
+  homepage's Kubernetes installation page does for its service discovery.
+  `check` cannot compare such rules with documentation, so the rule limits
+  what they can grant. A binding to a role the recipe does not render, such
+  as `cluster-admin`, would grant more than the rules show. The review
+  compares the rules with the documentation the README names. A compose
+  recipe still renders no RBAC object (RCP-38). A ClusterRole is
+  cluster-scoped, so a namespace in its metadata does not keep its binding
+  from finding it. A Role or RoleBinding without a namespace lands in the
+  target namespace, so their namespaces are compared only when both name
+  one. A role of an included recipe does not count as the
+  recipe's own. Its rules need not only read, as a chart recipe's are
+  compared with the chart instead, so a binding to it would let the
+  designed recipe grant what this rule forbids.
+
+  - Test: `check lint`; `check/tests/test_lint.py`
+    (`LintDesign.test_read_only_rbac`)
+  - Since: #126
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
@@ -1414,8 +1469,8 @@ recipe on Strimzi's operator, which becomes the chart recipe `strimzi`
 PowerDNS ships no chart and moved first, as the designed recipe `powerdns`.
 external-dns ships its chart only in the HTTP repository
 `https://kubernetes-sigs.github.io/external-dns/`, and it needs a
-ClusterRole, which a designed recipe cannot have (RCP-44). An OCI chart is
-asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
+ClusterRole, which a designed recipe could not have before RCP-308. An OCI
+chart is asked for in kubernetes-sigs/external-dns#4630, open since 2024. external-dns
 followed as the chart recipe `external-dns-powerdns` on the chart
 `external-dns` 1.23.0 from that repository (RCP-23), with external-dns
 0.23.0. It includes `powerdns` (RCP-47) and requires nothing.
@@ -5334,6 +5389,170 @@ Secret `<cluster>-ca` in the pod.
   as included and `cnpg` as installed, and its smoke test reads the page
   view after the restart.
 
+## Home Assistant
+
+Home Assistant is a home automation server. Its integrations connect it to
+the devices and services of a home, it records their states in a SQLite
+database, runs automations on them, and serves its web UI and REST API on
+port 8123. home-assistant/core, Apache-2.0, builds the image
+`ghcr.io/home-assistant/home-assistant`, which its documentation installs
+as Home Assistant Container. `home-assistant` runs release 2026.11.0 of
+2026-11-04, the newest on 2026-11-05, pinned to the index
+`sha256:c6c1ca9931036bf3a2c4cc088d8db25dfea3b33935a5ecc83c40349462e2f69e`
+for amd64 and arm64. `stable` was the same index on 2026-11-05. The image
+carries no `org.opencontainers.image.revision` label.
+
+Every advisory of home-assistant/core published by 2026-11-05 names a
+release before 2026.11.0 as fixed, except GHSA-gh5m-4m97-c95h. That one
+concerns the Supervisor and Home Assistant OS, which the image does not
+run.
+
+DEC-130: `home-assistant` is a designed recipe on the image (Designed
+recipes). home-assistant/core ships no chart, Kustomize base or compose
+file. The container guide of the documentation includes its compose
+example from `source/_includes/installation/container/compose.md` of
+home-assistant/home-assistant.io. That file is a Liquid template, and
+`docker compose` cannot read its image line. The example also sets
+`privileged: true`, `network_mode: host` and bind mounts of the host paths
+`/etc/localtime` and `/run/dbus`. Each of these is a gap of Compose
+sources, so a compose recipe would stop (RCP-37). Pinning the template as
+the `Source`, as `pihole` pins a README (DEC-28), was considered. It would
+pin a file that the recipe could not map.
+
+DEC-131: `home-assistant` runs outside the setup that Home Assistant
+supports (Home Assistant). ADR-0013 of home-assistant/architecture defines
+the installation Home Assistant Container and says: "The only supported
+way to run the container is on the host network as root with full
+privileges." The recipe runs the image as root under Pod Security
+`baseline`, on the pod network and without `privileged`. With both, the
+container reaches every device of its node and every port of the node's
+network namespace, and Pod Security admits it only at `privileged`.
+
+Without them, Home Assistant serves its web UI and API, and integrations
+that reach a device by its address or a cloud service work. What needs the
+node's network or devices does not work: discovery over mDNS, SSDP and
+DHCP, pairing with HomeKit, Bluetooth, and USB or serial sticks such as
+Zigbee and Z-Wave coordinators. The README lists them under "Left out".
+Rendering the documented setup was considered. The recipe's default would
+then need a namespace at `privileged` and hand Home Assistant the node.
+
+Pod Security `restricted` was considered as well. Run as UID 1000 with
+every capability dropped, the image's s6-overlay init stopped with
+`/run belongs to uid 0 instead of 1000` and exit code 100 before Home
+Assistant started. Home Assistant 2026.11.0 also reports a container that
+does not run as root as `Unsupported Third Party Container`
+(`homeassistant/helpers/system_info.py`). It installs the Python
+requirements of an integration that the image lacks into
+`/usr/local/lib/python3.14/site-packages`, which belongs to root.
+
+DEC-132: The option `host-network` of `home-assistant` sets
+`hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet` (Home
+Assistant). Home Assistant then sends and receives multicast on the
+node's network, which discovery and HomeKit need. The DNS policy keeps the
+cluster's Service names resolvable from the node's network. Pod Security
+`baseline` forbids `hostNetwork`, so the namespace needs the level
+`privileged`. The option renders no `privileged` and no device. A device
+path names hardware of one node, and `privileged` gives the container
+every device of the node, so both stay with the target. Kubernetes
+Services carry no multicast, so no Service type replaces the node's
+network for discovery.
+
+DEC-133: `home-assistant` renders no owner account. The first visitor of
+the web UI creates it in Home Assistant's onboarding, as with the image
+alone (Home Assistant). Home Assistant reads no account from the
+environment. `POST /api/onboarding/users` creates the owner while the
+onboarding has not done that step and needs no login, and answers 403
+afterwards. A Job that sends that request with a credential parameter was
+considered. It would add a workload and a client the image does not have,
+and a changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+onboarding, and the README asks for the owner before the exposure.
+
+The image has no `HEALTHCHECK`, and the documentation names no check, so
+the recipe has no probe (Designed recipes). The pod is ready once its
+container runs, and `tests/smoke` waits until Home Assistant answers. The
+container guide gives Home Assistant 60 seconds to stop, so that it closes
+its database. The recipe sets that as the pod's termination grace period.
+
+The claim `config` at `/config` holds `configuration.yaml`, the users and
+tokens in `.storage`, and the recorder's database `home-assistant_v2.db`.
+It has 1Gi, the size Compose sources give a volume without one, and the
+README offers the size as a setting. The bind mount of `/etc/localtime`
+and the variable `TZ` set the time zone of the container's processes. Home
+Assistant keeps its own time zone, which the onboarding asks for, in
+`.storage/core.config`. The recipe renders neither, so the processes run
+in UTC, and the README names `TZ` as a setting.
+
+- RCP-210: The `Source` line of `home-assistant` MUST name
+  `ghcr.io/home-assistant/home-assistant` at the tag of a release of
+  home-assistant/core, pinned to its index, and the StatefulSet
+  `home-assistant` MUST run exactly that image.
+
+  `check lint` fails when no container runs the image of the `Source` line
+  (RCP-23). Renovate moves the `Source` line and the class line marked
+  `# renovate: Source` in one pull request (RCP-16).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`
+  - Since: #96
+
+- RCP-211: `home-assistant` MUST run the image as its root user in the
+  StatefulSet `home-assistant`, with the claim `config` at `/config`, a
+  termination grace period of 60 seconds and the Service `home-assistant`
+  on port 8123 of type `ClusterIP`. Without its option it MUST NOT render
+  `hostNetwork`, `privileged`, an added capability, a `hostPath` or a
+  device (DEC-131).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`; manual:
+    review
+  - Since: #96
+
+- RCP-212: The option `host-network` MUST set `hostNetwork: true` and
+  `dnsPolicy: ClusterFirstWithHostNet` on the StatefulSet
+  `home-assistant` and MUST change nothing else (DEC-132).
+
+  `tests/target.yml` leaves the option out, so CI deploys the default.
+  The option is proven by its render: the compiled StatefulSet against
+  the one without the option, and `check home-assistant --level renders`
+  with the option in `tests/target.yml`.
+
+  - Test: manual: compile and `check --level renders` with
+    `recipes.home-assistant.host-network` in `tests/target.yml`
+  - Since: #96
+
+- RCP-213: The `tests/smoke` of `home-assistant` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: baseline` on its namespace. From a
+  pod of the Home Assistant image and through the Service
+  `home-assistant` on port 8123 it MUST require that no onboarding step is
+  done, create the owner through `/api/onboarding/users`, exchange the
+  returned code at `/auth/token` for an access and a refresh token, and
+  get 403 for a second owner. It MUST get 401 from `/api/` without a token
+  and `API running.` with the access token, and require that
+  `/api/config` names the image tag as `version`. Once the pod
+  `home-assistant-0` was deleted and its successor answers, it MUST find
+  the step `user` done, get a new access token with the refresh token, and
+  get `API running.` with it.
+
+  The refresh token and the onboarding's progress live in `.storage` on
+  the claim, so the new pod accepts the refresh token only when it reads
+  the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #96
+
+- AC-130 (RCP-210, RCP-211, RCP-213): `check home-assistant --level
+  deploys` passes in CI on each Kubernetes minor, and its smoke test gets
+  `API running.` with a token refreshed after the restart.
+
+- AC-131 (RCP-212): A compile of `tests/target.yml` with
+  `recipes.home-assistant.host-network` renders the StatefulSet
+  `home-assistant` with `hostNetwork: true` and
+  `dnsPolicy: ClusterFirstWithHostNet` and no other difference, and
+  `check home-assistant --level renders` passes with that target. A
+  server-side dry run of that StatefulSet warns `host namespaces
+  (hostNetwork=true)` in a namespace at `enforce: baseline` and nothing at
+  `privileged`.
+
 ## Memcached
 
 memcached is an in-memory key-value cache. Clients store and read values
@@ -5657,6 +5876,204 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   classes Selector scheme, Derived name, Explicit default and Referenced
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
+
+## Jitsi Meet
+
+Jitsi Meet runs video meetings in the browser. Four services make it up:
+web serves the web app with nginx and proxies BOSH and the XMPP WebSocket
+to prosody, the XMPP server that carries the signalling. jicofo manages
+each meeting and allocates it on jvb, the video bridge, which forwards the
+participants' audio and video over UDP. jitsi/docker-jitsi-meet,
+Apache-2.0, builds the images `ghcr.io/jitsi/web`, `prosody`, `jicofo` and
+`jvb` under one tag per release and ships `docker-compose.yml` for the four.
+The only Helm chart, jitsi-contrib/jitsi-helm, comes from an organization
+that describes itself as community supported third-party packages, which
+DEC-11 rejects as a source, so DEC-10 makes the compose file the source.
+`jitsi-meet` takes it at commit `fca3e3a578a1bdd527c20b9d86a31cfc362d5426`,
+the tag `stable-11248-3` of 2026-11-02, the newest release on 2026-11-05,
+SHA-256 `e50de1a563bfeb005e7afd9b2defbeb298f21c8ea76ba0080724398191366a6e`.
+
+web becomes the StatefulSet `jitsi-meet`, prosody the StatefulSet
+`jitsi-meet-prosody`, jicofo and jvb the Deployments `jitsi-meet-jicofo`
+and `jitsi-meet-jvb`, each with a Service of its name. The images of this
+release run as the user `s6`, UID 1000, on a read-only root filesystem and
+render their configuration into `/run` at each start, so the pods pass Pod
+Security `baseline`. The compose file needs four mappings that RCP-37 did
+not have.
+
+DEC-306: The variables that `docker-compose.yml` uses without a default
+take the values of `env.example`, the file the handbook copies to `.env`
+before the first start. Without `.env`, `docker compose config` resolves
+`CONFIG`, `HTTP_PORT` and `HTTPS_PORT` to empty strings, so web publishes
+no host port and every volume source lies at the root of the host, and
+prosody exits with `FATAL ERROR: Jicofo auth password must be set`.
+`env.example` sets `TZ` to `UTC`, the ports to 8000 and 8443, and six empty
+passwords that `gen-passwords.sh` fills with random values.
+`JICOFO_AUTH_PASSWORD` and `JVB_AUTH_PASSWORD` become required parameters.
+The other four serve jigasi and jibri, which `jigasi.yml` and `jibri.yml`
+add, and prosody creates an account for each one that is set, so the recipe
+leaves them out. Resolving without `.env`, as the section's first paragraph
+does for other compose files, was considered. It gives no stack that
+starts. Rendering all six passwords was considered too. It would create
+four accounts that no running service uses.
+
+DEC-307: A bind mount below `${CONFIG}`, `~/.jitsi-meet-cfg` in
+`env.example`, becomes a claim where the container writes data it keeps,
+and renders nothing where the container only reads. The handbook has the
+user create these directories empty, and Docker creates a missing one empty
+as well, so each mount starts empty, as DEC-21 says of a relative bind
+mount of a directory the repository does not contain. The images copy
+`/config` into `/run` at start and read the custom CA certificates, the
+custom prosody plugins and the transcripts. They write web's `/storage`,
+which holds the self-signed TLS key, and prosody's `/var/lib/prosody`,
+which holds the accounts. These two are the claims `storage`. The images
+carry empty directories at the paths they only read, except
+`/usr/share/jitsi-meet/load-test`, which web serves only with
+`ENABLE_LOAD_TEST_CLIENT`. A claim per mount, as DEC-21 renders each, was
+considered. Eleven of the thirteen claims would stay empty, with no way to
+fill them but a shell in the pod, where a ConfigMap is how a target adds
+such files.
+
+DEC-308: The network alias `${XMPP_SERVER:-xmpp.meet.jitsi}` of prosody is
+rewritten like a service name, to the Service `jitsi-meet-prosody`. jicofo
+and jvb connect to the alias through the default of `XMPP_SERVER`, and web
+proxies BOSH and the WebSocket to it through the default of
+`XMPP_BOSH_URL_BASE`, `http://xmpp.meet.jitsi:5280`. The images set these
+defaults, so the recipe sets both variables, which the compose file leaves
+to `.env`. web's nginx resolves the upstream at request time with the
+nameservers of `/etc/resolv.conf` but without its search domains, and the
+short name answered 502 on kind. web therefore names the Service's full
+name, `jitsi-meet-prosody.<namespace>.svc.<cluster domain>`, with the
+cluster domain in `applications.jitsi-meet.cluster_domain`,
+`cluster.local`. An alias on a network that separates services stays a
+gap.
+
+DEC-309: `read_only: true` becomes the container's
+`readOnlyRootFilesystem: true`, and a `tmpfs` entry an `emptyDir` of
+`medium: Memory` at its path, with its `size` as `sizeLimit`. The kubelet
+mounts such an emptyDir as a tmpfs of that size, on kind 1.37 as well. It
+sets the directory's mode itself and mounts without `noexec`, so the
+entry's options `mode` and `noexec` are lost. The images keep
+s6-overlay's state, their rendered configuration and nginx's temporary
+files there, and the containers run as one user. Leaving the root
+filesystem writable was considered. It would drop the one hardening the
+compose file sets.
+
+### Accounts
+
+The compose file's defaults let anyone who reaches web open a meeting under
+any name. The user's defaults for applications with accounts (DEC-165)
+rule out open access.
+
+DEC-310: `jitsi-meet` runs Jitsi's secure domain with guests:
+`ENABLE_AUTH=1` on web, prosody and jicofo, and `ENABLE_GUESTS=1` on web
+and prosody, which `env.example` offers commented out. A user of
+`meet.jitsi` logs in to open a meeting, and guests join an open meeting
+anonymously on `guest.meet.jitsi`. `AUTH_TYPE` stays at the images'
+default `internal`, accounts in prosody's storage. prosody keeps in-band
+registration off. The secure domain without guests was considered. Every
+participant would then need an account that an operator creates.
+
+DEC-311: A postStart hook of prosody's container creates the first
+moderator, `moderator@meet.jitsi`, with the password of
+`applications.jitsi-meet.moderator_password`, and sets that password when
+the account exists. The images create only the accounts of jicofo and jvb
+from their passwords (`register-setup` of the prosody image). The hook
+waits for prosody's `/health` as that script does, then runs `prosodyctl
+shell user create` or `user password`. A hook that fails stops the
+container, so the rollout shows it. Leaving the first account to a
+`kubectl exec` that the README describes was considered. No meeting could
+start until an operator ran it, while the user's defaults ask for the first
+admin from required parameters. Replacing the image's `register-setup` was
+considered too. The recipe would carry a copy of the script that drifts
+from the image with each release.
+
+- RCP-386: The `Source` line of `jitsi-meet` MUST name `docker-compose.yml`
+  of jitsi/docker-jitsi-meet at the commit of a release tag, with its
+  SHA-256, and each component MUST run the image of its service under that
+  tag.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    review of the four image tags
+  - Since: #117
+
+- RCP-387: `jitsi-meet` MUST take `JICOFO_AUTH_PASSWORD`,
+  `JVB_AUTH_PASSWORD` and the first moderator's password from the Secret
+  `jitsi-meet`, whose values are `applications.jitsi-meet.jicofo_auth_password`,
+  `.jvb_auth_password` and `.moderator_password`, which the recipe leaves
+  unset.
+
+  - Test: `check lint` (RCP-262)
+  - Since: #117
+
+- RCP-388: `jitsi-meet` MUST set `ENABLE_AUTH=1` on web, prosody and
+  jicofo and `ENABLE_GUESTS=1` on web and prosody.
+
+  - Test: `jitsi-meet/tests/smoke`; manual: on kind with `ENABLE_AUTH=0`
+    on jicofo the smoke test fails with `jicofo opened a meeting for a
+    guest`
+  - Since: #117
+
+- RCP-389: The postStart hook of `jitsi-meet-prosody` MUST create
+  `moderator@meet.jitsi` with the password of the Secret `jitsi-meet`, and
+  MUST set that password when the account exists.
+
+  - Test: `jitsi-meet/tests/smoke` logs in before and after deleting
+    prosody's pod; manual: prosody's log on kind shows `Account password
+    changed` for the existing account after the restart
+  - Since: #117
+
+### Media
+
+DEC-312: `jitsi-meet` exposes no media port and advertises no address.
+jvb sends and receives media on UDP port 10000 at the addresses it puts
+into its ICE candidates: its pod IP and the address that a STUN server of
+jitsi.net reports. The Service `jitsi-meet-jvb` carries 10000/UDP as a
+`ClusterIP`. A client outside the cluster needs that port exposed, such as
+by a `LoadBalancer` Service that carries UDP, and `JVB_ADVERTISE_IPS` set
+to the address it reaches. Clients behind a firewall that drops UDP need a
+TURN server as well, which docker-jitsi-meet does not run. Which of these
+fits depends on the cluster's network, as for Pi-hole's DNS port (DEC-30),
+so the target decides. kind proves none of them. A STUN binding request to
+jvb needs the ICE credentials of a session, and nothing on the runner sends
+media.
+
+### Proof
+
+`jitsi-meet` is at level `deploys`. `tests/target.yml` sets low-entropy
+test passwords. Some Service ports answer only with other settings, as
+with the compose file: jicofo binds its REST API on 8888 to its loopback
+address unless `JICOFO_ENABLE_REST` is set, and prosody listens on 5269
+only with `PROSODY_ENABLE_S2S` and on 5347 only for an external component.
+
+- RCP-390: The `tests/smoke` of `jitsi-meet` MUST, from a pod of its own
+  and through the Services, get answers from web on 8000 and 8443, from jvb
+  on 8080 and XMPP stream features from prosody on 5222. Over BOSH through
+  web it MUST require that `meet.jitsi` offers no anonymous login, refuses
+  in-band registration and a wrong password, and that jicofo refuses a
+  guest a new meeting. It MUST have the moderator open a meeting and a
+  guest join it, require jicofo's Jingle offer with a UDP candidate on port
+  10000 at jvb's pod IP, and require that a message of each reaches the
+  other. It MUST store data as the moderator, delete prosody's pod, and
+  read the data back once the moderator logs in again and jicofo grants a
+  meeting.
+
+  The test pod runs prosody's image, which carries bash and curl, and the
+  test speaks BOSH with curl. The Jingle offer shows that jicofo allocated
+  the meeting on jvb. jicofo grants a meeting also while no bridge has
+  joined it and then never offers a session, so the test first waits
+  until jicofo's REST API on its loopback address reports an operational
+  bridge. jicofo counts a member as joined only once the member answers
+  its disco#info query or the query times out after 15 seconds, and it
+  stops a new meeting that has no member after 15 seconds. CI runs
+  42134748555 and 42136796950 failed when the second timeout came first,
+  so the test's client answers disco#info with jicofo's default features,
+  as a Jitsi client answers it. The moderator's account is no proof of the claim,
+  because the hook of RCP-389 creates it again, so the test reads back
+  private XML data (XEP-0049), which only the claim keeps.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #117
 
 ## Zulip
 
@@ -6217,6 +6634,1019 @@ exiting on its first start.
   messages in the archives after the restart. `tests/target.yml` without
   `applications.ejabberd.admin_password` or `erlang_cookie` stops the
   compile with `Interpolation key` and that key.
+
+## Mattermost
+
+Mattermost is a team chat server with channels, direct messages, file
+sharing and a REST API. Its free edition is Team Edition, which Mattermost
+builds from the open source part of mattermost/mattermost and publishes as
+the image `docker.io/mattermost/mattermost-team-edition`. Team Edition has
+no OpenID Connect. Mattermost's documentation offers OpenID Connect only on
+its commercial plans, and the open source part carries GitLab as its only
+SSO provider (`server/channels/app/oauthproviders/` of v12.0.2). The recipe
+therefore has no OIDC parameters.
+
+DEC-290: `mattermost` is a chart recipe on the chart
+`mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm,
+Apache-2.0, from the HTTP repository `https://helm.mattermost.com`. The
+chart's README marks it as no longer supported and points new deployments
+to the Mattermost Operator. Mattermost's release automation still
+publishes a chart version with every server release. 6.6.111 of
+2026-11-05 moved its `appVersion` to 12.0.2, as the commits before it did
+for each release since 11.9.0. The repository publishes no OCI artifact,
+so the `Source` line takes the HTTP form of RCP-23.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The Mattermost Operator, chart `mattermost-operator` 1.0.5 | It runs Mattermost from the custom resource `Mattermost` of `installation.mattermost.com/v1beta1`. No kadet-hub generator renders that kind, so the application recipe would stop on a gap (RCP-7) until one exists. |
+| The chart `mattermost` 2.8.1 of the same repository, without the operator | It runs Enterprise Edition, follows the ESR releases (11.7) and renders no claim for files, which it expects in S3. |
+| The image as a designed recipe | DEC-10 puts the project's chart first. |
+
+DEC-291: `mattermost` runs Mattermost 12.0.2, the chart's `appVersion`.
+The chart writes the image as `mattermost/mattermost-team-edition` with
+the tag `12.0.2@sha256:<digest>`. `check` drops the digest only on the
+recipe's side (RCP-9), and a class file names the registry (RCP-66), so
+`tests/values.yaml` sets `image.repository` to
+`docker.io/mattermost/mattermost-team-edition` and `image.tag` to `12.0.2`.
+The recipe pins the digest the chart pins, an index with an image for
+amd64 only. 12.1.0 was a pre-release on 2026-11-05. Renovate moves the
+image and the tag in `tests/values.yaml` with Mattermost's releases
+(RCP-16), as for semaphore, because the chart only follows the image.
+
+DEC-292: The database is the included recipe `postgresql` (DEC-4,
+DEC-12). The chart passes Mattermost the connection string in `MM_CONFIG`
+from its Secret `<fullname>-mattermost-dbsecret`, which it builds from
+`externalDB.externalConnectionString`. CloudNativePG generates the
+password and keeps it only in the Secret `postgresql-cluster-app`. The
+connection string in `tests/values.yaml` leaves the password out,
+`app@postgresql-cluster-rw:5432/app?sslmode=require&connect_timeout=10`,
+and `extraEnvVars` sets `PGPASSWORD` from that Secret. lib/pq 1.12.3,
+Mattermost's PostgreSQL driver (`server/go.mod` of v12.0.2), reads the
+variable for a password the string does not name. `sslmode=require`
+encrypts the connection without verifying the server's certificate,
+because CloudNativePG signs it with its own CA. The recipe reads the
+names from `applications.postgresql` (RCP-60). The key `uri` of
+`postgresql-cluster-app` as `MM_CONFIG` was considered. The chart reads
+`MM_CONFIG` only from its own Secret.
+
+With a connection string in `MM_CONFIG`, Mattermost keeps its
+configuration in the database. The chart's Secret `<fullname>-config`
+adds `MM_<SECTION>_<SETTING>` variables, which override that configuration
+and lock the setting in the System Console.
+
+DEC-293: `mattermost` runs as the image's user `mattermost`, UID, GID and
+`fsGroup` 2000 in its `/etc/passwd`, with `allowPrivilegeEscalation: false`
+and all capabilities dropped, by `securityContext` and
+`containerSecurityContext` in `tests/values.yaml`. That passes Pod
+Security `restricted`. The image has no shell. Mattermost writes its logs
+and server plugins below `/mattermost` in the container, so the root
+filesystem stays writable. The chart's default sets no security context
+and was considered. The image would still run as 2000, but the namespace
+would need `baseline`.
+
+DEC-294: `tests/values.yaml` sets `MM_TEAMSETTINGS_ENABLEOPENSERVER` to
+`"false"` in the chart's `config`. Mattermost's default is the same. The
+variable locks the setting, so a System Console change cannot open
+sign-up while the target says otherwise. Without open sign-up, accounts
+come from the admin or from an invitation.
+
+DEC-295: The Job `mattermost-admin` creates the first admin from
+`applications.mattermost.admin.username`, `.admin.email` and
+`.admin.password` through `POST /api/v4/users`, once
+`/api/v4/system/ping` answers through the Service. Mattermost has no
+setting for an initial account. Until the first account exists, it makes
+the first account created through sign-up a system admin, also with open
+sign-up off (`CreateUserFromSignup` in `server/channels/app/user.go` and
+`CreateUser` in `server/channels/app/users/users.go` of v12.0.2). On kind
+the first sign-up to the recipe without the Job got 201 with the roles
+`system_admin system_user`, and with the Job 403.
+
+Once an account exists, Mattermost answers the Job's request with 403 and
+`api.user.create_user.no_open_server`, or with 400 and
+`app.user.save.username_exists` when open sign-up is on. The Job then
+completes and changes nothing, also when the target's password differs
+from the account's. A sign-up between the pod's readiness and the Job's
+request would still become the admin, so the README asks to expose the
+Service only after the Job completed.
+
+The Job runs `docker.io/curlimages/curl` 8.23.0, the image of the curl
+project, as its user `curl_user`, UID 100, which passes Pod Security
+`restricted`. curl writes each parameter into the request as a JSON string
+through `--variable` and `{{name:json}}`, so quotes and backslashes in a
+password reach Mattermost unchanged. The password comes from the Secret
+`mattermost-admin`, which only the recipe renders (Referenced Secret,
+RCP-243). `tests/values.yaml` adds the same Job through the chart's
+`extraDeploy`, as a user would next to the chart, and `check` compares it
+without the labels the API server generates for a Job (RCP-9). The Job
+goes 600 seconds after it finished, as `matrix-synapse-admin` does
+(DEC-283).
+
+| Alternative | Why it was not taken |
+|---|---|
+| `mmctl --local` by hand after the first rollout, as the README said up to #122 | Until someone runs it, the first sign-up becomes the admin. |
+| An init container through `extraInitContainers` that runs `mattermost import bulk` with the admin as a user line of a Secret | On an empty database the import first runs Mattermost's app migrations, and the first of them saves the configuration. The import opens the configuration store read-only (`InitDBCommandContextCobra` in `server/cmd/mattermost/commands/init.go`), so it stopped on kind with `configuration store is read-only`, and the pod never started. |
+| `mmctl --local` in a container of Mattermost's pod | The image has no shell to wait for the socket of local mode, and the container would restart once the account exists. |
+| A login with the target's password when Mattermost refuses the request | It would fail the Job after a password change in Mattermost and with multi-factor authentication. |
+| `MM_TEAMSETTINGS_ENABLEUSERCREATION: "false"` against the first sign-up | It also refuses every invitation (`CreateUserWithInviteId`, `CreateUserWithToken`). |
+
+The chart renders the claims `mattermost-mattermost-team-edition` for
+files, 10Gi, and `mattermost-mattermost-team-edition-plugins` for the web
+app's plugins, 1Gi, with ReadWriteOnce. The recipe keeps the chart's names
+for a release named `mattermost`, so a release replaced by the recipe
+keeps its claims. The Service is `mattermost-team-edition` on port 8065.
+The chart's Ingress, its HTTPRoute and its MySQL subchart are off by
+default or by `tests/values.yaml` and not part of the recipe. Its Helm
+test `Pod/mattermost-mattermost-team-edition-test` is left out (RCP-25).
+The ConfigMap with the test's script is no hook, so the recipe renders it
+with the chart's text and `mattermost.yml.LICENSE` (RCP-42).
+
+- RCP-370: `mattermost` MUST render the chart's Deployment, Service,
+  Secrets, claims and test ConfigMap with the values of DEC-291 to DEC-294
+  and `docker.io/mattermost/mattermost-team-edition:12.0.2` pinned to its
+  index, and the Job `mattermost-admin` of DEC-295 that `tests/values.yaml`
+  adds through `extraDeploy`.
+
+  - Test: `check mattermost`; CI `check` job
+  - Since: #122; the Job: #130
+
+- RCP-371: `mattermost` MUST connect to the Cluster of `postgresql` with a
+  connection string without a password and `sslmode=require`, and MUST set
+  `PGPASSWORD` from the key `password` of `<cluster>-app`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #122
+
+- RCP-372: The `tests/smoke` of `mattermost` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, and
+  `status: OK` from `/api/v4/system/ping` through the Service. It MUST
+  wait for the Job `mattermost-admin` to complete and log in as its admin.
+  Through the API it MUST read the image tag as `Version` with
+  `BuildEnterpriseReady` `false` from the client configuration, and get
+  403 for a sign-up without an invitation. As the admin it MUST create a
+  team, a channel and a second user, and post a message with a file. The
+  second user MUST read the message and the file, and read both again
+  once the pod was deleted and its successor is ready. The Job run again
+  MUST complete, leave the number of accounts as it was, and the admin
+  MUST still log in.
+
+  The message comes from PostgreSQL and the file from the claim, so the
+  read after the restart needs both.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #122; the Job: #130
+
+- RCP-373: The README of `mattermost` MUST say that the Job
+  `mattermost-admin` creates the first admin and leaves existing accounts
+  as they are, and that the Service is to be exposed only after the Job
+  completed.
+
+  - Test: manual: review
+  - Since: #122; the Job: #130
+
+- RCP-374: `mattermost` MUST take the first admin's username, email
+  address and password from `applications.mattermost.admin.username`,
+  `.admin.email` and `.admin.password`, and MUST leave them unset. The Job
+  `mattermost-admin` MUST create the account as a system admin when
+  Mattermost has none, and MUST complete without a change when Mattermost
+  refuses the request because accounts exist.
+
+  - Test: `check lint` (RCP-262); CI `check` job, report line `smoke`
+  - Since: #130
+
+- AC-370 (RCP-370 to RCP-372, RCP-374): `check mattermost --level
+  deploys` passes in CI on each Kubernetes minor, with differences of the
+  classes Selector scheme, Explicit default, Derived name and Referenced
+  Secret only, and its smoke test reads the message and the file after the
+  restart and the Job's second run creates no account.
+
+## Matrix Synapse
+
+Synapse is the Matrix homeserver of element-hq. Clients such as Element
+Web log in through its client API, and with federation other homeservers
+reach it through its federation API. `matrix-synapse` deploys Synapse
+1.164.2, the newest release on 2026-11-05, with its database on the
+included recipe `postgresql`, Element Web as the option `element-web` and
+login through OpenID Connect as the option `oidc`. Synapse and Element Web
+are AGPL-3.0, and the recipe copies no text of either.
+
+DEC-280: `matrix-synapse` is a designed recipe on the image
+`ghcr.io/element-hq/synapse`, which element-hq builds for amd64 and arm64
+and documents in `docker/README.md` of element-hq/synapse. element-hq also
+publishes it as `docker.io/matrixdotorg/synapse`. The recipe takes GHCR,
+the registry of the organization that holds the source.
+
+The project's Kubernetes chart is the Element Server Suite Community
+chart `matrix-stack` of element-hq/ess-helm, AGPL-3.0-only, at
+`oci://ghcr.io/element-hq/ess-helm/matrix-stack`, 26.11.0 on 2026-11-05.
+DEC-10 puts it first, but it cannot be the source. Rendered for Synapse
+and Element Web without its other components, its StatefulSet
+`<release>-synapse-main` sets `podManagementPolicy: Parallel` and
+`topologySpreadConstraints`, for which the `kubernetes` generator has no
+key in 1.14.0 or 1.15.0, so the migration stops on a gap (RCP-7). The
+chart also has no value for an extra object or a sidecar, so the first
+admin of DEC-283 would be an object only in the recipe, which `renders`
+refuses. The recipe moves to the chart once a generator renders both
+fields and the chart can register an admin.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The chart `matrix-stack` 26.11.0 | the gap above. It also puts HAProxy in front of Synapse and renders Synapse's and HAProxy's configuration, about 16 KB of AGPL-3.0-only text, that the recipe would carry (RCP-42) |
+| `contrib/docker/docker-compose.yml` of element-hq/synapse, which the installation guide names next to the image | An example to edit: Synapse's configuration comes from a manual `generate` run into the bind mount `./files`, the file publishes port 8448, for which the generated configuration has no listener, and it carries Traefik labels as the other way to expose Synapse. |
+
+DEC-281: Synapse reads its configuration from the ConfigMap
+`matrix-synapse` at `/config`. The image's `start.py` passes
+`--config-path /config`, and Synapse reads every `*.yaml` of the directory
+in name order, a later file replacing the top-level keys of an earlier one.
+`homeserver.yaml` holds the server name, `public_baseurl`, the paths on the
+claim and the database. `federation.yaml` holds the listener and the
+federation settings of DEC-284. The shared secret comes from the Secret
+`matrix-synapse` as a file through `registration_shared_secret_path`, and
+the database password from `postgresql-cluster-app` as `PGPASSWORD`, which
+psycopg2 reads for a password the arguments leave out. `report_stats` is
+`false`: Synapse refuses to start until the configuration sets it.
+Synapse signs its macaroons with the shared secret when no
+`macaroon_secret_key` is set (`synapse/config/key.py`), so the recipe asks
+for no second secret.
+
+DEC-282: Synapse creates its signing key on its first start on the claim
+`data`, at `/data/signing.key`, next to the media. Without a mode flag
+Synapse generates missing key files and runs (`--generate-missing-and-run`
+in `synapse/config/_base.py`). The key signs the server's events and
+requests to other servers, so the claim is what a target backs up with
+the database. The key as a required parameter, as the chart `matrix-stack`
+takes it from a Secret, was considered. A target would have to produce it
+in Synapse's own format with Synapse's tooling before the first compile.
+
+DEC-283: Registration stays off, Synapse's default. The Job
+`matrix-synapse-admin` registers the first admin from
+`applications.matrix-synapse.admin.username` and `.password` with
+`register_new_matrix_user --exists-ok --admin`, which reads the shared
+secret through `homeserver.yaml` and calls the admin API of the Service
+`matrix-synapse`. Its init container waits until `/health` answers through
+that Service, so the Job does not spend its retries while Synapse waits
+for the database. `--exists-ok` leaves an existing account as it is, so
+the password changes only in a client or through the admin API. The Job
+goes 600 seconds after it finished, so a new version of the recipe creates
+it again instead of changing an immutable pod template.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A container next to Synapse in its pod that registers the account and then sleeps | A failing registration would restart the container and mark the pod not ready, which takes Synapse out of its Service. |
+| `registration_shared_secret_path` without a Secret, so that Synapse writes a new secret on the claim | The Job needs the secret before Synapse has written it, and the target would not know it. |
+
+DEC-284: Federation is off by default. The listener on port 8008 serves
+the client API only, so the federation API and the server keys answer
+404, and `federation_domain_whitelist: []` denies federation with every
+server, the way Synapse's configuration manual recommends.
+`trusted_key_servers: []` keeps Synapse from asking matrix.org for keys.
+The option `federation` replaces `federation.yaml`: the listener also
+serves the federation API and the server keys, the trusted key server is
+matrix.org again, Synapse's default, and `serve_server_wellknown: true`
+serves `/.well-known/matrix/server`, which sends other servers to port 443
+of `server_name` instead of 8448. Routes and TLS are the target's, and the
+README names the three ways other servers can reach Synapse.
+
+DEC-285: Synapse runs as UID, GID and `fsGroup` 991, the user `start.py`
+switches to when it starts as root. Started as 991, `start.py` runs Synapse
+directly with jemalloc preloaded. Element Web runs as `nginx`, UID 101 in
+its image's `/etc/passwd`, with `ELEMENT_WEB_PORT=8080`, as its install
+guide advises for a non-root user. Both pass Pod Security `restricted`.
+
+DEC-286: Element Web 1.12.33 is the option `element-web`, from
+`ghcr.io/element-hq/element-web`, built for amd64 and arm64. Its
+`config.json` names `public_baseurl` and `server_name` as the default
+homeserver and nothing else. The sample configuration of Element Web's
+Kubernetes guide adds Element's integration manager, bug report endpoint,
+Jitsi server and room directory, which the recipe leaves to the target.
+Element Web as part of the recipe without an option was considered. A
+homeserver serves every client, and the recipe's source is Synapse.
+
+Synapse requires the collation `C` for its database and refuses to start
+on another one unless `allow_unsafe_locale` is set. CloudNativePG runs
+`initdb` with `--lc-collate C --lc-ctype C` unless the Cluster sets
+otherwise (`api/v1/cluster_types.go` of v1.30.1), and `postgresql` sets
+neither, so a new Cluster of `postgresql` fits. Synapse connects with
+`sslmode=require`, which encrypts the connection without verifying the
+server's certificate.
+
+DEC-287: The option `oidc` adds one OpenID Connect provider for login as
+the file `oidc.yaml` of the ConfigMap, after the Keycloak example of
+Synapse's `docs/openid.md`: the scopes `openid` and `profile`, the
+localpart from `preferred_username`, the display name from `name`. The
+target sets the issuer, the client ID and, as a ref, the client secret,
+which Synapse reads through `client_secret_path` from the Secret
+`matrix-synapse`. The button's name defaults to `Single sign-on`. Synapse
+1.164.2 loads the provider's metadata in the background when it starts
+and keeps running when that fails (`preload_metadata` in
+`synapse/app/_base.py`). `tests/target.yml` therefore includes the option
+with an issuer that does not resolve, and the login flows still name the
+provider. A login through a provider is not proven, because `check` runs
+no identity provider. The provider's `enable_registration` defaults to
+true, so Synapse creates an account on the first login through it, also
+with registration off. Leaving OpenID Connect to a file the target adds
+was considered. The SSO stacks that follow this recipe would each write
+the same file.
+
+- RCP-360: `matrix-synapse` MUST run
+  `ghcr.io/element-hq/synapse:v1.164.2`, pinned to its index, as the
+  StatefulSet `matrix-synapse` with the ConfigMap and Secret
+  `matrix-synapse` of DEC-281, the claim `data` at `/data` and the Service
+  `matrix-synapse` on port 8008, as UID, GID and `fsGroup` 991 under
+  `security_profile: restricted`.
+
+  - Test: `check lint`; CI `check` job
+  - Since: #124
+
+- RCP-361: `matrix-synapse` MUST take the server name, the shared secret
+  and the first admin's localpart and password from
+  `applications.matrix-synapse.server_name`, `.registration_shared_secret`,
+  `.admin.username` and `.admin.password`, and MUST leave them unset.
+  `public_baseurl` MUST default to `https://<server_name>/`.
+
+  - Test: `check lint` (RCP-262)
+  - Since: #124
+
+- RCP-362: Without the option `federation`, Synapse MUST serve neither
+  the federation API nor the server keys and MUST deny federation with
+  every server. With it, Synapse MUST serve both and
+  `/.well-known/matrix/server`, and MUST federate with another server
+  that has the option.
+
+  `check` deploys one target, so CI tests the default only. Two servers
+  with the option federated by hand on kind: `a.example.test` and
+  `b.example.test`, each a target in a namespace of its own behind an
+  nginx with a certificate of a test CA, and CoreDNS rewrote each name to
+  that nginx's Service. Each target added a file `kind.yaml` to the
+  ConfigMap with `federation_custom_ca_list` for the test CA and
+  `ip_range_whitelist` for the cluster's Services, `10.96.0.0/12`. The
+  admin of `a.example.test` joined a room of `b.example.test` through its
+  alias and read its message, and `b.example.test` read the reply. With
+  the option off on `b.example.test` the join got 404. Without
+  `ip_range_whitelist` it got 502, and Synapse logged that the name had no
+  address, as it drops addresses in its default `ip_range_blacklist`. A
+  proof in CI needs two targets of the published recipe, which
+  kadet-hub/examples can run.
+
+  - Test: CI `check` job, report line `smoke`, for the default; manual:
+    on kind with Kubernetes 1.37 and the option, `/_matrix/federation/v1/version`,
+    `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered;
+    manual: the two servers above on kind with Kubernetes 1.37
+  - Since: #124; federation of two servers: #128
+
+- RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace, the
+  version of the image tag from `/_synapse/admin/v1/server_version`
+  through the Service, 404 from the federation API and the server keys,
+  and 403 for a registration. The admin of the Job MUST log in and create a
+  second user, a room, an upload and a message. The second user MUST join
+  and read the message and the upload, and read both again once the pod
+  was deleted and its successor is ready, with the same signing key. The
+  login flows MUST name the provider of the option `oidc`. The test MUST
+  reach Element Web through its Service and the homeserver at
+  the URL its `config.json` names. In Chrome, Element Web's login page
+  MUST name `server_name` and the provider of the login flows.
+
+  The message comes from PostgreSQL, and the upload and the signing key
+  from the claim, so the reads after the restart need both.
+
+  Chrome loads Element Web through a port forward, and the host and port
+  of the homeserver's URL in `config.json` resolve to the port forward of
+  Synapse (`--host-resolver-rules`). Element Web lists the provider only
+  after it read the login flows from that URL. With the URL resolving to a
+  closed port, it showed `Can't connect to homeserver` and the test
+  failed. The test drives Chrome through ChromeDriver with curl. GitHub's
+  runners carry both in the same version and name the driver's directory
+  in `CHROMEWEBDRIVER`. Elsewhere `CHROMEDRIVER` names the driver. Chrome's
+  `--dump-dom` was considered, but it wrote the page before Element Web had
+  rendered into it. playwright-core, which the registry's playground test
+  uses, would bring Node and a lock file into this repository.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #124; Chrome: #128
+
+- RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
+  with `register_new_matrix_user --exists-ok --admin` and the shared
+  secret of `homeserver.yaml` once Synapse answers through its Service,
+  and go 600 seconds after it finished.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #124
+
+- RCP-365: The option `element-web` MUST run
+  `ghcr.io/element-hq/element-web:v1.12.33`, pinned to its index, as the
+  Deployment and Service `matrix-synapse-element-web` on port 80, with a
+  `config.json` that names `public_baseurl` and `server_name`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #124
+
+- RCP-366: The option `oidc` MUST add the provider `oidc` of DEC-287 from
+  `applications.matrix-synapse.oidc.issuer`, `.oidc.client_id` and
+  `.oidc.client_secret`, which it MUST leave unset, and the login flows
+  MUST name it.
+
+  - Test: `check lint` (RCP-262); CI `check` job, report line `smoke`
+  - Since: #124
+
+- AC-360 (RCP-360 to RCP-366): `check matrix-synapse --level deploys`
+  passes in CI on each Kubernetes minor with the options `element-web` and
+  `oidc`, its
+  report lists the objects of `postgresql` as included and `cnpg` as
+  installed, and its smoke test reads the message and the upload after
+  the restart, and Element Web's login page in Chrome names the server and
+  the provider.
+
+## MongoDB as a replica set
+
+A replica set is MongoDB's unit of replication. Its oplog lets clients
+open change streams on collections, and MongoDB runs multi-document
+transactions only on replica sets and sharded clusters. `mongodb` runs one
+server without a replica set (Designed recipes). Rocket.Chat opens a
+change stream at startup and uses transactions (Rocket.Chat), so
+`mongodb` has the option `replica-set`, which a target or a parent
+includes as `recipes.mongodb.replica-set`.
+
+DEC-320: The replica set is an option of `mongodb`, not its default. A
+target that includes `recipes.mongodb` alone compiles the same
+StatefulSet as before this change, so its pod does not restart and
+nothing changes for clients that need no replica set.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A replica set by default | Every target of `mongodb` would get the init container, the hook and a restart for a feature that only `rocketchat` asks for. |
+| A recipe of its own | It would render the StatefulSet, Service and Secret `mongodb` a second time, and two recipes in one target would collide. |
+| MongoDB's operator, MongoDB Controllers for Kubernetes | No kadet-hub generator renders its resources (DEC-14, Designed recipes). |
+
+DEC-321: The replica set has one member, named `localhost:27017`, and
+clients connect through the Service `mongodb` with
+`directConnection=true`. mongod looks for itself among the members'
+addresses when the replica set is initiated and on every start.
+`localhost` reaches only its own pod, so mongod finds itself whatever DNS
+and the Service answer. A client that connects with `replicaSet=rs0`
+would take the member's address from the server and could not reach it.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The member named after the Service, `mongodb:27017` | mongod could recognize itself only by connecting through the Service to its own pod, which needs the pod to be an endpoint first. Not tested. |
+| The member named after the pod, `mongodb-0.<headless Service>`, with `replicaSet=rs0` in the clients' URL | The layout for several members. It adds a headless Service for a second member that nothing else in the recipe supports, such as a shared key (DEC-322). |
+
+DEC-322: An init container generates the key file on every pod start.
+mongod 9.0.4 refuses to start with authorization and a replica set but no
+key file, with `BadValue: security.keyFile is required when authorization
+is enabled with replica sets`. It also refuses a key file its group may
+read, with `permissions on <file> are too open`. Both came from the pinned
+image under Docker, the second for a file of mode 0440 owned by root and
+the group 1000, which is what the kubelet makes of a Secret volume under
+the pod's `fsGroup`. The init container `key`, on the same image, writes
+756 random bytes as base64, 1008 characters, into the `emptyDir` `key` and
+sets the mode 0400 for the UID 1000. With one member the key authenticates
+no other server, so a new key per pod changes nothing. A key as a required
+parameter, copied from a Secret by the init container, was considered. The
+target would keep a ref that no server reads.
+
+DEC-323: A postStart hook initiates the replica set. The image's
+entrypoint passes `--replSet` to mongod but does not initiate the replica
+set: under Docker, mongod 9.0.4 stayed uninitialized with and without
+authorization. MongoDB's guide "Install MongoDB Community with
+Docker" shows `--replSet` for a single-node replica set and does not say
+who initiates it. The entrypoint, a Rust binary, also has an undocumented
+path behind `MONGODB_INITDB_REPL_SET_HOST`, which stopped the container
+with `Could not find replSetName in configuration` when tried, so the
+recipe does not use it.
+
+The hook runs mongosh as `root` against `localhost` every 2 seconds, up to
+90 times. While the entrypoint's first mongod creates `root` without the
+replica set, the call fails and the hook tries again. When `rs.status()`
+answers `NotYetInitialized`, the hook calls `rs.initiate()` with the one
+member. It ends once `db.hello().isWritablePrimary` is true, also on every
+later start. Kubernetes documents that a container does not reach the
+running state before its postStart hook returns, and that it kills the
+container when the hook fails. The pod therefore becomes ready only with a
+primary, and after 90 failed tries the container starts again.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A Job that initiates the replica set | It would have to wait for the pod, and a Job's pod template cannot change, so a new image needs the Job deleted first (`kubernetes` generator README). |
+| An exec probe that initiates the replica set | A probe with a side effect, and its timeout would cut mongosh's start. |
+
+- RCP-400: With the option `replica-set`, `mongodb` MUST run mongod with
+  `--replSet` and the name `applications.mongodb.replica_set`, `rs0` by
+  default, and with `--keyFile` on a file of mode 0400 that an init
+  container generates in the pod. Without the option it MUST render
+  neither.
+
+  - Test: `rocketchat/tests/smoke`; manual: a compile of
+    `mongodb/tests/target.yml`, which leaves the option out
+  - Since: #129
+
+- RCP-401: The postStart hook of the option MUST initiate the replica set
+  with the one member `localhost:27017` when it is not initiated, MUST
+  leave an initiated replica set unchanged, and MUST NOT end before the
+  member is primary.
+
+  - Test: `rocketchat/tests/smoke`, the member primary before and after
+    its pod is replaced; CI `check` job of `rocketchat`
+  - Since: #129
+
+`tests/target.yml` of `mongodb` leaves the option out, so `check mongodb`
+keeps proving the server without a replica set. `check rocketchat` proves
+the option, and CI runs it for every change to `mongodb` (RCP-50).
+
+## Rocket.Chat
+
+Rocket.Chat is a team chat. Its server, a Meteor application on Node.js,
+serves the web client, the REST API and the realtime API on port 3000 and
+keeps its data in MongoDB, uploaded files included. Rocket.Chat is MIT
+outside its `ee/` directories, whose code is under Rocket.Chat's
+Enterprise license and ships in the same image. The repository of its
+chart has no license file. The recipe carries no template, file or values
+text of the chart.
+
+DEC-324: `rocketchat` is a chart recipe on the chart `rocketchat` 7.1.0 of
+RocketChat/helm-charts, tag `rocketchat-7.1.0`, which Rocket.Chat
+publishes in the HTTP repository `https://rocketchat.github.io/helm-charts`.
+On 2026-11-06 it was the newest release of the chart. The compose files of
+RocketChat/rocketchat-compose were considered as the source. DEC-10 puts
+the chart first, and their MongoDB runs without authentication.
+
+DEC-325: `rocketchat` runs Rocket.Chat 8.9.1 as
+`docker.io/rocketchat/rocket.chat:8.9.1`, pinned to its index for amd64
+and arm64. The chart's `appVersion` is 8.6.1, and the notes of the patch
+releases 8.6.2 and 8.6.4 list security hotfixes. 8.9.1 was the newest
+release on 2026-11-06. The chart's default registry,
+`registry.rocket.chat`, fronts the Docker Hub repository that the chart's
+`values.yaml` links. On 2026-11-06 it answered manifest requests with 429
+and Docker Hub's rate-limit headers, its own anonymous quota used up. The
+index's annotations name Rocket.Chat's build run on GitHub Actions.
+`tests/values.yaml` sets `image.repository` and `image.tag`, and Renovate
+moves the tag there with the class line (RCP-16). Docker Hub listed 9088
+tags of the repository on 2026-11-06 and gives no release timestamps for
+it, so its updates need none.
+
+DEC-326: Rocket.Chat keeps its data on the included recipe `mongodb` with
+the option `replica-set`, on MongoDB 9.0, and `tests/values.yaml` switches
+the chart's Bitnami MongoDB subchart off. Rocket.Chat does not name
+MongoDB 9.0. The release notes of 8.9.1 name MongoDB 8.0 as the engine
+version. The system requirements on docs.rocket.chat, updated on
+2026-10-07, ask for MongoDB 8.0 or later. The notes of 8.0.0 drop 5.x and
+6.x, deprecate 7.x and ask for 8.2 before the upgrade.
+`apps/meteor/server/startup/serverRunning.ts` of 8.9.1 stops the server
+below 7.0 and warns below 8.0. MongoDB 9.0 is the release line of
+`mongodb` and was chosen for this recipe. `tests/smoke` proves it on
+9.0.4, and on kind Rocket.Chat printed `MongoDB Version: 9.0.4` in its
+startup banner without a warning.
+
+Against `mongodb` without the option, on kind, Rocket.Chat logged
+`Error in InstanceStatus change stream` with `The $changeStream stage is
+only supported on replica sets or mongos`. Its admin could still create a
+member, and both exchanged messages through the REST API. The replica set
+keeps the change stream and the transactions working. The chart's own
+subchart runs MongoDB as a replica set of one member as well.
+
+DEC-327: Rocket.Chat connects as the user `root` of `mongodb`, the only
+user that recipe creates, with the URL
+`mongodb://root:<password>@mongodb:27017/rocketchat?authSource=admin&directConnection=true`
+in the Secret `rocketchat-rocketchat`, which the chart renders from
+`externalMongodbUrl`. The password stands in the URL unencoded, so the
+README asks for letters and digits, as for open-webui. A user
+`rocketchat` with rights on its database only, as the chart's subchart
+creates, was considered. `mongodb` creates no user from parameters, and
+adding that is a change of its own.
+
+DEC-328: Rocket.Chat runs as one process, without microservices and NATS.
+The chart's default `microservices.enabled: true` runs it as several
+services, which its `values.yaml` marks as available to Enterprise users
+only, and the chart's own `tests/monolith-values.yaml` turns it off. With
+`microservices.enabled: false` alone, helm 4.3.1 still rendered the NATS
+subchart, whose condition is `nats.enabled, microservices.enabled`, so
+`tests/values.yaml` sets `nats.enabled: false` as well.
+
+DEC-329: Rocket.Chat creates its first admin from the required parameters
+and starts with registration closed (DEC-165). The recipe sets `ADMIN_EMAIL`
+and `ADMIN_PASS` from `applications.rocketchat.admin_email` and
+`applications.rocketchat.admin_password`, the latter through the Secret
+`rocketchat`, which the chart's container reads through `extraEnv`.
+Rocket.Chat creates the user `admin` from them when no user has the role
+`admin` (`insertAdminUserFromEnv` in
+`apps/meteor/server/startup/initialData.ts`). `Accounts_RegistrationForm`
+is `Disabled`, where Rocket.Chat's default is `Public`. A variable named
+after a setting gives the setting its first value only (`overrideSetting`
+in `apps/meteor/server/settings/SettingsRegistry.ts`), so an admin can
+open registration later. `OVERWRITE_SETTING_Accounts_RegistrationForm` was
+considered. It would reset that choice on every start. The setup wizard
+stays `in_progress` for the admin's first login. The chart skips it with
+`OVERWRITE_SETTING_Show_Setup_Wizard=completed` only together with a
+license, and the REST API works without it.
+
+`applications.rocketchat.host` is required and sets `ROOT_URL` to
+`https://<host>`, as the chart's `host` does. The image's default
+`http://localhost:3000` is no address users reach. Rocket.Chat serves
+plain HTTP on port 80 of its Service, and the recipe renders no Ingress or
+route, as the chart's `ingress.enabled` defaults to false.
+
+The chart renders no hook and no Role. Its PodMonitor needs the API
+`monitoring.coreos.com/v1`, which `check` does not install, so the chart
+side renders none. The ServiceAccount keeps the API default
+`automountServiceAccountToken: true`, as on the chart side. Uploads go to
+GridFS, Rocket.Chat's default `FileUpload_Storage_Type`, and
+`/app/uploads` is an `emptyDir`, as the chart's `persistence.enabled`
+defaults to false. The recipe is at level `deploys`.
+
+- RCP-402: `rocketchat` MUST render the chart's Deployment, Service,
+  ServiceAccount and Secret `rocketchat-rocketchat` with the values of
+  DEC-325 to DEC-329, and the Secret `rocketchat` with the key
+  `admin-password`.
+
+  - Test: `check rocketchat`; CI `check` job
+  - Since: #129
+
+- RCP-403: The `tests/smoke` of `rocketchat` MUST reach Rocket.Chat
+  through the Service `rocketchat-rocketchat`, log in as `admin` with the
+  role `admin`, create a member, and have the admin and the member each
+  read the other's message in the channel `general` through the REST API.
+  It MUST require that Rocket.Chat reports MongoDB 9.0, that the replica
+  set `rs0` has its member as primary, that Rocket.Chat logged no error
+  for its change stream, that a change stream on Rocket.Chat's messages
+  delivers the admin's message, and that registration is refused. After
+  it deletes the MongoDB and the Rocket.Chat pod, it MUST require the
+  member as primary and both messages again.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #129
+
+- AC-400 (RCP-400 to RCP-403): `check rocketchat --level deploys` passes
+  in CI on each Kubernetes minor. On kind, with `rocketchat` compiled
+  without the option `replica-set`, `tests/smoke` fails.
+
+## Memos
+
+Memos is a note-taking app. Its users write short Markdown notes, memos,
+into a timeline, tag and search them, and share single memos or the whole
+instance. The web UI and the API share one port. usememos/memos, MIT,
+builds the image `docker.io/neosmemo/memos`. usememos/dotcom holds the
+source of usememos.com with the documentation and carries no license
+file. `memos` takes the compose example of
+`content/docs/deploy/docker-compose.mdx` in usememos/dotcom (DEC-170), at
+commit `b5fd0a3dff1408783452c627b05dc7aecf745c47` of 2026-11-01, SHA-256
+`f2d53cb23eea5cd5f65beb4b716d443ac2e225027e398ac41ab9e9fa79d5ef02`. The
+commit added the changelog of Memos 26.11.0 and was the newest of `main`
+on 2026-11-05. The example runs `neosmemo/memos:stable`, which on
+2026-11-05 was the same index as `26.11.0`, the newest release, for amd64,
+arm64 and arm/v7. The image carries no `org.opencontainers.image.revision`
+label. Its SLSA provenance names commit
+`b40d8a7b573774c52b022c8d6537d6baf2129dc0`, the tag `26.11.0`. The recipe
+takes from the documentation what the image dictates, such as variable
+names, the port and the data path, and copies no other text.
+
+Memos numbers its releases by year and month since 26.10.0, after 0.31.0.
+The GitHub advisory database lists advisories for
+`github.com/usememos/memos` up to release 0.25.2, and none of them names a
+range that includes 26.11.0.
+
+The example's one service becomes the StatefulSet `memos`. Its relative
+bind mount `./data` becomes the claim `data` at `/var/opt/memos` (DEC-21).
+Memos keeps the SQLite database `memos_prod.db` and uploaded files there.
+The published port `5230:5230` becomes port 5230 of the Service `memos`.
+`MEMOS_PORT` and `MEMOS_DRIVER` keep the example's values. A Service named
+`memos` would put `MEMOS_PORT=tcp://<address>:5230` into the pod as a
+service link variable, which Memos reads as its port
+(`content/docs/deploy/kubernetes.mdx`). The recipe renders no service
+links, as for every compose source, and sets the variable itself. Neither
+the example nor the image defines a health check, so the recipe renders
+no probe. Memos answers `/healthz` once its database answers.
+
+DEC-170: `memos` takes its compose file from the code block under "Basic
+setup" in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom,
+and its `Source` line names that file (Memos). It is the only deployment
+upstream ships that Compose sources map without a gap.
+`scripts/compose.yaml` of usememos/memos at the release tag mounts
+`~/.memos/`, a directory in the user's home outside the repository, on
+which Compose sources stop. usememos/helm has a chart, version 0.2.1 with
+Memos 0.25.2 as `appVersion` and the image tag `latest` as its default.
+No chart repository serves it. `https://usememos.github.io/helm/index.yaml`
+answered 404 on 2026-11-05, the workflow that publishes to GitHub Pages
+runs only when started by hand, and commit `5754897` of 2025-11-23 removed
+the OCI workflow. `check` takes no chart from a Git repository. A designed
+recipe on the image was considered. The project ships a compose example,
+which DEC-10 puts first, as DEC-28 did for `pihole`.
+
+DEC-171: `memos` requires `MEMOS_INSTANCE_URL` as the parameter
+`applications.memos.instance_url` (Memos). The example's
+`https://memos.example.com` stands for the user's address, as
+Vaultwarden's example does for `DOMAIN` (RCP-111). Memos serves
+`robots.txt` and its sitemap only with the URL and builds their links from
+it (`server/frontend/frontend.go` of 26.11.0). It also allows
+cross-origin requests with cookies and MCP clients from that origin
+(`server/cors.go`, `server/mcp/origin.go`). On the first start a
+non-empty URL sets the instance's access policy to public, so visitors
+without an account see memos marked public (`initializeInstanceAccessSetting`
+in `store/migrator.go`). A later change of the URL leaves the policy as it
+is. Copying the example's value was considered. Every instance would then
+name the same foreign host. Leaving the variable out was considered too.
+The instance would start private, unlike the example, and serve no
+sitemap.
+
+DEC-172: `memos` runs as the image's user `nonroot`, UID 10001 and GID
+10001 in its `/etc/passwd`, with `fsGroup` 10001 for the claim, under
+`security_profile: restricted` (Memos). The compose example sets no
+`user`. The image starts its entrypoint as root. The entrypoint changes
+the owner of `/var/opt/memos` to 10001 and then starts Memos as 10001
+with `su-exec` (`scripts/entrypoint.sh` of 26.11.0). Started as 10001, it
+skips both steps and starts Memos directly. The documentation names UID
+10001 as the user Memos runs as (`content/docs/deploy/docker.mdx`). The
+ownership change serves data that older releases wrote as root, and a
+claim of this recipe holds none. `tests/smoke` checks that the pod passes
+the level `restricted`. `baseline` with the start as root was considered.
+The ownership change and the switch need `CHOWN`, `SETUID` and `SETGID`,
+which Memos does not use afterwards.
+
+DEC-173: `memos` renders no account and closes user registration with
+Memos' declarative configuration (Memos). The first account that is
+created becomes the admin, through the web UI's sign-up or through
+`POST /api/users` without a login. `CreateUser` creates that account
+before it reads the registration setting (`server/api/user_service.go` of
+26.11.0). Memos' default then leaves registration open, so anyone who
+reaches the Service could register a regular account. Memos reads no
+variable for the setting, unlike Vaultwarden's `SIGNUPS_ALLOWED`
+(DEC-55). Memos reads JSON files below `/etc/memos/config` as the desired
+state of its instance settings and applies them at every start
+(`content/docs/configuration/declarative-configuration.mdx`, which names
+the registration policy as a use). The recipe mounts one such file from a
+ConfigMap and sets `disallowUserRegistration` of the setting group
+`GENERAL` to `true`. A second account without a login then gets 403.
+
+Memos manages a declared group whole and refuses changes to it through the
+web UI and the API. The file therefore releases the group's other fields
+with `ignoreChanges`, so an admin still edits them in the web UI. The
+compose example leaves registration open. Keeping that was considered, as
+the first version of this change did. An instance exposed before its admin
+closed registration would accept anyone, and Vaultwarden closes its
+signups for the same reason. Declaring the admin in the file as well was
+considered. Its password would be a parameter that Memos sends only on
+creation or after a raised `writeOnlyVersion`, and the first sign-up
+creates the admin already.
+
+- RCP-250: The `Source` line of `memos` MUST name
+  `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at a commit
+  of `main`, with the file's SHA-256, below the comment
+  `<!-- renovate: branch=main -->`.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23). The documentation has no release tags, so Renovate moves the
+  commit to the newest of `main`, as for SearXNG (RCP-16). usememos/dotcom
+  also holds the website and its blog, so most moves leave the file as it
+  is and `check` passes. A changed file fails, and the maintainer maps the
+  change. A package rule groups the `Source` line with the image line
+  marked `# renovate: upstream`, which Renovate moves to Memos' newest
+  release.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    Renovate dry run
+  - Since: #97
+
+- RCP-251: `memos` MUST run `docker.io/neosmemo/memos` as the StatefulSet
+  `memos` with one replica and the claim `data` at `/var/opt/memos`. It
+  MUST set `MEMOS_PORT` to `5230`, `MEMOS_DRIVER` to `sqlite` and
+  `MEMOS_INSTANCE_URL` from `applications.memos.instance_url`, which the
+  recipe leaves unset.
+
+  The compile then stops with
+  `Interpolation key 'applications.memos.instance_url' not found` until
+  the target sets it (RCP-40). SQLite allows one pod that writes. Memos
+  refuses to start with a URL whose scheme is not `http` or `https`, or
+  that has no host, or has credentials, a query or a fragment
+  (`internal/profile/profile.go` of 26.11.0).
+
+  - Test: CI `check` job, report line `smoke`; manual: a compile of
+    `tests/target.yml` without the parameter stops with
+    `Interpolation key` and its name
+  - Since: #97
+
+- RCP-252: `memos` MUST run as UID 10001 and GID 10001 with `fsGroup`
+  10001 under `security_profile: restricted` (DEC-172).
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #97
+
+- RCP-253: The `tests/smoke` of `memos` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From
+  a pod of the memos image and through the Service `memos` on port 5230 it
+  MUST get `Service ready.` from `/healthz` and the web UI from `/`, and
+  require from `/api/instance/profile` the image's version, the instance
+  URL of `tests/target.yml`, the public access policy and `needsSetup`. It
+  MUST create an account through `POST /api/users` without a login and
+  require the role `ADMIN`, get 403 there for a second account, sign in
+  through `/api/auth/signin`, get 400
+  there for a wrong password, create a private memo with the access token,
+  read it back, and get 401 for it without a token. Once the pod `memos-0`
+  was deleted and its successor is ready, it MUST require `needsSetup`
+  false, sign in again and read the memo.
+
+  The test pod runs Memos' image, whose busybox carries `wget`, and the
+  test reads the JSON answers with `jq` outside the cluster. Memos answers
+  wrong credentials with `InvalidArgument`, which its REST gateway turns
+  into 400, and a closed registration with `PermissionDenied`, which
+  becomes 403. Reading a private memo needs a login, also on a public
+  instance. The account and the memo come back after the restart
+  only if the new pod reads `memos_prod.db` from the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #97
+
+- RCP-254: `memos` MUST mount `instance.json` from a ConfigMap at
+  `/etc/memos/config`. The file MUST declare `instance/settings/GENERAL`
+  with `disallowUserRegistration` set to `true` and MUST release every
+  other field of the group with `ignoreChanges` (DEC-173).
+
+  In 26.11.0 the other fields are `customProfile`, `disallowPasswordAuth`,
+  `disallowChangeUsername`, `disallowChangeNickname`,
+  `weekStartDayOffset`, `additionalStyle` and `additionalScript`
+  (`proto/api/instance_service.proto`). Memos writes an ignored field with
+  its stored value at every apply. A field that a later release adds to
+  the group is managed with its default until the file releases it too.
+  Memos stops at startup when a managed resource disappears from the
+  files, so a target that drops the declaration adds a `removed` entry.
+
+  - Test: CI `check` job, report line `smoke`; manual: on a container of
+    the pinned image, an admin changed `customProfile.title` through
+    `PATCH /api/instance/settings/GENERAL`, a change of
+    `disallowUserRegistration` got 400 with the reason
+    `MANAGED_BY_CONFIGURATION`, and the title stayed after a restart
+  - Since: #97
+
+- AC-150 (RCP-250 to RCP-254): `check memos --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test refuses a second sign-up
+  and reads the memo after the restart. `tests/target.yml` without `applications.memos.instance_url`
+  stops the compile with `Interpolation key` and that key.
+
+## homepage
+
+homepage is a dashboard: a page of links to services, with widgets that
+show their status, and bookmarks. gethomepage/homepage, GPL-3.0, builds the
+image `ghcr.io/gethomepage/homepage`. Its repository holds no chart,
+Kustomize base or compose file.
+
+DEC-225: `homepage` is a designed recipe on
+`ghcr.io/gethomepage/homepage:v2.7.0` (Designed recipes). The project's
+README and its Docker installation page carry a compose example. It
+bind-mounts the absolute placeholder path `/path/to/config` at
+`/app/config` and, as optional, the Docker socket, and Compose sources stop
+on both. The Kubernetes installation page (`docs/installation/k8s.md`)
+shows manifests in code blocks, which no source type of DEC-9 takes, and
+the Helm chart it names is unofficial, which DEC-11 rejects. The recipe
+follows that page where the image leaves a choice open: the user, the
+ClusterRole and the files below `/app/config`. Taking the compose example
+with new mappings for an absolute placeholder path and an optional Docker
+socket was considered. Those mappings would serve this one recipe, and the
+Kubernetes page already says how the pod looks on a cluster.
+
+v2.7.0 of 2026-10-23 was the newest release on 2026-11-05. The tag is an
+index for amd64 and arm64, and its `org.opencontainers.image.revision` is
+`2e5f10134ae3961bb936d3e7c441f9a1f4a4bf4f`. Every advisory of
+gethomepage/homepage published by 2026-11-05 names 2.6.0 or an earlier
+release as fixed.
+
+The Deployment `homepage` runs one replica as UID and GID 1000 under
+`security_profile: restricted`, as the Kubernetes page sets its container.
+The image's `/app/.next` belongs to UID 1000, and its entrypoint changes no
+ownership when it does not start as root (`docker-entrypoint.sh`). Port 3000
+becomes port 3000 of the Service `homepage`. The image's `HEALTHCHECK` gets
+`/api/healthcheck` from `127.0.0.1` every 10 seconds with a timeout of 3
+seconds. It becomes the readiness probe with Docker's default of 3 retries,
+and there is no liveness probe, as a compose `healthcheck` maps.
+`/app/config` is an `emptyDir`. homepage copies each file of its
+configuration that it does not find there from `src/skeleton/` of the
+image, and exits when it cannot write it (`checkAndCopyConfig` in
+`src/utils/config/config.js`). It also writes its log to `logs/` there.
+
+DEC-226: `homepage` takes the dashboard from the parameters
+`applications.homepage.settings`, `.services`, `.bookmarks` and `.widgets`,
+written in the inventory as the YAML that homepage's documentation shows
+for `settings.yaml`, `services.yaml`, `bookmarks.yaml` and `widgets.yaml`.
+Kapitan's built-in resolver `yaml` turns each parameter into the text of
+its key in the component's ConfigMap `config`, which is `versioned`, and
+each key is mounted with `subPath` at `/app/config/<file>`. The recipe sets
+them to `{}` and `[]`. A changed parameter changes the ConfigMap's name and
+with it the pod template, so the Deployment rolls out a pod that reads the
+new files. A `subPath` mount does not follow a changed ConfigMap, so
+without the hash a change would wait for the next restart.
+
+The resolver dumps with PyYAML's defaults (`to_yaml` in Kapitan 0.36.3), so
+the keys of every mapping come out sorted. homepage orders the groups of the
+page by the keys of `layout` in `settings.yaml`. homepage 2.7.0 also takes
+`layout` as a list of one-key mappings in list order (`getSettings` in
+`src/utils/config/config.js`), and the README tells targets to write it so.
+
+| Alternative | Why it was not taken |
+|---|---|
+| Each file as a block string parameter | YAML inside a YAML string, which classes cannot merge and the inventory cannot check |
+| The image's sample files as defaults | A target's list is appended to the class's, so a target could not drop the sample services without a class that resets each list |
+| The ConfigMap mounted as the whole of `/app/config` | The mount is read-only, and homepage exits when it copies a file the ConfigMap lacks |
+| A claim at `/app/config` | The dashboard would be edited in the pod and would not follow the inventory |
+
+DEC-227: `homepage` requires `applications.homepage.allowed_hosts` and sets
+it as `HOMEPAGE_ALLOWED_HOSTS`. homepage 2.7.0 answers 400 to every request
+whose `Host` header is not in that comma-separated list or one of
+`localhost:3000`, `127.0.0.1:3000` and `[::1]:3000` (`isAllowedHost` in
+`src/utils/auth.js`, applied to every route by `src/proxy.js`). Its
+installation guide calls the variable required for access through any
+other address. The Kubernetes page sets the pod IP and a domain, the pod IP
+for its liveness probe over HTTP. The recipe's probe runs in the container
+against `127.0.0.1`, so the list needs no pod IP. A default of the
+Service's names in the cluster was considered. Users reach a dashboard
+through the host of their route or Ingress, which the recipe cannot know,
+and a default would answer them with 400 until the target overrides it.
+`*` turns the check off, which the guide advises against.
+
+DEC-228: The option `kubernetes` renders the ServiceAccount `homepage`, the
+ClusterRole `homepage` with the rules of the Kubernetes installation page,
+and the ClusterRoleBinding `homepage`, and writes
+`applications.homepage.kubernetes`, by default `mode: cluster`, to
+`/app/config/kubernetes.yaml`. homepage then lists the Ingresses of the
+cluster with the annotation `gethomepage.dev/enabled: "true"` as services,
+and with `gateway: true` or `traefik: true` HTTPRoutes or Traefik
+IngressRoutes. The rules grant `get` and `list` on Namespaces, Pods,
+Nodes, Ingresses in `extensions` and `networking.k8s.io`, IngressRoutes,
+HTTPRoutes, Gateways and the metrics of Nodes and Pods. The role comes from
+`generators.kubernetes.rbac.homepage`, because a component's
+`cluster_role` would be named `<namespace>-homepage` (RCP-3). The page's
+Secret of type `kubernetes.io/service-account-token` is left out. The
+kubelet mounts a projected token, which `loadFromCluster` of
+`@kubernetes/client-node` reads.
+
+RCP-44 kept every RBAC object out of a designed recipe, because no
+upstream artifact asks for one and nothing compares it. Here the project's
+documentation asks for exactly these rules, and the review compares them
+with the page. RCP-308 lets a designed recipe render roles that only read,
+and `check lint` enforces that, since it cannot compare the rules with
+documentation. Leaving the option out was considered. The Kubernetes page
+sets discovery up, and without it a target lists every service by hand.
+Allowing any RBAC was considered too. A designed recipe could then grant writes that
+neither `check` nor a source compares.
+
+DEC-229: `homepage` serves the dashboard without a login, homepage's
+default. homepage 2 has an optional gate with one password or OIDC behind
+`HOMEPAGE_AUTH_ENABLED`, and no accounts or registration. A required
+password, as `stirling-pdf` creates its first admin (DEC-165), was
+considered. The gate also needs `HOMEPAGE_AUTH_SECRET` and the external URL
+`HOMEPAGE_EXTERNAL_URL`, which a target sets anyway when it exposes the
+page, and homepage's documentation asks for authentication in a reverse
+proxy in front of a public deployment. The README names the variables.
+
+- RCP-305: `homepage` MUST run the image of its `Source` line as UID and
+  GID 1000 under `security_profile: restricted`, with an `emptyDir` at
+  `/app/config`, the readiness probe of the image's `HEALTHCHECK` and no
+  liveness probe. It MUST set `HOMEPAGE_ALLOWED_HOSTS` from
+  `applications.homepage.allowed_hosts` and MUST leave that parameter
+  unset.
+
+  - Test: `check lint` (RCP-23, RCP-262); RCP-309
+  - Since: #113
+
+- RCP-306: `homepage` MUST write `applications.homepage.settings`,
+  `.services`, `.bookmarks` and `.widgets` with the resolver `yaml` to the
+  keys `settings.yaml`, `services.yaml`, `bookmarks.yaml` and
+  `widgets.yaml` of the versioned ConfigMap `config` of its component, and
+  MUST mount each key at `/app/config/<key>`.
+
+  - Test: RCP-309
+  - Since: #113
+
+- RCP-307: The option `recipes.homepage.kubernetes` MUST render the
+  ServiceAccount, ClusterRole and ClusterRoleBinding of DEC-228 with the
+  rules of homepage's Kubernetes installation page at the image's tag, and
+  MUST write `applications.homepage.kubernetes` to
+  `/app/config/kubernetes.yaml`.
+
+  - Test: `check lint` (RCP-308); RCP-309; manual: review of the rules
+    against `docs/installation/k8s.md` at the tag
+  - Since: #113
+
+- RCP-309: The `tests/smoke` of `homepage` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From a
+  pod of its own and through the Service `homepage` on port 3000, it MUST
+  require 200 from `/api/healthcheck`, the title of `tests/target.yml` from
+  `/` and 400 from `/` with a `Host` outside the allowed hosts, and find the
+  service and the bookmark of `tests/target.yml` in `/api/services` and
+  `/api/bookmarks`. It MUST require that the ServiceAccount `homepage` may
+  list Ingresses and may not get Secrets, create Ingresses or delete Pods,
+  and find an Ingress it creates with homepage's annotations in
+  `/api/services`. It MUST compile `tests/target.yml` with a service
+  renamed, apply the result, and once the Deployment rolled out find the
+  new name in `/api/services` and not the old one.
+
+  The compile runs with the Kapitan of `check`'s environment and the
+  generator pulled by the digest that `check` verified (RCP-27), on the
+  recipe's class files, so the change takes the path a target's change
+  takes. The test runs `node` in a pod of homepage's image, whose `http`
+  client sends the `Host` header it is given.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #113
 
 ## LiteLLM
 
@@ -7035,8 +8465,8 @@ feature's design (OQ-6).
   digest, with a long flow-style line, and passes on cert-manager.
 - AC-2 (RCP-8 to RCP-12): `check`'s tests run the comparison on fixtures
   that differ by a dropped label, an unchanged selector that no longer
-  matches, a lost RoleBinding to a group, and an accepted difference of
-  each class, and fail or pass accordingly.
+  matches, a lost RoleBinding to a group, a Job from two dry runs, and an
+  accepted difference of each class, and fail or pass accordingly.
 - AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
   --level migrates` in CI. Met so far up to `deploys`.
 - AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
@@ -7230,7 +8660,7 @@ feature's design (OQ-6).
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
-| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58) |
+| `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
 | `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
 | `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
@@ -7290,10 +8720,18 @@ feature's design (OQ-6).
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
+| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
 | zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
+| mattermost | chart `mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm from its HTTP repository, unsupported upstream (DEC-290), Team Edition 12.0.2 (DEC-291), includes postgresql with `PGPASSWORD` (DEC-292), UID 2000 under `restricted` (DEC-293), open sign-up off (DEC-294), first admin from the Job `mattermost-admin` (DEC-295), `kubernetes` generator 1.14.0, level `deploys` (RCP-370 to RCP-374) |
+| matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
+| mongodb option `replica-set` | `recipes.mongodb.replica-set`, replica set `rs0` of one member `localhost:27017` (DEC-321), key file generated by the init container `key` (DEC-322), initiated by a postStart hook (DEC-323) (RCP-400, RCP-401) |
+| rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) as `root` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403) |
+| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
+| homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
 | litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.14.0, level `deploys` (RCP-315 to RCP-318) |

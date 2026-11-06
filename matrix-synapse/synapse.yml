@@ -1,0 +1,87 @@
+parameters:
+  components:
+    matrix-synapse:
+      application: matrix-synapse
+      type: statefulset
+      # renovate: Source
+      image: ghcr.io/element-hq/synapse:v1.164.2@sha256:f0df87cff259872637b4b5e5174b9977e5e3046dd421505407803b5e45c5f842
+      # The UID and GID the image's start.py switches to when it starts as
+      # root. Started as that user, it runs Synapse directly.
+      workload_security_context:
+        runAsUser: 991
+        runAsGroup: 991
+        fsGroup: 991
+      # start.py preloads jemalloc. Synapse reads every *.yaml in /config and
+      # creates the signing key on the claim when it is missing.
+      args:
+        mode: run
+        config:
+          - --config-path
+          - /config
+      env:
+        # psycopg2 takes the password the database arguments leave out.
+        PGPASSWORD:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+      ports:
+        http:
+          container_port: 8008
+          service_port: 8008
+      service:
+        type: ClusterIP
+      # The image's HEALTHCHECK with the defaults of a compose healthcheck
+      # for the retries.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - curl -fSs http://localhost:8008/health || exit 1
+          period_seconds: 15
+          timeout_seconds: 5
+      config_maps:
+        config:
+          mount: /config
+          data:
+            homeserver.yaml:
+              value: |
+                server_name: ${applications.matrix-synapse.server_name}
+                public_baseurl: ${applications.matrix-synapse.public_baseurl}
+                # Synapse stops until the config says whether to report.
+                report_stats: false
+                signing_key_path: /data/signing.key
+                media_store_path: /data/media_store
+                registration_shared_secret_path: /secrets/registration-shared-secret
+                database:
+                  name: psycopg2
+                  args:
+                    host: ${applications.postgresql.cluster}-rw
+                    dbname: ${applications.postgresql.database}
+                    user: ${applications.postgresql.owner}
+                    # CloudNativePG serves TLS, which require uses without
+                    # verifying the server's certificate.
+                    sslmode: require
+            federation.yaml:
+              value: ${applications.matrix-synapse.federation}
+      secrets:
+        credentials:
+          mount: /secrets
+          string_data:
+            registration-shared-secret:
+              value: ${applications.matrix-synapse.registration_shared_secret}
+            admin-password:
+              value: ${applications.matrix-synapse.admin.password}
+      volume_mounts:
+        data:
+          mount_path: /data
+      # The signing key and the media.
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi

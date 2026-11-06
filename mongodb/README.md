@@ -39,6 +39,7 @@ that holds the value of the old ref.
 ```yaml
 classes:
   - recipes.mongodb
+  - recipes.mongodb.replica-set   # a replica set of one member
 parameters:
   namespace: mongodb
   kapitan:
@@ -73,6 +74,28 @@ The image runs as the user `mongod`, so the recipe sets its UID, 1000, for
 root user on a first `mongod` bound to localhost, so the port opens on the
 pod IP once that is done.
 
+## The option `replica-set`
+
+`recipes.mongodb.replica-set` runs MongoDB as the replica set `rs0` with
+one member, which change streams and transactions need. A postStart hook
+of the container initiates it with the member `localhost:27017` on the
+first start and waits on every start until the member is primary. Clients
+connect through the Service `mongodb` with `directConnection=true`,
+because the member's address `localhost:27017` reaches it only from its
+own pod.
+
+mongod needs a key file once authorization and a replica set are on, and
+an init container writes a random one into an `emptyDir` on each pod
+start. With one member no other server authenticates with it. A second
+member is not supported: it would need the same key and an address that
+the other members and clients reach.
+
+Adding the option to a running `mongodb` restarts the pod with the
+replica set on the data it has, which MongoDB documents as converting a
+standalone server to a replica set. That path is not tested. The name
+`rs0` is `applications.mongodb.replica_set`. Change it only before the
+first start, because the hook does not rename a replica set that exists.
+
 ## Proof
 
 `check mongodb --level deploys` with `tests/target.yml` on kind for each
@@ -80,3 +103,7 @@ Kubernetes minor CI tests. The image has no Kubernetes objects to compare
 with, so the recipe is proven by deploying it (RCP-44). `tests/smoke` runs
 `ping` after mongosh authenticates as the user `root` in `admin`, through
 the Service `mongodb`, the check of the kadet-hub/examples recipe.
+`tests/target.yml` leaves out the option `replica-set`. The CI check of
+`rocketchat`, which includes it, proves it (RCP-50): the member is primary
+before and after its pod is replaced, and a change stream delivers a
+document that Rocket.Chat wrote.

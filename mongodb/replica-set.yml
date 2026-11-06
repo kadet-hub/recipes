@@ -1,0 +1,66 @@
+parameters:
+  applications:
+    mongodb:
+      replica_set: rs0
+  components:
+    mongodb:
+      application: mongodb
+      args:
+        mongod: mongod
+        replica-set:
+          - --replSet
+          - ${applications.mongodb.replica_set}
+        # mongod requires a key file once authorization and a replica set
+        # are on, and refuses one that its group may read.
+        key-file:
+          - --keyFile
+          - /etc/mongodb-key/key
+      init_containers:
+        # A Secret volume is group-readable under fsGroup. With one member
+        # the key authenticates nobody, so a new one per pod does.
+        key:
+          image: ${components.mongodb.image}
+          command:
+            - sh
+            - -ec
+            - |
+              rm -f /etc/mongodb-key/key
+              head -c 756 /dev/urandom | base64 -w0 >/etc/mongodb-key/key
+              chmod 400 /etc/mongodb-key/key
+          volume_mounts:
+            key:
+              mount_path: /etc/mongodb-key
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      # The entrypoint starts mongod without the replica set while it
+      # creates the user root, so this retries until the server with the
+      # replica set answers, initiates it once and waits for the primary.
+      lifecycle:
+        postStart:
+          exec:
+            command:
+              - sh
+              - -c
+              - |
+                for i in $(seq 90); do
+                  mongosh --quiet --username "$MONGODB_INITDB_ROOT_USERNAME" \
+                    --password="$MONGODB_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval '
+                      try { rs.status() } catch (e) {
+                        if (e.codeName != "NotYetInitialized") throw e
+                        rs.initiate({_id: "${applications.mongodb.replica_set}", members: [{_id: 0, host: "localhost:27017"}]})
+                      }
+                      if (!db.hello().isWritablePrimary) throw new Error("not the primary yet")
+                    ' >/dev/null 2>&1 && exit 0
+                  sleep 2
+                done
+                exit 1
+      volume_mounts:
+        key:
+          mount_path: /etc/mongodb-key
+      volumes:
+        key:
+          emptyDir: {}

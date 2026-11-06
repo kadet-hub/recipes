@@ -1,0 +1,12 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.mattermost.admin.username
+    description: Username of the first admin, which the Job mattermost-admin creates.
+    secret: false
+  - path: applications.mattermost.admin.email
+    description: Email address of the first admin.
+    secret: false
+  - path: applications.mattermost.admin.password
+    description: Password of the first admin, at least 8 characters, set only when the Job creates the account.
+    secret: true

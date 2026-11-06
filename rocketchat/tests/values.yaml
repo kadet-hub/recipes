@@ -1,0 +1,26 @@
+# Rocket.Chat 8.9.1 as one process on the included recipe mongodb with its
+# option replica-set, without the chart's Bitnami MongoDB and NATS.
+image:
+  repository: docker.io/rocketchat/rocket.chat
+  # renovate: upstream docker.io/rocketchat/rocket.chat
+  tag: 8.9.1
+host: chat.example.com
+# The user root of mongodb with the password tests/target.yml sets.
+externalMongodbUrl: mongodb://root:aaaaaaaaaaaa@mongodb:27017/rocketchat?authSource=admin&directConnection=true
+mongodb:
+  enabled: false
+# The chart's default, microservices, needs an Enterprise license.
+microservices:
+  enabled: false
+nats:
+  enabled: false
+extraEnv:
+  - name: ADMIN_EMAIL
+    value: admin@example.com
+  - name: ADMIN_PASS
+    valueFrom:
+      secretKeyRef:
+        name: rocketchat
+        key: admin-password
+  - name: Accounts_RegistrationForm
+    value: Disabled
