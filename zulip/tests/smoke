@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# RCP-395: Zulip through its Service on the included recipes. The owner that
+# the first start created logs in, and a member created with manage.py and the
+# owner each read the other's message in the channel general. Zulip's queue
+# workers consume RabbitMQ, its cache holds items in memcached without SASL,
+# and its Redis check reaches Valkey. A signup without an invitation and a new
+# organization without a creation link are refused. Both messages survive the
+# deletion of the Zulip pod and the PostgreSQL primary.
+set -euo pipefail
+kubectl wait clusters.postgresql.cnpg.io/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
+kubectl wait rabbitmqclusters.rabbitmq.com/rabbitmq --for=condition=AllReplicasReady --timeout=600s >/dev/null
+kubectl rollout status statefulset/zulip --timeout=900s >/dev/null
+
+host=chat.example.com
+owner=admin@example.com
+owner_password=$(kubectl get secret zulip -o jsonpath='{.data.owner-password}' | base64 -d)
+member=member@example.com
+member_password="smoke test member password"
+work=$(mktemp -d)
+pf=
+# Zulip serves requests without proxy headers only from the loopback, where
+# kubectl port-forward connects (the Service's port 80).
+forward() {
+  kubectl port-forward service/zulip 18080:80 >/dev/null &
+  pf=$!
+  for _ in $(seq 60); do
+    curl -fsS -o /dev/null -H "Host: $host" http://localhost:18080/api/v1/server_settings 2>/dev/null && return
+    sleep 2
+  done
+  return 1
+}
+trap 'kill $pf 2>/dev/null; rm -rf "$work"' EXIT
+forward
+url=http://localhost:18080
+api() { curl -fsS -H "Host: $host" "$@"; }
+key() { api -X POST "$url/api/v1/fetch_api_key" --data-urlencode "username=$1" --data-urlencode "password=$2" | jq -er .api_key; }
+send() {
+  api -u "$1" -X POST "$url/api/v1/messages" --data-urlencode type=stream --data-urlencode to=general \
+    --data-urlencode topic=smoke --data-urlencode "content=$2" | jq -e '.result == "success"' >/dev/null
+}
+general() {
+  api -u "$1" -G "$url/api/v1/messages" --data-urlencode anchor=newest --data-urlencode num_before=20 \
+    --data-urlencode num_after=0 --data-urlencode 'narrow=[{"operator":"channel","operand":"general"}]' |
+    jq -r '.messages[].content'
+}
+
+owner_key=$(key "$owner" "$owner_password")
+[[ $(api -u "$owner:$owner_key" "$url/api/v1/users/me" | jq -r .role) == 100 ]]
+# A test password on the command line, where it is in the process list.
+kubectl exec zulip-0 -c zulip -- runuser -u zulip -- /home/zulip/deployments/current/manage.py \
+  create_user -r '' "$member" Member --password "$member_password" >/dev/null 2>&1
+member_key=$(key "$member" "$member_password")
+send "$owner:$owner_key" "from the owner"
+grep -q "from the owner" <<<"$(general "$member:$member_key")"
+send "$member:$member_key" "from the member"
+grep -q "from the member" <<<"$(general "$owner:$owner_key")"
+
+grep -Eq '^user_activity\s+[1-9]' <<<"$(kubectl exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl list_queues -q name consumers)"
+stats=$(kubectl exec deployment/memcached -- bash -c 'exec 3<>/dev/tcp/127.0.0.1/11211; printf "stats\r\nquit\r\n" >&3; cat <&3')
+grep -Eq '^STAT curr_items [1-9]' <<<"$stats"
+grep -Eq '^STAT auth_cmds 0' <<<"$stats"
+kubectl exec zulip-0 -c zulip -- runuser -u zulip -- /home/zulip/deployments/current/manage.py check_redis
+
+# The CSRF cookie is Secure, which curl sends back only over HTTPS.
+api -D "$work/headers" -o "$work/register" "$url/register/"
+cookie=$(sed -n 's/^set-cookie: \(__Host-csrftoken=[^;]*\).*/\1/ip' "$work/headers")
+token=$(sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' "$work/register" | head -n1)
+signup=$(api -H "Cookie: $cookie" -X POST "$url/accounts/home/" --data-urlencode "csrfmiddlewaretoken=$token" \
+  --data-urlencode email=stranger@example.com)
+grep -q "Please request an invite for stranger@example.com" <<<"$signup"
+grep -q "Organization creation link required" <<<"$(api "$url/new/")"
+
+kill "$pf"
+primary=$(kubectl get pods -l cnpg.io/cluster=postgresql-cluster,cnpg.io/instanceRole=primary -o name)
+[[ -n $primary ]]
+kubectl delete pod/zulip-0 "$primary" --wait=true >/dev/null
+kubectl wait "$primary" pod/zulip-0 --for=create --timeout=300s >/dev/null
+kubectl wait "$primary" pod/zulip-0 --for=condition=Ready --timeout=900s >/dev/null
+forward
+owner_key=$(key "$owner" "$owner_password")
+messages=$(general "$owner:$owner_key")
+grep -q "from the owner" <<<"$messages"
+grep -q "from the member" <<<"$messages"
+echo "owner and member exchanged messages in general, signup and organization creation refused, messages kept after replacing the Zulip and PostgreSQL pods"

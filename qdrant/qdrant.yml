@@ -1,0 +1,150 @@
+parameters:
+  components:
+    qdrant:
+      application: qdrant
+      type: statefulset
+      # Qdrant's non-root build of the release, UID and GID 1000 (DEC-231).
+      image: docker.io/qdrant/qdrant:v1.20.0-unprivileged@sha256:8c215051dc7bc15221b5f89c100a84a4b04d0dd8497fb73e6fa86fc948d1a41d
+      command:
+        - /bin/bash
+        - -c
+      args:
+        initialize: ./config/initialize.sh
+      env:
+        QDRANT_INIT_FILE_PATH: /qdrant/init/.qdrant-initialized
+        QDRANT__SERVICE__API_KEY:
+          secretKeyRef:
+            name: qdrant-apikey
+            key: api-key
+      ports:
+        http:
+          service_port: 6333
+          # The chart's Service ports have no appProtocol.
+          app_protocol: ""
+        grpc:
+          service_port: 6334
+        p2p:
+          service_port: 6335
+      # The governing Service of the StatefulSet.
+      service:
+        service_name: qdrant-headless
+        headless: true
+        publish_not_ready_address: true
+      additional_services:
+        qdrant:
+          type: ClusterIP
+      healthcheck:
+        readiness:
+          type: http
+          port: 6333
+          path: /readyz
+          initial_delay_seconds: 5
+          period_seconds: 5
+          timeout_seconds: 1
+          failure_threshold: 6
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - sleep
+              - "3"
+      workload_security_context:
+        fsGroup: 3000
+        fsGroupChangePolicy: Always
+        seccompProfile:
+          type: RuntimeDefault
+      security_context:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+      # The chart leaves the pod's token unset and the ServiceAccount's at true.
+      automount_service_account_token: true
+      service_account:
+        create: true
+        automount_service_account_token: true
+      volume_mounts:
+        qdrant-storage:
+          mount_path: /qdrant/storage
+        initialize:
+          volume: qdrant-config
+          mount_path: /qdrant/config/initialize.sh
+          sub_path: initialize.sh
+        production:
+          volume: qdrant-config
+          mount_path: /qdrant/config/production.yaml
+          sub_path: production.yaml
+        qdrant-snapshots:
+          mount_path: /qdrant/snapshots
+        qdrant-init:
+          mount_path: /qdrant/init
+      volumes:
+        qdrant-config:
+          configMap:
+            name: qdrant
+            defaultMode: 0755
+        qdrant-snapshots:
+          emptyDir: {}
+        qdrant-init:
+          emptyDir: {}
+      volume_claims:
+        qdrant-storage:
+          metadata:
+            labels:
+              app: qdrant
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+      # The chart's hash of its rendered configmap.yaml. It does not follow a
+      # change of the ConfigMap below.
+      pod_annotations:
+        checksum/config: 5df8a65479109a9e1a64018f69aa177bc62515d1d4f0d7b18e500a6bfd270323
+  generators:
+    kubernetes:
+      configs:
+        qdrant:
+          data:
+            # templates/configmap.yaml of the qdrant chart 1.20.0, rendered
+            # with tests/values.yaml, Apache-2.0 (qdrant.yml.LICENSE). The
+            # shell's ${...} is written as ${escape:...}.
+            initialize.sh:
+              value: |
+                #!/bin/sh
+                echo "Soft limits"
+                ulimit -a -S
+                echo "Hard limits"
+                ulimit -a -H
+                ulimit -n $(ulimit -Hn)
+                SET_INDEX=${escape:'HOSTNAME##*-'}
+                echo "Starting initializing for pod $SET_INDEX"
+                if [ "$SET_INDEX" = "0" ]; then
+                  exec ./entrypoint.sh --uri 'http://qdrant-0.qdrant-headless:6335'
+                else
+                  exec ./entrypoint.sh --bootstrap 'http://qdrant-0.qdrant-headless:6335' --uri 'http://qdrant-'"$SET_INDEX"'.qdrant-headless:6335'
+                fi
+            production.yaml:
+              value: |
+                cluster:
+                  consensus:
+                    tick_period_ms: 100
+                  enabled: true
+                  p2p:
+                    enable_tls: false
+                    port: 6335
+                service:
+                  enable_tls: false
+      # The target sets api_key. A component Secret would also be mounted
+      # as a volume, which the chart does not.
+      secrets:
+        qdrant-apikey:
+          string_data:
+            api-key:
+              value: ${applications.qdrant.api_key}
