@@ -36,7 +36,7 @@ client stalwart-smoke
 cx() { kubectl exec -i stalwart-smoke -- "$@"; }
 svc=$(kubectl get service stalwart -o jsonpath='{.spec.clusterIP}')
 # The issuer of tests/target.yml is self-signed, so its certificate is its own CA.
-ca() { kubectl get secret stalwart-tls -o jsonpath='{.data.ca\.crt}' | base64 -d | cx sh -c 'cat >/tmp/ca.crt'; }
+ca() { kubectl get secret stalwart-tls -o jsonpath='{.data.ca\.crt}' | base64 -d | kubectl exec -i "${1:-stalwart-smoke}" -- sh -c 'cat >/tmp/ca.crt'; }
 ca
 tls="--cacert /tmp/ca.crt --resolve $host:465:$svc --resolve $host:993:$svc --resolve $host:443:$svc --resolve mta-sts.$domain:443:$svc"
 admin_password=$(kubectl get secret stalwart-apply -o jsonpath='{.data.password}' | base64 -d)
@@ -208,11 +208,15 @@ cx grep -qi '^Content-Type: application/pkcs7-mime; smime-type=enveloped-data' /
 if cx grep -q sealed-text-for-b /tmp/b/stored.eml; then echo 'the stored message holds the text' >&2; exit 1; fi
 cx sh -c 'openssl cms -decrypt -inkey /tmp/b/key.pem -recip /tmp/b/cert.pem -in /tmp/b/stored.eml | grep -q sealed-text-for-b'
 
-# RCP-346: 100 failed logins from one address, Stalwart's default, ban it. Other addresses still connect.
+# RCP-346: Stalwart's default allows 100 failed logins from one address and bans it at the 101st.
+# The second pod logs in first, so a ban and not its TLS setup makes the last login fail.
+# Other addresses still connect.
 client stalwart-smoke-ban
-kubectl exec stalwart-smoke-ban -- bash -c "for i in \$(seq 100); do
-  curl -s $tls imaps://$host:993/INBOX --user b@$domain:wrong >/dev/null; done
-  ! curl -s --max-time 10 $tls imaps://$host:993/INBOX --user 'b@$domain:$b_password' >/dev/null"
+ca stalwart-smoke-ban
+kubectl exec stalwart-smoke-ban -- bash -c "set -e
+  curl -fsS $tls imaps://$host:993/INBOX --user 'b@$domain:$b_password' -X NOOP >/dev/null
+  for i in \$(seq 101); do curl -s $tls imaps://$host:993/INBOX --user b@$domain:wrong >/dev/null || true; done
+  ! curl -s --max-time 10 $tls imaps://$host:993/INBOX --user 'b@$domain:$b_password' -X NOOP >/dev/null"
 cx curl -fsS $tls "imaps://$host:993/INBOX" --user "b@$domain:$b_password" -X NOOP >/dev/null
 
 # RCP-349: a renewed certificate is served without a restart. cert-manager issues a new one with a new
@@ -241,4 +245,4 @@ done
 fetch smoke-plain | grep -q 'hello from a'
 
 # check reports the last line.
-echo "a sent to b over 465 with TLS and AUTH, b read it over 993 with TLS, its DKIM signature verified against the record PowerDNS answers, no relay without AUTH, no AUTH without TLS, S/MIME encryption at rest for b, a ban after 100 failed logins, a renewed certificate served without a restart, and the mail again after stalwart-0 restarted"
+echo "a sent to b over 465 with TLS and AUTH, b read it over 993 with TLS, its DKIM signature verified against the record PowerDNS answers, no relay without AUTH, no AUTH without TLS, S/MIME encryption at rest for b, a ban at the 101st failed login, a renewed certificate served without a restart, and the mail again after stalwart-0 restarted"

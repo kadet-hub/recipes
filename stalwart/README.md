@@ -281,7 +281,8 @@ for a relay attempt without AUTH on port 25, `503` for AUTH there, and 403
 for the API on port 8080. It reads the route of the option `relay` back
 through the API. `b` registers an S/MIME certificate whose key the client pod
 generates and never prints, and the next message for `b` is stored as an
-S/MIME enveloped message without its text, which the key decrypts. 100 failed
-logins from a second pod get that pod's address banned, while the first pod
-still connects. A certificate that cert-manager issues anew is served without
-a restart. After `stalwart-0` is deleted, `b` reads the first message again.
+S/MIME enveloped message without its text, which the key decrypts. A second
+pod logs in, and its 101st failed login after that gets its address banned,
+while the first pod still connects. A certificate that cert-manager issues
+anew is served without a restart. After `stalwart-0` is deleted, `b` reads
+the first message again.
