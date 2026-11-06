@@ -26,6 +26,8 @@ DROP_LABELS = {
     "heritage",
     "component",
 }
+# The API server adds these to a Job's pod template, the UIDs differ on each side.
+JOB_LABELS = {"controller-uid", "batch.kubernetes.io/controller-uid", "job-name", "batch.kubernetes.io/job-name"}
 DROP_ANNOTATIONS = {"kubectl.kubernetes.io/last-applied-configuration"}
 HELM_PREFIXES = ("helm.sh/", "meta.helm.sh/")
 DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
@@ -72,11 +74,11 @@ def pod_templates(obj):
         yield ["spec", "jobTemplate", "spec", "template"], job["template"]
 
 
-def _clean_metadata(meta):
+def _clean_metadata(meta, drop=frozenset()):
     labels = {
         k: v
         for k, v in (meta.get("labels") or {}).items()
-        if k not in DROP_LABELS and not k.startswith(HELM_PREFIXES)
+        if k not in DROP_LABELS and k not in drop and not k.startswith(HELM_PREFIXES)
     }
     annotations = {
         k: v
@@ -99,7 +101,7 @@ def normalize(obj, side):
         meta.pop(key, None)
     _clean_metadata(meta)
     for _, template in pod_templates(obj):
-        _clean_metadata(template.setdefault("metadata", {}))
+        _clean_metadata(template.setdefault("metadata", {}), JOB_LABELS if obj.get("kind") == "Job" else frozenset())
         if not template["metadata"]:
             del template["metadata"]
         if side == "recipe":
