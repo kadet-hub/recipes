@@ -89,6 +89,14 @@ also need a TURN server, which docker-jitsi-meet does not run and prosody
 announces through `TURN_HOST` and its related variables. The recipe exposes
 nothing and sets neither (DEC-312).
 
+jicofo grants a meeting also before jvb has joined it, and then offers its
+participants no session, on kind not even within a minute after jvb joined.
+A meeting opened in the first seconds after jvb starts or restarts
+therefore has no audio and video. No probe holds jicofo back until it
+knows a bridge. The compose file and the images define no healthcheck, and
+jicofo's `/about/health` answers 404 unless `JICOFO_ENABLE_HEALTH_CHECKS`
+is set. Whether it then fails without a bridge is not tested.
+
 Browsers allow camera and microphone only on an HTTPS page. web serves
 HTTPS on 8443 with a self-signed certificate it keeps on its claim. A
 target puts a Gateway or Ingress with a real certificate in front of port
