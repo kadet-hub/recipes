@@ -405,6 +405,9 @@ class LintDesign(unittest.TestCase):
         # A ClusterRole is cluster-scoped: a namespace in its metadata does not hide it from its binding.
         namespaced = {**cluster_role, "metadata": {"name": "homepage", "namespace": "homepage"}}
         self.assertEqual(lint.read_only_rbac_errors([namespaced, cluster_binding]), [])
+        # A Role rendered without a namespace lands in the binding's, the target namespace.
+        unnamespaced = {**role, "metadata": {"name": "homepage"}}
+        self.assertEqual(lint.read_only_rbac_errors([unnamespaced, binding]), [])
         writes = {**cluster_role, "rules": [reads, {"apiGroups": [""], "resources": ["configmaps"], "verbs": ["get", "update"]}]}
         secrets = {**role, "rules": [{"apiGroups": [""], "resources": ["secrets", "secrets/status"], "verbs": ["get"]},
                                      {"apiGroups": ["*"], "resources": ["pods"], "verbs": ["list"]}]}

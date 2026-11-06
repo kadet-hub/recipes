@@ -578,7 +578,9 @@ def read_only_rbac_errors(objects):
         else:
             ref = o.get("roleRef") or {}
             namespace = meta.get("namespace") if ref.get("kind") == "Role" else None
-            if (ref.get("kind"), namespace, ref.get("name")) not in roles:
+            # Without a namespace an object lands in the target namespace, so only two set ones must agree.
+            if not any(k == ref.get("kind") and n == ref.get("name") and (None in (ns, namespace) or ns == namespace)
+                       for k, ns, n in roles):
                 errors.append(f"{compare.ident(o)}: binds {ref.get('kind')}/{ref.get('name')}, which the recipe does not render (RCP-308)")
     return errors
 
