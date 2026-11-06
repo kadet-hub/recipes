@@ -81,6 +81,18 @@ class Compare(unittest.TestCase):
             " ".join(self.unaccepted(self.run_compare())),
         )
 
+    def test_explicit_default_false_needs_the_service_account_false(self):
+        for objs in (self.chart, self.recipe):
+            find(objs, "ServiceAccount")["automountServiceAccountToken"] = False
+        find(self.recipe, "Deployment")["spec"]["template"]["spec"]["automountServiceAccountToken"] = False
+        found = {(d.cls, d.where()) for d in self.run_compare()["differences"]}
+        self.assertIn((compare.EXPLICIT_DEFAULT, "spec.template.spec.automountServiceAccountToken"), found)
+        find(self.chart, "ServiceAccount")["automountServiceAccountToken"] = True
+        self.assertIn(
+            "spec.template.spec.automountServiceAccountToken",
+            " ".join(self.unaccepted(self.run_compare())),
+        )
+
     def test_empty_container_security_context_is_an_explicit_default(self):
         container = find(self.recipe, "Deployment")["spec"]["template"]["spec"]["containers"][0]
         container["securityContext"] = {}
@@ -116,6 +128,41 @@ class Compare(unittest.TestCase):
         unaccepted = " ".join(self.unaccepted(self.run_compare()))
         self.assertIn("containers[0].name", unaccepted)
         self.assertIn("metadata.name", unaccepted)
+
+    def test_job_labels_of_the_api_server(self):
+        # A Job as a server-side dry run on kind returns it, one UID per side.
+        def job(uid):
+            generated = {"batch.kubernetes.io/controller-uid": uid, "batch.kubernetes.io/job-name": "demo-admin",
+                         "controller-uid": uid, "job-name": "demo-admin"}
+            return {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": "demo-admin", "namespace": "demo", "uid": uid},
+                    "spec": {"selector": {"matchLabels": {"batch.kubernetes.io/controller-uid": uid}},
+                             "template": {"metadata": {"labels": {"app.kubernetes.io/name": "demo", **generated}},
+                                          "spec": {"containers": [{"name": "demo-admin", "image": "registry.example.org/demo:v1.0.0"}]}}}}
+
+        chart, recipe = job("0750ca74-1829-4852-a622-0d607b323de5"), job("a27962b7-5d82-42e6-beb0-bb425bad1bb0")
+        result = compare.compare([chart], [recipe])
+        self.assertEqual(self.unaccepted(result), [])
+        self.assertEqual(
+            [(d.cls, d.where()) for d in result["differences"]],
+            [(compare.SELECTOR_SCHEME, "spec.selector.matchLabels.batch.kubernetes.io/controller-uid")],
+        )
+        # A Job without labels of its own gets those of its pod template.
+        chart["metadata"]["labels"] = dict(chart["spec"]["template"]["metadata"]["labels"])
+        recipe["metadata"]["labels"] = {"name": "demo-admin"}
+        self.assertEqual(self.unaccepted(compare.compare([chart], [recipe])), [])
+        # A job-name label the Job sets itself stays.
+        chart["metadata"]["labels"] = {"job-name": "demo-admin"}
+        self.assertEqual(
+            self.unaccepted(compare.compare([chart], [recipe])),
+            ['NOT ACCEPTED: Job.batch/demo/demo-admin metadata.labels: chart {"job-name": "demo-admin"}, recipe <unset>'],
+        )
+        del chart["metadata"]["labels"]
+        recipe["spec"]["template"]["metadata"]["labels"]["sidecar.istio.io/inject"] = "false"
+        self.assertEqual(
+            self.unaccepted(compare.compare([chart], [recipe])),
+            ["NOT ACCEPTED: Job.batch/demo/demo-admin spec.template.metadata: "
+             'chart <unset>, recipe {"labels": {"sidecar.istio.io/inject": "false"}}'],
+        )
 
     def test_lost_group_role_binding_is_found(self):
         self.recipe = [o for o in self.recipe if o["kind"] != "RoleBinding"]

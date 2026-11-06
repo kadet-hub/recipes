@@ -1,0 +1,12 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.jitsi-meet.jicofo_auth_password
+    description: JICOFO_AUTH_PASSWORD, with which jicofo logs in to prosody as focus@auth.meet.jitsi.
+    secret: true
+  - path: applications.jitsi-meet.jvb_auth_password
+    description: JVB_AUTH_PASSWORD, with which the video bridge logs in to prosody as jvb@auth.meet.jitsi.
+    secret: true
+  - path: applications.jitsi-meet.moderator_password
+    description: Password of the first moderator, moderator@meet.jitsi, the one user who may open a meeting.
+    secret: true

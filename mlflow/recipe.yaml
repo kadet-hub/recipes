@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.mlflow.admin_password
+    description: Password of the basic auth admin admin, at least 12 characters, read only while the user store has no admin.
+    secret: true
+  - path: applications.mlflow.secret_key
+    description: MLFLOW_FLASK_SERVER_SECRET_KEY, which signs the CSRF tokens of the sign-up page.
+    secret: true

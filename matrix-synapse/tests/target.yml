@@ -1,0 +1,28 @@
+classes:
+  - recipes.matrix-synapse
+  - recipes.matrix-synapse.element-web
+  - recipes.matrix-synapse.oidc
+parameters:
+  namespace: matrix-synapse
+  kapitan:
+    vars:
+      target: matrix-synapse
+  applications:
+    matrix-synapse:
+      server_name: example.com
+      # The Service, so that tests/smoke reaches the homeserver through the
+      # URL Element Web names.
+      public_baseurl: http://matrix-synapse:8008/
+      registration_shared_secret: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      admin:
+        username: smoke-admin
+        password: bbbbbbbbbbbbbbbb
+      # No provider answers there. Synapse loads its metadata in the
+      # background and lists the provider all the same.
+      oidc:
+        issuer: https://idp.example.com/realms/example
+        client_id: synapse
+        client_secret: eeeeeeeeeeeeeeee
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

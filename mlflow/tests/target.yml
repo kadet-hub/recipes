@@ -1,0 +1,14 @@
+classes:
+  - recipes.mlflow
+parameters:
+  namespace: mlflow
+  kapitan:
+    vars:
+      target: mlflow
+  applications:
+    mlflow:
+      admin_password: aaaaaaaaaaaaaaaa
+      secret_key: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
