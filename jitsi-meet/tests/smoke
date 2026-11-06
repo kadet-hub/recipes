@@ -83,6 +83,14 @@ moderator() { # the first login after a start waits until prosody, jicofo and th
 EOF
 )
 run() { kubectl exec -i jitsi-meet-smoke -- bash -s -- "$password" "$jvb" <<<"$client"$'\n'"password=\$1 jvb=\$2"$'\n'"$1"; }
+# On a failure, what jicofo and jvb logged about the meeting, addresses masked.
+logs() {
+  for w in jitsi-meet-jicofo jitsi-meet-jvb; do
+    echo "--- $w" >&2
+    kubectl logs "deploy/$w" --since=10m | grep -E 'WARNING|SEVERE|doAllocate|session-initiate|[Bb]ridge' |
+      sed -E 's/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<ip>/g' | tail -30 >&2
+  done
+}
 
 run '
 curl -fsS -o /dev/null http://jitsi-meet:8000/
@@ -122,7 +130,7 @@ expect guest ">hello from the moderator</body>"
 
 send mod "<iq $c type=\"set\" id=\"store\"><query xmlns=\"jabber:iq:private\"><smoke xmlns=\"urn:kadet-hub:smoke\">kept</smoke></query></iq>" |
   grep -q "type=.result." || fail "prosody did not store private data"
-'
+' || { logs; exit 1; }
 
 kubectl delete pod jitsi-meet-prosody-0 >/dev/null
 kubectl rollout status statefulset/jitsi-meet-prosody --timeout=300s >/dev/null
