@@ -6575,12 +6575,29 @@ the same file.
 - RCP-362: Without the option `federation`, Synapse MUST serve neither
   the federation API nor the server keys and MUST deny federation with
   every server. With it, Synapse MUST serve both and
-  `/.well-known/matrix/server`.
+  `/.well-known/matrix/server`, and MUST federate with another server
+  that has the option.
+
+  `check` deploys one target, so CI tests the default only. Two servers
+  with the option federated by hand on kind: `a.example.test` and
+  `b.example.test`, each a target in a namespace of its own behind an
+  nginx with a certificate of a test CA, and CoreDNS rewrote each name to
+  that nginx's Service. Each target added a file `kind.yaml` to the
+  ConfigMap with `federation_custom_ca_list` for the test CA and
+  `ip_range_whitelist` for the cluster's Services, `10.96.0.0/12`. The
+  admin of `a.example.test` joined a room of `b.example.test` through its
+  alias and read its message, and `b.example.test` read the reply. With
+  the option off on `b.example.test` the join got 404. Without
+  `ip_range_whitelist` it got 502, and Synapse logged that the name had no
+  address, as it drops addresses in its default `ip_range_blacklist`. A
+  proof in CI needs two targets of the published recipe, which
+  kadet-hub/examples can run.
 
   - Test: CI `check` job, report line `smoke`, for the default; manual:
     on kind with Kubernetes 1.37 and the option, `/_matrix/federation/v1/version`,
-    `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered
-  - Since: #124
+    `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered;
+    manual: the two servers above on kind with Kubernetes 1.37
+  - Since: #124; federation of two servers: this change
 
 - RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
   Security warning from a server-side dry run of the label
@@ -6593,13 +6610,26 @@ the same file.
   was deleted and its successor is ready, with the same signing key. The
   login flows MUST name the provider of the option `oidc`. The test MUST
   reach Element Web through its Service and the homeserver at
-  the URL its `config.json` names.
+  the URL its `config.json` names. In Chrome, Element Web's login page
+  MUST name `server_name` and the provider of the login flows.
 
   The message comes from PostgreSQL, and the upload and the signing key
   from the claim, so the reads after the restart need both.
 
+  Chrome loads Element Web through a port forward, and the host and port
+  of the homeserver's URL in `config.json` resolve to the port forward of
+  Synapse (`--host-resolver-rules`). Element Web lists the provider only
+  after it read the login flows from that URL. With the URL resolving to a
+  closed port, it showed `Can't connect to homeserver` and the test
+  failed. The test drives Chrome through ChromeDriver with curl. GitHub's
+  runners carry both in the same version and name the driver's directory
+  in `CHROMEWEBDRIVER`. Elsewhere `CHROMEDRIVER` names the driver. Chrome's
+  `--dump-dom` was considered, but it wrote the page before Element Web had
+  rendered into it. playwright-core, which the registry's playground test
+  uses, would bring Node and a lock file into this repository.
+
   - Test: CI `check` job, report line `smoke`
-  - Since: #124
+  - Since: #124; Chrome: this change
 
 - RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
   with `register_new_matrix_user --exists-ok --admin` and the shared
@@ -6630,7 +6660,8 @@ the same file.
   `oidc`, its
   report lists the objects of `postgresql` as included and `cnpg` as
   installed, and its smoke test reads the message and the upload after
-  the restart.
+  the restart, and Element Web's login page in Chrome names the server and
+  the provider.
 
 ## Migration
 
