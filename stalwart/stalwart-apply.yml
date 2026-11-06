@@ -1,0 +1,50 @@
+parameters:
+  components:
+    # Applies the plan through Stalwart's API with stalwart-cli, as Stalwart's
+    # declarative deployment guide does, and retries until Stalwart answers
+    # (RCP-341).
+    stalwart-apply:
+      application: stalwart
+      type: job
+      image: docker.io/stalwartlabs/cli:1.0.14@sha256:5b70732cb69cdab3ff0894c501544cf0bfa180fa75bcd0eeba4eebe04c1064e1
+      security_profile: restricted
+      backoff_limit: 10
+      args:
+        command: apply
+        file: --file=/etc/stalwart-apply/plan.ndjson
+        # The certificate names the public host name, not the Service.
+        insecure: --insecure
+      env:
+        STALWART_URL: https://stalwart:443
+        STALWART_USER: ${applications.stalwart.admin.name}
+        STALWART_PASSWORD:
+          secretKeyRef:
+            key: password
+      secrets:
+        plan:
+          mount: /etc/stalwart-apply
+          string_data:
+            password:
+              value: ${applications.stalwart.admin.password}
+            # Every line is idempotent, so the plan can run again. The
+            # password goes to credentials/0 only, which keeps the app
+            # passwords and API keys of the mailbox.
+            plan.ndjson:
+              value: |
+                {"@type":"upsert","object":"Domain","matchOn":["name"],"value":{"domain":{"name":"${applications.stalwart.domain}","certificateManagement":{"@type":"Manual"},"dkimManagement":{"@type":"Manual"},"dnsManagement":{"@type":"Manual"}}}}
+                {"@type":"upsert","object":"Certificate","matchOn":["certificate"],"value":{"tls":{"certificate":{"@type":"File","filePath":"/etc/stalwart/tls/tls.crt"},"privateKey":{"@type":"File","filePath":"/etc/stalwart/tls/tls.key"}}}}
+                {"@type":"upsert","object":"DkimSignature","matchOn":["selector"],"value":{"dkim":{"@type":"Dkim1RsaSha256","domainId":"#domain","selector":"${applications.stalwart.dkim.selector}","canonicalization":"relaxed/relaxed","privateKey":{"@type":"File","filePath":"/etc/stalwart/dkim/private-key"}}}}
+                {"@type":"upsert","object":"Account","matchOn":["name"],"value":{"mailbox":{"@type":"User","name":"${applications.stalwart.mailbox.name}","domainId":"#domain","aliases":{"0":{"name":"postmaster","domainId":"#domain"}}}}}
+                {"@type":"update","object":"Account","id":"#mailbox","value":{"credentials/0":{"@type":"Password","secret":"${applications.stalwart.mailbox.password}"}}}
+                {"@type":"update","object":"SystemSettings","value":{"defaultHostname":"${applications.stalwart.hostname}","defaultDomainId":"#domain"}}
+                {"@type":"update","object":"MtaSts","value":{"mode":"${applications.stalwart.mta_sts.mode}"}}
+                {"@type":"update","object":"Http","value":{"allowedEndpoints":{"match":{"0":{"if":"!is_tls && path != '/healthz/live' && path != '/healthz/ready'","then":"403"}},"else":"200"}}}
+                {"@type":"reconcile","object":"Tracer","matchOn":"*","value":{"console":{"@type":"Stdout","level":"info","buffered":false}}}
+                ${applications.stalwart.plan.relay}
+                {"@type":"create","object":"Action","value":{"settings":{"@type":"ReloadSettings"},"tls":{"@type":"ReloadTlsCertificates"}}}
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi

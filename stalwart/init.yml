@@ -1,0 +1,33 @@
+classes:
+  - .stalwart
+  - .stalwart-apply
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+  applications:
+    stalwart:
+      # The target sets domain, admin.password, mailbox.name and
+      # mailbox.password.
+      hostname: mail.${applications.stalwart.domain}
+      admin:
+        name: admin
+      dkim:
+        selector: stalwart
+      dmarc:
+        policy: quarantine
+      mta_sts:
+        mode: testing
+        id: "1"
+      # Lines the options add to the plan of stalwart-apply. Stalwart skips
+      # blank lines.
+      plan:
+        relay: ""

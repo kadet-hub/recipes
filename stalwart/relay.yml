@@ -1,0 +1,12 @@
+parameters:
+  applications:
+    stalwart:
+      # The target sets relay.host, relay.username and relay.password.
+      relay:
+        port: 465
+      plan:
+        # Implicit TLS, so the credentials never cross a connection whose
+        # STARTTLS an attacker could strip (RCP-347).
+        relay: |
+          {"@type":"upsert","object":"MtaRoute","matchOn":["name"],"value":{"relay":{"@type":"Relay","name":"relay","host":"${applications.stalwart.relay.host}","port":${applications.stalwart.relay.port},"implicitTls":true,"authUsername":"${applications.stalwart.relay.username}","authSecret":{"@type":"Value","secret":"${applications.stalwart.relay.password}"}}}}
+          {"@type":"update","object":"MtaOutboundStrategy","value":{"route":{"match":{"0":{"if":"is_local_domain(rcpt_domain)","then":"'local'"}},"else":"'relay'"}}}

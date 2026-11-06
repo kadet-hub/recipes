@@ -1,0 +1,11 @@
+parameters:
+  generators:
+    kubernetes:
+      secrets:
+        # The target sets applications.stalwart.dkim.private_key, an RSA
+        # private key in PEM. tls.key is the key name cert-manager writes, so
+        # a Secret of either source works the same.
+        stalwart-dkim:
+          string_data:
+            tls.key:
+              value: ${applications.stalwart.dkim.private_key}

@@ -6224,6 +6224,279 @@ only with `PROSODY_ENABLE_S2S` and on 5347 only for an external component.
   - Test: CI `check` job, report line `smoke`
   - Since: #117
 
+## Stalwart
+
+`stalwart` runs a mail server for one domain: SMTP for other servers on
+port 25, submission and IMAP for clients over TLS, DKIM signing, and the
+DNS records the domain needs. The admin and the first mailbox come from
+required parameters. The recipe was asked for as a self-hosted mail server
+whose DNS records come from the same inventory.
+
+DEC-260: `stalwart` runs Stalwart Mail Server 1.0. Four servers were
+compared on 2026-11-05, from GitHub's releases and security advisories and
+from each project's documentation:
+
+| | Stalwart | docker-mailserver | Mailu | mox |
+|---|---|---|---|---|
+| Newest release | v1.0.3, 2026-11-04 | v16.0.1, 2026-09-04 | 2024.06.67, 2026-10-23 | v0.0.17, 2026-08-19 |
+| Releases in 12 months | 38 | 2 | 22 | 2 |
+| Advisories in 24 months | 3: 2 high, 1 medium | 0 | 7: 2 critical, 3 high, 1 medium, 1 low | 0 |
+| License | AGPL-3.0 or the proprietary SELv2 | MIT | MIT | MIT |
+| Processes | one binary, UID 2000 | Postfix, Dovecot and more under supervisord as root | 10 workloads in its chart | one binary, starts as root |
+| Kubernetes from upstream | a chart printed on a documentation page | a chart of its community, HTTP repository | a chart, HTTP repository | none |
+| Encryption at rest with the user's key | OpenPGP and S/MIME | no, Dovecot's mail_crypt with Dovecot keys | no | no |
+
+Stalwart is the only one that stores each user's mail encrypted with that
+user's own OpenPGP key or S/MIME certificate, which is the closest a
+self-hosted server gets to a hosted service like Proton Mail. It runs as one
+non-root process under Pod Security `restricted`, and its open source build
+has DKIM signing, SPF, DMARC, MTA-STS, rate limits, bans after failed
+logins, relay routes and the PROXY protocol (Stalwart's feature comparison
+and `resources/schema/schema_oss.json` of v1.0.3, where only AI models,
+alerts, archiving, masked email, stored metrics and traces and tenants are
+missing). The risks are its pace and its history. Release 0.16 replaced the
+configuration files by objects in the database, 1.0 changed the database
+layout, and 1.0.2 required encryption at rest to be enabled again. Its test
+suites are no longer public since 1.0.0. docker-mailserver needs root and
+`NET_ADMIN` for its fail2ban. Mailu runs ten workloads. mox documents no
+PROXY protocol and no Kubernetes deployment.
+
+DEC-261: `stalwart` is a designed recipe on `docker.io/stalwartlabs/stalwart`
+(DEC-11). Stalwart's Kubernetes guide prints the chart `stalwart` 0.1.0 as
+text on the page "Kubernetes chart reference" and says to copy it into a
+chart repository. No OCI or HTTP repository serves it, so `check` could not
+fetch it (RCP-23), and stalwartlabs ships no compose file. The recipe takes
+from that page what the image needs: `config.json` as a ConfigMap,
+`NET_BIND_SERVICE` added under `restricted` for the binary's file
+capability, and the probes `/healthz/ready` and `/healthz/live` on port
+8080. The CLI that applies the configuration runs from
+`docker.io/stalwartlabs/cli`, which Stalwart Labs publishes as well.
+
+### Configuration through a Job
+
+Stalwart 1.0 reads one file at start, `config.json`, which names the data
+store. Everything else, from domains and accounts to certificates and
+expressions, is an object in that store, changed through Stalwart's JMAP API.
+
+DEC-262: The Job `stalwart-apply` applies a plan with `stalwart-cli apply`
+against the Service `stalwart`, authenticated as the recovery administrator
+`STALWART_RECOVERY_ADMIN`, whose password is the required parameter
+`applications.stalwart.admin.password`. Each line that names an object
+updates it when it exists, so the plan can run again. The first mailbox's
+password goes to `credentials/0` of the account in an `update` of its own.
+An `upsert` with the whole `credentials` list deleted the mailbox's app
+passwords on kind when the plan ran a second time. The plan keeps Stalwart's
+default listeners, which a server without listener objects creates at its
+start, because a change of listeners takes effect only at the next start,
+which a Job without RBAC cannot cause (RCP-44). The Job runs once, and a
+changed plan needs the Job deleted. A Job that a TTL deletes was considered.
+It would run the plan again at every later apply and reset the first
+mailbox's password each time, and GitOps tools would show it as missing.
+
+Stalwart's guide for declarative deployments applies the plan in recovery
+mode before the first normal start. That needs Stalwart and the CLI in one
+pod at the same time, and the CLI's distroless image cannot run in the
+server's container. Applying the plan with `curl` from the server's image
+was considered. The `upsert` logic, which finds an existing object by its
+natural key, would then be written again in shell.
+
+- RCP-340: `stalwart` MUST run `docker.io/stalwartlabs/stalwart` pinned to
+  its index as the StatefulSet `stalwart` with one replica, as UID and GID
+  2000 under `security_profile: restricted` with `NET_BIND_SERVICE` added,
+  its data on the claim `data`, behind the Service `stalwart` of type
+  `ClusterIP` with the ports 25, 465, 993 and 443 only.
+
+  - Test: `check lint`; CI `check` job, report lines `image` and `smoke`
+  - Since: #125
+
+- RCP-341: The Job `stalwart-apply` MUST create the domain
+  `applications.stalwart.domain`, the first mailbox
+  `applications.stalwart.mailbox.name` with the password
+  `applications.stalwart.mailbox.password` and the alias `postmaster`, and
+  MUST sign in as `applications.stalwart.admin.name` with
+  `applications.stalwart.admin.password`. The recipe MUST NOT carry a
+  password of its own.
+
+  `tests/smoke` signs in as the admin to create the second mailbox and as
+  the first mailbox to send. Stalwart refuses weak passwords, so the test
+  passwords are phrases.
+
+  - Test: `tests/smoke`; CI `check` job
+  - Since: #125
+
+### TLS and authentication
+
+DEC-263: The certificate comes from the Secret `stalwart-tls`, which the
+option `certificate` has cert-manager write or which the target provides.
+`stalwart` therefore names `cert-manager` on its `Requires:` line (DEC-13),
+which the proof needs and a target with its own Secret does not. Stalwart
+reads certificate files only when it loads them: on kind, a Secret with a
+new certificate reached the pod's files within a minute, and port 465 kept
+the old certificate until the action `ReloadTlsCertificates` ran. The
+sidecar `reload-tls` compares `tls.crt` every 60 seconds and runs the action
+through the API when it changed. A CronJob running the CLI daily was
+considered. It adds a workload and leaves a renewed certificate unused for
+up to a day. Stalwart's own ACME client was considered too. The request
+named cert-manager or a provided Secret.
+
+- RCP-342: Clients MUST submit mail on port 465 and read it on port 993,
+  both with implicit TLS and the certificate of `stalwart-tls`. Port 25 MUST
+  offer no AUTH and answer AUTH with `503`. Plain HTTP on port 8080 MUST
+  answer only `/healthz/ready` and `/healthz/live` to other addresses and
+  `403` to every other path.
+
+  Port 25 offers no SASL mechanism by Stalwart's default
+  `MtaStageAuth.saslMechanisms`, `local_port != 25 && is_tls`. Ports 587 and
+  143 do not listen. ManageSieve on 4190 answered `NO (ENCRYPT-NEEDED)` to
+  AUTHENTICATE without TLS on kind. The 403 comes from
+  `Http.allowedEndpoints`, which the plan sets.
+
+  - Test: `tests/smoke`; CI `check` job
+  - Since: #125
+
+- RCP-343: A sender without authentication MUST NOT relay through port 25
+  to a domain the server does not host.
+
+  Stalwart's default `MtaStageRcpt.allowRelaying` is
+  `!is_empty(authenticated_as)`. `tests/smoke` requires `550 5.7.1` for
+  `RCPT TO:<y@example.net>` after `MAIL FROM:<x@example.org>`.
+
+  - Test: `tests/smoke`; CI `check` job
+  - Since: #125
+
+- RCP-346: Stalwart's rate limits and bans after failed logins MUST stay at
+  their defaults or stricter.
+
+  Stalwart 1.0.3 bans an address after 100 failed logins a day
+  (`Security.authBanRate`), after 35 relay or unknown recipient attempts and
+  after 30 scans for paths such as `*.php*`. Its default inbound throttles
+  allow 5 per second per client address and 25 per hour per sender domain
+  and recipient. On kind, a pod still logged in over IMAP after 100 failed
+  logins. Its 101st failed login got its address banned, and Stalwart
+  closed that connection and every later one from it, while another pod
+  still connected.
+
+  - Test: `tests/smoke`; CI `check` job
+  - Since: #125
+
+- RCP-349: A certificate that `stalwart-tls` receives anew MUST be served
+  without a restart, and mailboxes, mail and settings MUST outlive the pod.
+
+  - Test: `tests/smoke` deletes `stalwart-tls`, waits for the new serial on
+    port 465, then deletes `stalwart-0` and reads the first message again;
+    CI `check` job
+  - Since: #125
+
+### DKIM and DNS records
+
+DEC-264: The DKIM key comes from the Secret `stalwart-dkim`, key `tls.key`,
+which the option `dkim` renders from the ref
+`applications.stalwart.dkim.private_key` or which the target provides. The
+name of the key is the one cert-manager writes. The proof cannot use the
+option: a private key in `tests/target.yml` fails the registry gate's
+gitleaks scan, whose rule `private-key` matches any PEM private key, and a
+ref such as `?{plain:stalwart/dkim||rsa:2048}` fails the gate's compile,
+which mounts the project read-only (`[Errno 13] Permission denied:
+'./refs'` with Kapitan 0.36.3). `tests/target.yml` therefore has
+cert-manager generate the key into `stalwart-dkim`.
+
+DEC-265: The class renders the DNS records into the ConfigMap `stalwart-dns`
+as a zone file, and the init container `dns` fills in the DKIM public key at
+every start from the private key that Stalwart signs with, prints the zone
+and fails when the file holds no private key. Kapitan 0.36.3's ref functions
+`rsapublic` and `publickey` derive a public key only as PEM, a ref has no
+value when the inventory resolves, and no built-in resolver could strip the
+PEM armor that DNS does not take. A second parameter with the public key in
+base64 was considered. It could differ from the private key, and the proof
+could not set a pair without committing the private key (DEC-264).
+
+The option `powerdns` includes the recipe `powerdns` and writes the records
+into its zone through its API from a second init container. DNSEndpoint
+resources for the recipe `external-dns-powerdns` were considered. No
+kadet-hub generator renders that kind (RCP-7), and that recipe does not set
+`--source=crd`. The zone has no address record for the host name, because
+the recipe does not know the address that reaches the Service. The DMARC
+policy is `quarantine`, as requested, and MTA-STS starts in Stalwart's
+default mode `testing`, because `enforce` makes senders that honor it hold
+mail when the certificate is not publicly valid.
+
+- RCP-344: Stalwart MUST sign outgoing mail with DKIM, `rsa-sha256`, relaxed
+  canonicalization, the domain `applications.stalwart.domain` and the
+  selector `applications.stalwart.dkim.selector`, with the key of
+  `stalwart-dkim`.
+
+  `tests/smoke` verifies the DKIM-Signature of a delivered message in
+  Python against the public key of the TXT record that PowerDNS answers, so
+  the record and the signing key are checked together and not by Stalwart.
+
+  - Test: `tests/smoke`; CI `check` job
+  - Since: #125
+
+- RCP-345: The zone of `stalwart-dns` MUST hold an MX record for the host
+  name, SPF `v=spf1 mx -all`, the DKIM record of RCP-344, DMARC with
+  `applications.stalwart.dmarc.policy` and reports to `postmaster`, the
+  MTA-STS TXT record and a CNAME `mta-sts`, TLS-RPT, SRV records for 465 and
+  993, and CNAMEs `autoconfig` and `autodiscover`. Stalwart MUST serve the
+  MTA-STS policy at `https://mta-sts.<domain>/.well-known/mta-sts.txt`. The
+  option `powerdns` MUST write the records into
+  `applications.powerdns.zone`.
+
+  - Test: `tests/smoke` resolves each record through the Service `powerdns`
+    and reads the policy over HTTPS; CI `check` job
+  - Since: #125
+
+### Exposure, relay and encryption at rest
+
+DEC-266: The Service is `ClusterIP`, and the README describes how to expose
+it. Stalwart checks SPF, its rate limits and its bans by the client's
+address, which a load balancer keeps only with `externalTrafficPolicy:
+Local` or the PROXY protocol. The `kubernetes` generator 1.14.0, and 1.15.0
+as well, renders no `externalTrafficPolicy`. Stalwart reads the PROXY
+header from `SystemSettings.proxyTrustedNetworks`, which it reads only at
+start. `hostNetwork` breaks Pod Security `baseline`. kind has no load
+balancer, so none of these is proven.
+
+DEC-267: The option `relay` routes mail for other domains to a relay on port
+465 with implicit TLS. STARTTLS on port 587 was considered. An attacker on
+the path could strip it and receive the relay's credentials. The proof
+checks the route through the API and sends nothing to it, so delivery to
+other domains is not proven.
+
+DEC-268: Encryption at rest needs no option. Stalwart's server-wide switch
+`Encryption.atRestEnable` is on by default in 1.0.3, and each user enables it
+with a key only that user holds. An option that set a key for the first
+mailbox was considered. Its proof would need the matching private key in
+the repository. The README says that Proton Mail and Tuta cannot be
+self-hosted, what encryption at rest protects and what it does not.
+
+- RCP-347: The option `relay` MUST route mail for every domain the server
+  does not host to `applications.stalwart.relay.host` on
+  `applications.stalwart.relay.port` with implicit TLS and the given
+  credentials, and keep mail for its own domains local.
+
+  - Test: `tests/smoke` reads the route and the outbound strategy through
+    the API; CI `check` job
+  - Since: #125
+
+- RCP-348: A mailbox that registered an S/MIME certificate and enabled
+  encryption at rest MUST receive mail stored as an S/MIME enveloped message
+  without its text, which the matching private key decrypts.
+
+  The client pod generates the key and the certificate, and the key never
+  leaves the pod. Stalwart stores the message as
+  `application/pkcs7-mime; smime-type=enveloped-data`.
+
+  - Test: `tests/smoke`; CI `check` job
+  - Since: #125
+
+DEC-269: Every address of the proof is in `example.test`, `example.org` or
+`example.net` (RFC 2606). The relay route points to `relay.example.test`,
+which does not resolve, and the only message to another domain is the relay
+attempt that RCP-343 refuses, so the proof sends no mail out of the cluster.
+A NetworkPolicy that blocks egress was considered. kindnet, kind's default
+network plugin, would have to enforce it, and the proof would then depend on
+that.
+
 ## Zulip
 
 Zulip is a team chat whose messages are organized by channel and topic.
@@ -9311,6 +9584,7 @@ feature's design (OQ-6).
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
 | jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
+| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.0.2, level `deploys` (RCP-340 to RCP-349) |
 | zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
