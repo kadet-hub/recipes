@@ -5372,6 +5372,170 @@ Secret `<cluster>-ca` in the pod.
   as included and `cnpg` as installed, and its smoke test reads the page
   view after the restart.
 
+## Home Assistant
+
+Home Assistant is a home automation server. Its integrations connect it to
+the devices and services of a home, it records their states in a SQLite
+database, runs automations on them, and serves its web UI and REST API on
+port 8123. home-assistant/core, Apache-2.0, builds the image
+`ghcr.io/home-assistant/home-assistant`, which its documentation installs
+as Home Assistant Container. `home-assistant` runs release 2026.11.0 of
+2026-11-04, the newest on 2026-11-05, pinned to the index
+`sha256:c6c1ca9931036bf3a2c4cc088d8db25dfea3b33935a5ecc83c40349462e2f69e`
+for amd64 and arm64. `stable` was the same index on 2026-11-05. The image
+carries no `org.opencontainers.image.revision` label.
+
+Every advisory of home-assistant/core published by 2026-11-05 names a
+release before 2026.11.0 as fixed, except GHSA-gh5m-4m97-c95h. That one
+concerns the Supervisor and Home Assistant OS, which the image does not
+run.
+
+DEC-130: `home-assistant` is a designed recipe on the image (Designed
+recipes). home-assistant/core ships no chart, Kustomize base or compose
+file. The container guide of the documentation includes its compose
+example from `source/_includes/installation/container/compose.md` of
+home-assistant/home-assistant.io. That file is a Liquid template, and
+`docker compose` cannot read its image line. The example also sets
+`privileged: true`, `network_mode: host` and bind mounts of the host paths
+`/etc/localtime` and `/run/dbus`. Each of these is a gap of Compose
+sources, so a compose recipe would stop (RCP-37). Pinning the template as
+the `Source`, as `pihole` pins a README (DEC-28), was considered. It would
+pin a file that the recipe could not map.
+
+DEC-131: `home-assistant` runs outside the setup that Home Assistant
+supports (Home Assistant). ADR-0013 of home-assistant/architecture defines
+the installation Home Assistant Container and says: "The only supported
+way to run the container is on the host network as root with full
+privileges." The recipe runs the image as root under Pod Security
+`baseline`, on the pod network and without `privileged`. With both, the
+container reaches every device of its node and every port of the node's
+network namespace, and Pod Security admits it only at `privileged`.
+
+Without them, Home Assistant serves its web UI and API, and integrations
+that reach a device by its address or a cloud service work. What needs the
+node's network or devices does not work: discovery over mDNS, SSDP and
+DHCP, pairing with HomeKit, Bluetooth, and USB or serial sticks such as
+Zigbee and Z-Wave coordinators. The README lists them under "Left out".
+Rendering the documented setup was considered. The recipe's default would
+then need a namespace at `privileged` and hand Home Assistant the node.
+
+Pod Security `restricted` was considered as well. Run as UID 1000 with
+every capability dropped, the image's s6-overlay init stopped with
+`/run belongs to uid 0 instead of 1000` and exit code 100 before Home
+Assistant started. Home Assistant 2026.11.0 also reports a container that
+does not run as root as `Unsupported Third Party Container`
+(`homeassistant/helpers/system_info.py`). It installs the Python
+requirements of an integration that the image lacks into
+`/usr/local/lib/python3.14/site-packages`, which belongs to root.
+
+DEC-132: The option `host-network` of `home-assistant` sets
+`hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet` (Home
+Assistant). Home Assistant then sends and receives multicast on the
+node's network, which discovery and HomeKit need. The DNS policy keeps the
+cluster's Service names resolvable from the node's network. Pod Security
+`baseline` forbids `hostNetwork`, so the namespace needs the level
+`privileged`. The option renders no `privileged` and no device. A device
+path names hardware of one node, and `privileged` gives the container
+every device of the node, so both stay with the target. Kubernetes
+Services carry no multicast, so no Service type replaces the node's
+network for discovery.
+
+DEC-133: `home-assistant` renders no owner account. The first visitor of
+the web UI creates it in Home Assistant's onboarding, as with the image
+alone (Home Assistant). Home Assistant reads no account from the
+environment. `POST /api/onboarding/users` creates the owner while the
+onboarding has not done that step and needs no login, and answers 403
+afterwards. A Job that sends that request with a credential parameter was
+considered. It would add a workload and a client the image does not have,
+and a changed parameter would never reach the account. The Service is
+`ClusterIP`, so until the target exposes it only the cluster reaches the
+onboarding, and the README asks for the owner before the exposure.
+
+The image has no `HEALTHCHECK`, and the documentation names no check, so
+the recipe has no probe (Designed recipes). The pod is ready once its
+container runs, and `tests/smoke` waits until Home Assistant answers. The
+container guide gives Home Assistant 60 seconds to stop, so that it closes
+its database. The recipe sets that as the pod's termination grace period.
+
+The claim `config` at `/config` holds `configuration.yaml`, the users and
+tokens in `.storage`, and the recorder's database `home-assistant_v2.db`.
+It has 1Gi, the size Compose sources give a volume without one, and the
+README offers the size as a setting. The bind mount of `/etc/localtime`
+and the variable `TZ` set the time zone of the container's processes. Home
+Assistant keeps its own time zone, which the onboarding asks for, in
+`.storage/core.config`. The recipe renders neither, so the processes run
+in UTC, and the README names `TZ` as a setting.
+
+- RCP-210: The `Source` line of `home-assistant` MUST name
+  `ghcr.io/home-assistant/home-assistant` at the tag of a release of
+  home-assistant/core, pinned to its index, and the StatefulSet
+  `home-assistant` MUST run exactly that image.
+
+  `check lint` fails when no container runs the image of the `Source` line
+  (RCP-23). Renovate moves the `Source` line and the class line marked
+  `# renovate: Source` in one pull request (RCP-16).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`
+  - Since: #96
+
+- RCP-211: `home-assistant` MUST run the image as its root user in the
+  StatefulSet `home-assistant`, with the claim `config` at `/config`, a
+  termination grace period of 60 seconds and the Service `home-assistant`
+  on port 8123 of type `ClusterIP`. Without its option it MUST NOT render
+  `hostNetwork`, `privileged`, an added capability, a `hostPath` or a
+  device (DEC-131).
+
+  - Test: `check lint`; CI `check` job, report line `smoke`; manual:
+    review
+  - Since: #96
+
+- RCP-212: The option `host-network` MUST set `hostNetwork: true` and
+  `dnsPolicy: ClusterFirstWithHostNet` on the StatefulSet
+  `home-assistant` and MUST change nothing else (DEC-132).
+
+  `tests/target.yml` leaves the option out, so CI deploys the default.
+  The option is proven by its render: the compiled StatefulSet against
+  the one without the option, and `check home-assistant --level renders`
+  with the option in `tests/target.yml`.
+
+  - Test: manual: compile and `check --level renders` with
+    `recipes.home-assistant.host-network` in `tests/target.yml`
+  - Since: #96
+
+- RCP-213: The `tests/smoke` of `home-assistant` MUST require no Pod
+  Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: baseline` on its namespace. From a
+  pod of the Home Assistant image and through the Service
+  `home-assistant` on port 8123 it MUST require that no onboarding step is
+  done, create the owner through `/api/onboarding/users`, exchange the
+  returned code at `/auth/token` for an access and a refresh token, and
+  get 403 for a second owner. It MUST get 401 from `/api/` without a token
+  and `API running.` with the access token, and require that
+  `/api/config` names the image tag as `version`. Once the pod
+  `home-assistant-0` was deleted and its successor answers, it MUST find
+  the step `user` done, get a new access token with the refresh token, and
+  get `API running.` with it.
+
+  The refresh token and the onboarding's progress live in `.storage` on
+  the claim, so the new pod accepts the refresh token only when it reads
+  the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #96
+
+- AC-130 (RCP-210, RCP-211, RCP-213): `check home-assistant --level
+  deploys` passes in CI on each Kubernetes minor, and its smoke test gets
+  `API running.` with a token refreshed after the restart.
+
+- AC-131 (RCP-212): A compile of `tests/target.yml` with
+  `recipes.home-assistant.host-network` renders the StatefulSet
+  `home-assistant` with `hostNetwork: true` and
+  `dnsPolicy: ClusterFirstWithHostNet` and no other difference, and
+  `check home-assistant --level renders` passes with that target. A
+  server-side dry run of that StatefulSet warns `host namespaces
+  (hostNetwork=true)` in a namespace at `enforce: baseline` and nothing at
+  `privileged`.
+
 ## Memcached
 
 memcached is an in-memory key-value cache. Clients store and read values
@@ -6661,6 +6825,208 @@ the same file.
   installed, and its smoke test reads the message and the upload after
   the restart.
 
+## Memos
+
+Memos is a note-taking app. Its users write short Markdown notes, memos,
+into a timeline, tag and search them, and share single memos or the whole
+instance. The web UI and the API share one port. usememos/memos, MIT,
+builds the image `docker.io/neosmemo/memos`. usememos/dotcom holds the
+source of usememos.com with the documentation and carries no license
+file. `memos` takes the compose example of
+`content/docs/deploy/docker-compose.mdx` in usememos/dotcom (DEC-170), at
+commit `b5fd0a3dff1408783452c627b05dc7aecf745c47` of 2026-11-01, SHA-256
+`f2d53cb23eea5cd5f65beb4b716d443ac2e225027e398ac41ab9e9fa79d5ef02`. The
+commit added the changelog of Memos 26.11.0 and was the newest of `main`
+on 2026-11-05. The example runs `neosmemo/memos:stable`, which on
+2026-11-05 was the same index as `26.11.0`, the newest release, for amd64,
+arm64 and arm/v7. The image carries no `org.opencontainers.image.revision`
+label. Its SLSA provenance names commit
+`b40d8a7b573774c52b022c8d6537d6baf2129dc0`, the tag `26.11.0`. The recipe
+takes from the documentation what the image dictates, such as variable
+names, the port and the data path, and copies no other text.
+
+Memos numbers its releases by year and month since 26.10.0, after 0.31.0.
+The GitHub advisory database lists advisories for
+`github.com/usememos/memos` up to release 0.25.2, and none of them names a
+range that includes 26.11.0.
+
+The example's one service becomes the StatefulSet `memos`. Its relative
+bind mount `./data` becomes the claim `data` at `/var/opt/memos` (DEC-21).
+Memos keeps the SQLite database `memos_prod.db` and uploaded files there.
+The published port `5230:5230` becomes port 5230 of the Service `memos`.
+`MEMOS_PORT` and `MEMOS_DRIVER` keep the example's values. A Service named
+`memos` would put `MEMOS_PORT=tcp://<address>:5230` into the pod as a
+service link variable, which Memos reads as its port
+(`content/docs/deploy/kubernetes.mdx`). The recipe renders no service
+links, as for every compose source, and sets the variable itself. Neither
+the example nor the image defines a health check, so the recipe renders
+no probe. Memos answers `/healthz` once its database answers.
+
+DEC-170: `memos` takes its compose file from the code block under "Basic
+setup" in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom,
+and its `Source` line names that file (Memos). It is the only deployment
+upstream ships that Compose sources map without a gap.
+`scripts/compose.yaml` of usememos/memos at the release tag mounts
+`~/.memos/`, a directory in the user's home outside the repository, on
+which Compose sources stop. usememos/helm has a chart, version 0.2.1 with
+Memos 0.25.2 as `appVersion` and the image tag `latest` as its default.
+No chart repository serves it. `https://usememos.github.io/helm/index.yaml`
+answered 404 on 2026-11-05, the workflow that publishes to GitHub Pages
+runs only when started by hand, and commit `5754897` of 2025-11-23 removed
+the OCI workflow. `check` takes no chart from a Git repository. A designed
+recipe on the image was considered. The project ships a compose example,
+which DEC-10 puts first, as DEC-28 did for `pihole`.
+
+DEC-171: `memos` requires `MEMOS_INSTANCE_URL` as the parameter
+`applications.memos.instance_url` (Memos). The example's
+`https://memos.example.com` stands for the user's address, as
+Vaultwarden's example does for `DOMAIN` (RCP-111). Memos serves
+`robots.txt` and its sitemap only with the URL and builds their links from
+it (`server/frontend/frontend.go` of 26.11.0). It also allows
+cross-origin requests with cookies and MCP clients from that origin
+(`server/cors.go`, `server/mcp/origin.go`). On the first start a
+non-empty URL sets the instance's access policy to public, so visitors
+without an account see memos marked public (`initializeInstanceAccessSetting`
+in `store/migrator.go`). A later change of the URL leaves the policy as it
+is. Copying the example's value was considered. Every instance would then
+name the same foreign host. Leaving the variable out was considered too.
+The instance would start private, unlike the example, and serve no
+sitemap.
+
+DEC-172: `memos` runs as the image's user `nonroot`, UID 10001 and GID
+10001 in its `/etc/passwd`, with `fsGroup` 10001 for the claim, under
+`security_profile: restricted` (Memos). The compose example sets no
+`user`. The image starts its entrypoint as root. The entrypoint changes
+the owner of `/var/opt/memos` to 10001 and then starts Memos as 10001
+with `su-exec` (`scripts/entrypoint.sh` of 26.11.0). Started as 10001, it
+skips both steps and starts Memos directly. The documentation names UID
+10001 as the user Memos runs as (`content/docs/deploy/docker.mdx`). The
+ownership change serves data that older releases wrote as root, and a
+claim of this recipe holds none. `tests/smoke` checks that the pod passes
+the level `restricted`. `baseline` with the start as root was considered.
+The ownership change and the switch need `CHOWN`, `SETUID` and `SETGID`,
+which Memos does not use afterwards.
+
+DEC-173: `memos` renders no account and closes user registration with
+Memos' declarative configuration (Memos). The first account that is
+created becomes the admin, through the web UI's sign-up or through
+`POST /api/users` without a login. `CreateUser` creates that account
+before it reads the registration setting (`server/api/user_service.go` of
+26.11.0). Memos' default then leaves registration open, so anyone who
+reaches the Service could register a regular account. Memos reads no
+variable for the setting, unlike Vaultwarden's `SIGNUPS_ALLOWED`
+(DEC-55). Memos reads JSON files below `/etc/memos/config` as the desired
+state of its instance settings and applies them at every start
+(`content/docs/configuration/declarative-configuration.mdx`, which names
+the registration policy as a use). The recipe mounts one such file from a
+ConfigMap and sets `disallowUserRegistration` of the setting group
+`GENERAL` to `true`. A second account without a login then gets 403.
+
+Memos manages a declared group whole and refuses changes to it through the
+web UI and the API. The file therefore releases the group's other fields
+with `ignoreChanges`, so an admin still edits them in the web UI. The
+compose example leaves registration open. Keeping that was considered, as
+the first version of this change did. An instance exposed before its admin
+closed registration would accept anyone, and Vaultwarden closes its
+signups for the same reason. Declaring the admin in the file as well was
+considered. Its password would be a parameter that Memos sends only on
+creation or after a raised `writeOnlyVersion`, and the first sign-up
+creates the admin already.
+
+- RCP-250: The `Source` line of `memos` MUST name
+  `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at a commit
+  of `main`, with the file's SHA-256, below the comment
+  `<!-- renovate: branch=main -->`.
+
+  `check` fetches the file at that commit and fails on another SHA-256
+  (RCP-23). The documentation has no release tags, so Renovate moves the
+  commit to the newest of `main`, as for SearXNG (RCP-16). usememos/dotcom
+  also holds the website and its blog, so most moves leave the file as it
+  is and `check` passes. A changed file fails, and the maintainer maps the
+  change. A package rule groups the `Source` line with the image line
+  marked `# renovate: upstream`, which Renovate moves to Memos' newest
+  release.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    Renovate dry run
+  - Since: #97
+
+- RCP-251: `memos` MUST run `docker.io/neosmemo/memos` as the StatefulSet
+  `memos` with one replica and the claim `data` at `/var/opt/memos`. It
+  MUST set `MEMOS_PORT` to `5230`, `MEMOS_DRIVER` to `sqlite` and
+  `MEMOS_INSTANCE_URL` from `applications.memos.instance_url`, which the
+  recipe leaves unset.
+
+  The compile then stops with
+  `Interpolation key 'applications.memos.instance_url' not found` until
+  the target sets it (RCP-40). SQLite allows one pod that writes. Memos
+  refuses to start with a URL whose scheme is not `http` or `https`, or
+  that has no host, or has credentials, a query or a fragment
+  (`internal/profile/profile.go` of 26.11.0).
+
+  - Test: CI `check` job, report line `smoke`; manual: a compile of
+    `tests/target.yml` without the parameter stops with
+    `Interpolation key` and its name
+  - Since: #97
+
+- RCP-252: `memos` MUST run as UID 10001 and GID 10001 with `fsGroup`
+  10001 under `security_profile: restricted` (DEC-172).
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #97
+
+- RCP-253: The `tests/smoke` of `memos` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From
+  a pod of the memos image and through the Service `memos` on port 5230 it
+  MUST get `Service ready.` from `/healthz` and the web UI from `/`, and
+  require from `/api/instance/profile` the image's version, the instance
+  URL of `tests/target.yml`, the public access policy and `needsSetup`. It
+  MUST create an account through `POST /api/users` without a login and
+  require the role `ADMIN`, get 403 there for a second account, sign in
+  through `/api/auth/signin`, get 400
+  there for a wrong password, create a private memo with the access token,
+  read it back, and get 401 for it without a token. Once the pod `memos-0`
+  was deleted and its successor is ready, it MUST require `needsSetup`
+  false, sign in again and read the memo.
+
+  The test pod runs Memos' image, whose busybox carries `wget`, and the
+  test reads the JSON answers with `jq` outside the cluster. Memos answers
+  wrong credentials with `InvalidArgument`, which its REST gateway turns
+  into 400, and a closed registration with `PermissionDenied`, which
+  becomes 403. Reading a private memo needs a login, also on a public
+  instance. The account and the memo come back after the restart
+  only if the new pod reads `memos_prod.db` from the claim.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #97
+
+- RCP-254: `memos` MUST mount `instance.json` from a ConfigMap at
+  `/etc/memos/config`. The file MUST declare `instance/settings/GENERAL`
+  with `disallowUserRegistration` set to `true` and MUST release every
+  other field of the group with `ignoreChanges` (DEC-173).
+
+  In 26.11.0 the other fields are `customProfile`, `disallowPasswordAuth`,
+  `disallowChangeUsername`, `disallowChangeNickname`,
+  `weekStartDayOffset`, `additionalStyle` and `additionalScript`
+  (`proto/api/instance_service.proto`). Memos writes an ignored field with
+  its stored value at every apply. A field that a later release adds to
+  the group is managed with its default until the file releases it too.
+  Memos stops at startup when a managed resource disappears from the
+  files, so a target that drops the declaration adds a `removed` entry.
+
+  - Test: CI `check` job, report line `smoke`; manual: on a container of
+    the pinned image, an admin changed `customProfile.title` through
+    `PATCH /api/instance/settings/GENERAL`, a change of
+    `disallowUserRegistration` got 400 with the reason
+    `MANAGED_BY_CONFIGURATION`, and the title stayed after a restart
+  - Since: #97
+
+- AC-150 (RCP-250 to RCP-254): `check memos --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test refuses a second sign-up
+  and reads the memo after the restart. `tests/target.yml` without `applications.memos.instance_url`
+  stops the compile with `Interpolation key` and that key.
+
 ## homepage
 
 homepage is a dashboard: a page of links to services, with widgets that
@@ -7748,6 +8114,7 @@ feature's design (OQ-6).
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
+| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
 | jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
@@ -7756,4 +8123,5 @@ feature's design (OQ-6).
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
 | matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
+| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
 | homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |

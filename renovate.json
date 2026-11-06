@@ -353,6 +353,14 @@
       "groupName": "ejabberd"
     },
     {
+      "description": "RCP-16: memos' Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "https://github.com/usememos/dotcom",
+        "docker.io/neosmemo/memos"
+      ],
+      "groupName": "memos"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",
@@ -364,6 +372,13 @@
       "description": "RCP-16: SearXNG's commits come from git-refs, which gives no release timestamps",
       "matchPackageNames": [
         "https://github.com/searxng/searxng"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": "RCP-250: the commits of the Memos documentation come from git-refs, which gives no release timestamps",
+      "matchPackageNames": [
+        "https://github.com/usememos/dotcom"
       ],
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
