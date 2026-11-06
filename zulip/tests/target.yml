@@ -1,0 +1,26 @@
+classes:
+  - recipes.zulip
+parameters:
+  namespace: zulip
+  kapitan:
+    vars:
+      target: zulip
+  # host and administrator as tests/values.yaml gives them to the chart.
+  applications:
+    zulip:
+      host: chat.example.com
+      administrator: admin@example.com
+      secret_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      # Zulip rejects a password that zxcvbn guesses in under 10000 tries.
+      owner_password: smoke test owner password
+    valkey:
+      password: aaaaaaaaaaaa
+    # One instance and one node are enough for the proof.
+    postgresql:
+      instances: 1
+  generators:
+    rabbitmq:
+      rabbitmqcluster:
+        rabbitmq:
+          spec:
+            replicas: 1
