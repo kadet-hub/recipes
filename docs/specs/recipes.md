@@ -1359,12 +1359,12 @@ this as a constraint.
   An image grants no Kubernetes API access, so a Role or binding in its
   recipe would grant something no upstream artifact asks for, and nothing
   would compare it. The `next` compile (RCP-24) runs unchanged. Revised in
-  this change: read access that the project's documentation asks for
+  #126: read access that the project's documentation asks for
   (RCP-308).
 
   - Test: `check lint`; `check/tests/test_lint.py`; CI `check` job;
     `renders`: `check/tests/test_check.py`
-  - Since: #14; `renders`: #45; RCP-308: this change
+  - Since: #14; `renders`: #45; RCP-308: #126
 
 - RCP-308: `check lint` MUST accept an RBAC object in a designed recipe
   only when it reads. Every rule of a Role or ClusterRole MUST grant no
@@ -1385,7 +1385,7 @@ this as a constraint.
 
   - Test: `check lint`; `check/tests/test_lint.py`
     (`LintDesign.test_read_only_rbac`)
-  - Since: this change
+  - Since: #126
 
 - RCP-45: The `tests/smoke` of a designed recipe MUST reach every Service
   port through its Service and make one request that needs what the recipe
