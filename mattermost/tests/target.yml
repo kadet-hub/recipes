@@ -1,0 +1,11 @@
+classes:
+  - recipes.mattermost
+parameters:
+  namespace: mattermost
+  kapitan:
+    vars:
+      target: mattermost
+  applications:
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

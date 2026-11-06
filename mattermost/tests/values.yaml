@@ -1,0 +1,38 @@
+# Mattermost on the PostgreSQL of the included recipe postgresql, without
+# open sign-up and with Pod Security restricted.
+image:
+  repository: docker.io/mattermost/mattermost-team-edition
+  # renovate: upstream docker.io/mattermost/mattermost-team-edition
+  tag: 12.0.2
+mysql:
+  enabled: false
+# The connection string carries no password. lib/pq, Mattermost's driver,
+# reads it from PGPASSWORD. CloudNativePG serves TLS, which sslmode=require
+# uses without verifying the server's certificate.
+externalDB:
+  enabled: true
+  externalDriverType: postgres
+  externalConnectionString: app@postgresql-cluster-rw:5432/app?sslmode=require&connect_timeout=10
+extraEnvVars:
+  - name: PGPASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: postgresql-cluster-app
+        key: password
+config:
+  MM_PLUGINSETTINGS_CLIENTDIRECTORY: ./client/plugins
+  # Accounts only through the admin.
+  MM_TEAMSETTINGS_ENABLEOPENSERVER: "false"
+# The image's user mattermost.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 2000
+  runAsGroup: 2000
+  fsGroup: 2000
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
