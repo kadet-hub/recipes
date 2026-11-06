@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.homepage.allowed_hosts
+    description: Comma-separated hosts, with the port where clients send one, that homepage accepts in the Host header of a request (HOMEPAGE_ALLOWED_HOSTS).
+    secret: false

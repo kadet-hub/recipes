@@ -1,0 +1,10 @@
+classes:
+  - recipes.memos
+parameters:
+  namespace: memos
+  kapitan:
+    vars:
+      target: memos
+  applications:
+    memos:
+      instance_url: http://memos:5230

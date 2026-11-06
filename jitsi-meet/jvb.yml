@@ -1,0 +1,40 @@
+parameters:
+  components:
+    jitsi-meet-jvb:
+      application: jitsi-meet
+      # renovate: upstream
+      image: ghcr.io/jitsi/jvb:stable-11248-3@sha256:d8e100c3573d0935aaa93b02daaa7f74d172042f2518c5f7e6036125c1d4ba7e
+      pod_annotations:
+        service: jitsi-jvb
+      ports:
+        media:
+          service_port: 10000
+          protocol: UDP
+        http:
+          service_port: 8080
+      service:
+        type: ClusterIP
+      env:
+        TZ: UTC
+        JVB_AUTH_PASSWORD:
+          secretKeyRef:
+            name: jitsi-meet
+            key: JVB_AUTH_PASSWORD
+        # SENTRY_DSN="${JVB_SENTRY_DSN:-0}" in the compose list keeps the quotes.
+        SENTRY_DSN: '"0"'
+        # prosody's network alias xmpp.meet.jitsi, the image's default.
+        XMPP_SERVER: jitsi-meet-prosody
+      volumes:
+        run:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+        tmp:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+      volume_mounts:
+        run:
+          mount_path: /run
+        tmp:
+          mount_path: /tmp

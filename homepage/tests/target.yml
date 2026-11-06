@@ -1,0 +1,32 @@
+classes:
+  - recipes.homepage
+  - recipes.homepage.kubernetes
+parameters:
+  namespace: homepage
+  kapitan:
+    vars:
+      target: homepage
+  applications:
+    homepage:
+      # The Service's name and port, through which tests/smoke reaches it.
+      allowed_hosts: homepage:3000
+      settings:
+        title: Smoke dashboard
+        layout:
+          - Smoke:
+              style: row
+              columns: 2
+      services:
+        - Smoke:
+            - Inventory service:
+                href: http://homepage:3000/
+                description: Defined in the inventory
+      bookmarks:
+        - Smoke bookmarks:
+            - Kapitan:
+                - abbr: KA
+                  href: https://kapitan.dev/
+      widgets:
+        - search:
+            provider: duckduckgo
+            target: _blank
