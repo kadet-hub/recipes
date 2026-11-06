@@ -1,0 +1,59 @@
+parameters:
+  components:
+    ghost:
+      application: ghost
+      type: statefulset
+      # renovate: Source
+      image: docker.io/library/ghost:6.75.0-alpine@sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7
+      security_profile: restricted
+      # The entrypoint runs Ghost as node, UID and GID 1000 in the image's
+      # /etc/passwd, and skips its switch from root when started as that user.
+      workload_security_context:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      env:
+        url: ${applications.ghost.url}
+        database__connection__host: mysql
+        database__connection__user: ${applications.mysql.user}
+        database__connection__password:
+          secretKeyRef:
+            name: mysql
+            key: password
+        database__connection__database: ${applications.mysql.database}
+      ports:
+        http:
+          service_port: 2368
+      # The front page needs the database. The header keeps Ghost from
+      # redirecting the probe to HTTPS under an https url (DEC-212).
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /
+          httpHeaders:
+            - name: X-Forwarded-Proto
+              value: https
+      # Ghost exits while its database does not answer, so it starts once the
+      # Service mysql accepts connections, as compose starts it once db is
+      # healthy.
+      init_containers:
+        wait-for-database:
+          image: ${components.ghost.image}
+          command:
+            - sh
+            - -c
+            - until nc -z -w 2 mysql 3306; do sleep 2; done
+      volume_mounts:
+        content:
+          mount_path: /var/lib/ghost/content
+      volume_claims:
+        content:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 8Gi
+      service:
+        type: ClusterIP
