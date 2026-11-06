@@ -7796,6 +7796,157 @@ proxy in front of a public deployment. The README names the variables.
   - Test: CI `check` job, report line `smoke`
   - Since: #113
 
+## LiteLLM
+
+LiteLLM's proxy serves one OpenAI-compatible API, such as
+`/v1/chat/completions` and `/v1/models`, and routes each model name to a
+provider: Ollama, vLLM or a hosted API. It is meant as the gateway of a
+retrieval stack with Ollama, Qdrant and Open WebUI. `litellm` deploys it
+from the chart `litellm-helm`, which BerriAI/litellm keeps below
+`helm/litellm-helm` and pushes with every release to
+`oci://ghcr.io/berriai/litellm-helm`, versioned like the release. LiteLLM and the chart are MIT, except the
+directory `enterprise/` of the repository.
+
+With its defaults the chart renders the Deployment, Service and ConfigMap
+`litellm-config` with the proxy's `config.yaml` from its value
+`proxy_config`, and the Secret `litellm-masterkey`. It also turns on
+Bitnami's `postgresql` subchart as the database and a Job
+`litellm-migrations` that applies LiteLLM's schema. The default model list
+routes `gpt-3.5-turbo` to OpenAI with a placeholder key and a second model
+to a test endpoint of a third party. The pod runs as the namespace's
+ServiceAccount `default`.
+
+DEC-235: `litellm` is a chart recipe on `litellm-helm` 1.108.0 and runs
+`ghcr.io/berriai/litellm:1.108.0`, the chart's `appVersion`, pinned to its
+index for amd64 and arm64. v1.108.0 was the newest stable release on
+2026-11-05. v1.106.7 came out an hour later as a patch of an older line, and
+1.109.0 had release candidates only. No advisory in the GitHub Advisory
+Database for the pip package `litellm` on 2026-11-05 names 1.108.0: its 45
+advisories hold 57 version ranges, and none contains it. The compose files
+in the repository were considered as the source. DEC-10 puts the
+project's chart first.
+
+DEC-236: `litellm` runs without a database. Without `DATABASE_URL` the
+proxy routes requests that send the master key. On 1.108.0,
+`/key/generate` then answered 500 with `DB not connected`, so virtual
+keys, budgets and spend per key need PostgreSQL. The option `postgresql`
+includes the recipe `postgresql`, as DEC-20 does for a service this
+repository has a recipe for, and sets `DATABASE_URL` from the key `uri` of
+its Secret `postgresql-cluster-app`. The proxy applies its migrations at
+start (`PrismaManager.setup_database` in `litellm/proxy/proxy_cli.py`),
+which the chart turns off with `DISABLE_SCHEMA_UPDATE` only together with
+its Job. `tests/values.yaml` sets `db.deployStandalone: false` and
+`migrationJob.enabled: false`, and gives `DATABASE_URL` through
+`extraEnvVars`, in the order the option adds it.
+
+The chart's subchart was considered. It runs
+`bitnamilegacy/postgresql:16.2.0-debian-12-r6`, an archived build that
+Bitnami no longer updates, and would be a third way to run PostgreSQL next
+to `postgresql` and miniflux. The chart's `db.useExisting` was considered
+for the option. It renders five variables before `PROXY_MASTER_KEY` and
+builds the URL from them, and an option class can only add keys after the
+ones the recipe sets. The Job was considered too. Its annotation
+`checksum/config` hashes all of the chart's values, and
+`ttlSecondsAfterFinished: 120` deletes it, so each later apply runs it
+again.
+
+DEC-237: The target sets the models as
+`applications.litellm.model_list`, which the recipe leaves unset. The
+recipe writes `applications.litellm.config`, with that list and the
+chart's `general_settings.master_key: os.environ/PROXY_MASTER_KEY`, as
+`config.yaml` of the ConfigMap `litellm-config` with Kapitan's resolver
+`yaml`. It dumps the mapping with sorted keys, which for the values of the
+proof is the text the chart's `toYaml` renders. A target adds further
+sections, such as `router_settings`, as keys of the mapping. The chart's
+default model list was considered. It sends requests to OpenAI with a
+placeholder key and to a third party's endpoint, and Kapitan appends a
+target's list to the recipe's, so a target could not replace it. The whole
+file as one
+string parameter was considered too. A target would then repeat the file to
+add one model.
+
+DEC-238: `tests/smoke` routes to a model that LiteLLM answers itself.
+`mock_response` in a model's `litellm_params` makes LiteLLM return that
+text without calling a provider (`mock_completion` in `litellm/main.py` of
+1.108.0), and `/health` reports the model healthy the same way. The model
+has a price per token, so LiteLLM records spend. The recipe `ollama` with
+`smollm:135m` was considered. Ollama's image is 3383 MB compressed for
+amd64 (Ollama) against LiteLLM's 420 MB (sums of the layer sizes, MB =
+10^6 bytes), and it would prove Ollama's
+inference, which `check ollama` already does. The stub of Open WebUI's
+smoke test was considered as well. It adds a container that the test has
+to start. The mock proves the routing by model name, the master key and
+the path of a completion through the proxy, but no call to a provider.
+
+DEC-239: `litellm` requires the master key `applications.litellm.master_key`
+and renders it into the Secret `litellm-masterkey`, key `masterkey`, which
+the chart's value `masterkey` renders. Without the value the chart takes
+the key from the existing Secret through `lookup` or generates one, which
+`helm template` and Kapitan cannot keep across renders. The master key is
+the admin credential, so it is a ref (RCP-19). Without a master key
+LiteLLM accepts every request.
+
+The pod annotation `checksum/config` is the chart's hash of the ConfigMap
+for `tests/values.yaml`. It does not follow a change of the models, and
+LiteLLM reads `config.yaml` only at start, so the README tells the user to
+restart the pod after a change. The chart sets no security context, and
+the image runs as root, which Pod Security `baseline` allows. LiteLLM also
+publishes `ghcr.io/berriai/litellm-non_root`, which the chart does not use
+and the recipe does not prove. Redis, the Ingress, autoscaling, the
+metrics server, the collector sidecar and the admin agent are off by
+default and not part of the recipe. The chart's Helm tests are left out
+(RCP-25).
+
+- RCP-315: `litellm` MUST render the chart's Deployment, Service and
+  ConfigMap `litellm-config` and the Secret `litellm-masterkey`, with
+  `ghcr.io/berriai/litellm:1.108.0` pinned to its index. Without the
+  option it MUST set no `DATABASE_URL` and render no Job and no object of
+  `postgresql`.
+
+  - Test: `check litellm`; CI `check` job; manual: a compile of
+    `tests/target.yml` without the option, and `check` with the smoke test
+    without its database part (#114)
+  - Since: #114
+
+- RCP-316: `litellm` MUST put `applications.litellm.master_key` into the
+  key `masterkey` of the Secret `litellm-masterkey` and set
+  `PROXY_MASTER_KEY` from it, MUST render `applications.litellm.model_list`
+  as `model_list` of `config.yaml`, and MUST leave both parameters unset.
+
+  - Test: `check lint` (RCP-262); CI `check` job
+  - Since: #114
+
+- RCP-317: The option `postgresql` of `litellm` MUST include
+  `recipes.postgresql` and set `DATABASE_URL` from the key `uri` of the
+  Secret `<applications.postgresql.cluster>-app`.
+
+  - Test: `check litellm`, whose `tests/target.yml` includes the option;
+    CI `check` job, report lines `included postgresql`
+  - Since: #114
+
+- RCP-318: The `tests/smoke` of `litellm` MUST require from
+  `/health/readiness` through the Service a healthy proxy with its
+  database connected. With the master key of the Secret
+  `litellm-masterkey` it MUST require one healthy model from `/health`,
+  exactly the model of `tests/target.yml` from `/v1/models`, and the
+  model's `mock_response` from `/v1/chat/completions`. It MUST get 401
+  from `/v1/models` and `/v1/chat/completions` without a key. It MUST
+  create a virtual key through `/key/generate`, get the reply with it, get
+  401 with a wrong key, and find spend above 0 for the virtual key in
+  `/key/info`. Once the pod was deleted and its successor is ready, the
+  virtual key MUST still get the reply.
+
+  The successor reads the virtual key from the database, so its reply
+  shows that the keys live in PostgreSQL and not in the pod.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #114
+
+- AC-315 (RCP-315 to RCP-318): `check litellm --level deploys` passes in
+  CI on each Kubernetes minor, its report lists the objects of
+  `postgresql` as included, and its smoke test gets the reply with the
+  virtual key after the pod was replaced.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -8732,3 +8883,4 @@ feature's design (OQ-6).
 | rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) as `root` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403) |
 | memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
 | homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
+| litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.14.0, level `deploys` (RCP-315 to RCP-318) |
