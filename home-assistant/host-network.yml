@@ -1,0 +1,10 @@
+# Home Assistant on its node's network, for discovery and HomeKit
+# (DEC-132). Pod Security baseline forbids hostNetwork, so the namespace
+# needs the level privileged.
+parameters:
+  components:
+    home-assistant:
+      application: home-assistant
+      host_network: true
+      # Keeps the cluster's Service names resolvable.
+      dns_policy: ClusterFirstWithHostNet
