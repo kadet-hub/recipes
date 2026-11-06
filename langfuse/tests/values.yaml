@@ -1,0 +1,212 @@
+# Langfuse on the PostgreSQL of the included recipe postgresql, the Valkey of
+# the included recipe valkey, the ClickHouse of the option clickhouse and the
+# SeaweedFS of the subchart seaweedfs (option s3).
+langfuse:
+  # Langfuse reads its keys from the Secret langfuse of the recipe.
+  salt:
+    secretKeyRef:
+      name: langfuse
+      key: salt
+  encryptionKey:
+    secretKeyRef:
+      name: langfuse
+      key: encryption-key
+  nextauth:
+    secret:
+      secretKeyRef:
+        name: langfuse
+        key: nextauth-secret
+  features:
+    signUpDisabled: true
+  web:
+    # docker.langfuse.com serves Docker Hub's langfuse/langfuse through a
+    # shared anonymous pull quota. ghcr.io serves the same digests.
+    image:
+      repository: ghcr.io/langfuse/langfuse
+    pod:
+      additionalEnv:
+        - name: LANGFUSE_INIT_ORG_ID
+          value: langfuse
+        - name: LANGFUSE_INIT_PROJECT_ID
+          value: langfuse
+        - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: langfuse
+              key: init-project-public-key
+        - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: langfuse
+              key: init-project-secret-key
+        - name: LANGFUSE_INIT_USER_EMAIL
+          value: admin@example.com
+        - name: LANGFUSE_INIT_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: langfuse
+              key: init-user-password
+    # The kubernetes generator names a PodDisruptionBudget after its
+    # component, langfuse-web, and the chart langfuse-web-pdb.
+    pdb:
+      create: false
+  worker:
+    image:
+      repository: ghcr.io/langfuse/langfuse-worker
+    pdb:
+      create: false
+postgresql:
+  deploy: false
+  host: postgresql-cluster-rw
+  # CloudNativePG serves TLS. Langfuse encrypts without verifying the
+  # server's certificate.
+  args: sslmode=require
+  auth:
+    username: app
+    database: app
+    existingSecret: postgresql-cluster-app
+    secretKeys:
+      userPasswordKey: password
+redis:
+  deploy: false
+  host: valkey
+  auth:
+    existingSecret: valkey-auth
+    existingSecretPasswordKey: default-password
+# The chart's ClickHouse is a ClickHouseCluster with a KeeperCluster of the
+# ClickHouse operator, which no kadet-hub generator renders. The option
+# clickhouse renders one server instead, given here as extraManifests.
+clickhouse:
+  deploy: false
+  host: langfuse-clickhouse
+  cluster:
+    enabled: false
+  auth:
+    username: clickhouse
+    existingSecret: langfuse-clickhouse-auth
+    existingSecretKey: password
+s3:
+  image:
+    registry: docker.io
+    # SeaweedFS 4.23 is affected by GHSA-5fx4-c9qp-36jc and other advisories
+    # up to 4.45. From 4.45 on, an upload creates a missing bucket. A number,
+    # which the subchart renders as 4.52.
+    # renovate: upstream docker.io/chrislusf/seaweedfs
+    tag: 4.52
+  auth:
+    rootPassword: aaaaaaaaaaaaaaaa
+  # Helm writes the number 1000000000 as 1e+09, which Kapitan's YAML leaves
+  # unquoted and kubectl then reads as a number.
+  mediaUpload:
+    maxContentLength: "1000000000"
+  global:
+    seaweedfs:
+      # Grants the ServiceAccount seaweedfs every verb on pods in all
+      # namespaces, which the all-in-one server does not use.
+      createClusterRole: false
+extraManifests:
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      labels:
+        name: langfuse-clickhouse
+      name: langfuse-clickhouse
+      namespace: langfuse
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          name: langfuse-clickhouse
+      serviceName: langfuse-clickhouse
+      template:
+        metadata:
+          labels:
+            name: langfuse-clickhouse
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - env:
+                - name: CLICKHOUSE_DB
+                  value: default
+                - name: CLICKHOUSE_USER
+                  value: clickhouse
+                - name: CLICKHOUSE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: password
+                      name: langfuse-clickhouse-auth
+              image: docker.io/clickhouse/clickhouse-server:26.8.36.3
+              imagePullPolicy: IfNotPresent
+              name: langfuse-clickhouse
+              ports:
+                - containerPort: 8123
+                  name: http
+                  protocol: TCP
+                - containerPort: 9000
+                  name: native
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 10
+                httpGet:
+                  path: /ping
+                  port: http
+                  scheme: HTTP
+                initialDelaySeconds: 0
+                periodSeconds: 5
+                successThreshold: 1
+                timeoutSeconds: 5
+              resources:
+                limits:
+                  memory: 4Gi
+                requests:
+                  cpu: '1'
+                  memory: 2Gi
+              securityContext: {}
+              volumeMounts:
+                - mountPath: /var/lib/clickhouse
+                  name: data
+                - mountPath: /var/log/clickhouse-server
+                  name: logs
+          restartPolicy: Always
+          securityContext:
+            fsGroup: 101
+            runAsGroup: 101
+            runAsUser: 101
+          volumes:
+            - emptyDir: {}
+              name: logs
+      updateStrategy:
+        rollingUpdate:
+          partition: 0
+        type: RollingUpdate
+      volumeClaimTemplates:
+        - metadata:
+            labels:
+              name: data
+            name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 100Gi
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        name: langfuse-clickhouse
+      name: langfuse-clickhouse
+      namespace: langfuse
+    spec:
+      ports:
+        - name: http
+          port: 8123
+          protocol: TCP
+          targetPort: http
+        - name: native
+          port: 9000
+          protocol: TCP
+          targetPort: native
+      selector:
+        name: langfuse-clickhouse
+      sessionAffinity: None

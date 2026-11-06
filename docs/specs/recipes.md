@@ -5859,6 +5859,263 @@ as a prerequisite (DEC-13).
   CI on each Kubernetes minor, and its smoke test reads the value on a
   second connection through the Service.
 
+## Langfuse
+
+Langfuse records what LLM applications do and evaluates it. Applications
+send traces through its OpenTelemetry endpoint. The web server stores each
+batch as a file in an S3 bucket and queues a job in Redis, and the worker
+reads the file and writes the observations to ClickHouse. Users, projects
+and API keys live in PostgreSQL. Langfuse needs all four stores.
+langfuse/langfuse is MIT, except the directories below `ee/` that its
+`LICENSE` names, which need a Langfuse Enterprise license.
+
+DEC-240: `langfuse` is a chart recipe on the chart `langfuse` 2.2.3 of
+langfuse/langfuse-k8s, MIT, at
+`oci://ghcr.io/langfuse/langfuse-k8s/charts/langfuse`. It was the newest
+release on 2026-11-05. It runs Langfuse 4.75.0, the chart's `appVersion`,
+and no advisory of langfuse/langfuse published by that day names it as
+affected. 4.76.0 came out the same day. The chart bundles its stores as
+subcharts: PostgreSQL from groundhog2k, Valkey from valkey-io, SeaweedFS,
+and ClickHouse as resources of the ClickHouse operator. The
+`docker-compose.yml` of langfuse/langfuse was considered as the source. It
+runs MinIO from `cgr.dev/chainguard/minio` without a tag, which Compose
+sources would pin to a version tag of the same digest, and the registry
+lists no version tag for it, only `latest`, `latest-dev` and signatures. Its service
+`langfuse-worker` alone sets 87 variables, 38 of them empty, which the
+mapping of RCP-37 would render one by one.
+
+DEC-241: `tests/values.yaml` sets the image repositories of web and worker
+to `ghcr.io/langfuse/langfuse` and `ghcr.io/langfuse/langfuse-worker`. The
+chart's default registry `docker.langfuse.com` passes requests to Docker
+Hub through CloudFront. On 2026-11-05 Docker Hub's answer to a request
+through it named an address other than the client's as the rate limit
+source, so all anonymous clients of the proxy share one limit, as for n8n.
+GHCR served the same indexes for amd64 and arm64 as the proxy. Docker Hub
+directly was considered. It limits anonymous pulls per address, which CI
+runners share too.
+
+DEC-242: The database is the included recipe `postgresql` and the queue and
+cache the included recipe `valkey` (DEC-4, DEC-12). `tests/values.yaml`
+switches the chart's subcharts off and points it at
+`postgresql-cluster-rw`, the database and user `app` and the key `password`
+of `postgresql-cluster-app`, and at the Service `valkey` with the key
+`default-password` of `valkey-auth`, with which Langfuse authenticates as
+Valkey's user `default`. The chart puts that password into
+`REDIS_CONNECTION_STRING` without encoding it, in every mode without Redis
+Cluster or Sentinel, so it must not contain characters a URL reserves, as
+for searxng and paperless-ngx. Langfuse 4.75.0 also reads `REDIS_HOST`,
+`REDIS_PORT` and `REDIS_AUTH`, but only when `REDIS_CONNECTION_STRING` is
+unset (`createNewRedisInstance` in
+`packages/shared/src/server/redis/redis.ts`). The chart has no value that
+leaves the connection string out, so passing the password separately would
+make the recipe differ from the chart. `postgresql.args: sslmode=require` makes Prisma,
+Langfuse's database client, connect with TLS without verifying
+CloudNativePG's certificate, as `semaphore` does. On kind every connection
+of `app` used TLS by `pg_stat_ssl`.
+
+DEC-243: ClickHouse is the option `clickhouse` of `langfuse`, one server as
+the StatefulSet `langfuse-clickhouse`, which the README offers to leave out
+for a ClickHouse elsewhere. The chart renders its ClickHouse as a
+`ClickHouseCluster` and a `KeeperCluster` with three Keeper replicas, which
+the ClickHouse operator turns into pods. The operator and cert-manager must
+run in the cluster first. No kadet-hub generator renders the kinds of
+`clickhouse.com`, so the chart's way is a gap (RCP-7). The option
+configures the server as the service `clickhouse` of Langfuse's
+`docker-compose.yml` does: the user and password from the image's
+entrypoint variables, UID and GID 101, the data at `/var/lib/clickhouse` on
+a claim and readiness on `/ping`. It runs
+`docker.io/clickhouse/clickhouse-server` 26.8.36.3, the tag of the chart's
+`clickhouse.cluster.image.tag`, Apache-2.0, built by ClickHouse, with the
+chart's requests of one CPU and 2Gi and its limit of 4Gi. The claim asks
+for the chart's 100Gi. Langfuse runs with `CLICKHOUSE_CLUSTER_ENABLED`
+false, as the chart sets it with `clickhouse.cluster.enabled: false` for a
+server without replication.
+
+| Alternative | Why it was not taken |
+|---|---|
+| ClickHouse only as parameters of a server elsewhere | `check` deploys only what the recipe and its included recipes render, so no proof could reach `deploys`. |
+| The chart's operator resources through a recipe for the operator | No generator renders them, and the operator, cert-manager and three Keeper replicas would be prerequisites of a single-node proof. |
+| A recipe `clickhouse` of its own, included by `langfuse` | ClickHouse ships no chart or compose file for one server, so it would be a designed recipe with its own proof, next to this one. |
+
+DEC-244: The S3 store is the option `s3` of `langfuse`: SeaweedFS as the
+chart's subchart `seaweedfs` 4.23.0 renders it with `s3.deploy`, one
+all-in-one server with the S3 API on port 8333 and its data on the claim
+`langfuse-s3-all-in-one-data`. The README offers to leave it out for an S3
+store elsewhere. SeaweedFS is Apache-2.0 and publishes
+`docker.io/chrislusf/seaweedfs`. DEC-4 asks for a recipe of its own. The
+recipe renders the subchart's objects in the parent instead, because the
+parent's template writes the identities file that the server reads and the
+objects carry the parent's release name. `tests/values.yaml` switches off
+the subchart's ClusterRole, which grants the ServiceAccount `seaweedfs`
+every verb on pods in all namespaces and which the all-in-one server does
+not use. The ServiceAccount stays, as the subchart renders it without a
+value to turn it off.
+
+The chart builds the identities file with `toJson`. The recipe writes
+`applications.langfuse.s3.access_key_id` and `.secret_access_key` into that
+JSON text as they are, because a ref's value is not known at the
+interpolation and cannot be escaped there. Neither may contain `"`, `\`
+or a control character.
+
+| Alternative | Why it was not taken |
+|---|---|
+| MinIO, as the compose file and chart 1.x run it | minio/minio is archived, its README says it is no longer maintained, and its last release is of 2025-10-15. `docker.io/minio/minio` and `quay.io/minio/minio` refused anonymous pulls on 2026-11-05. |
+| Garage | AGPL-3.0, and the chart does not run it, so nothing would compare it. |
+| S3 only as parameters of a store elsewhere | as for ClickHouse in DEC-243 |
+
+DEC-245: The option `s3` runs SeaweedFS 4.52, ahead of the subchart's 4.23.
+`tests/values.yaml` sets `s3.image.tag` and `s3.image.registry` so the
+chart side runs the same image. Advisories of seaweedfs/seaweedfs rated
+critical, such as GHSA-5fx4-c9qp-36jc, which lets any peer of the S3
+gateway's gRPC port add an admin identity, name every version up to 4.45 as
+affected. 4.52 of 2026-11-02 was the newest release on 2026-11-05. From
+4.45 on, the S3 gateway creates a missing bucket on the first upload of an
+admin identity (`-s3.autoCreateBucket`, on by default), and the identity
+the recipe writes has the action `Admin`. The subchart creates the bucket
+in the Helm hook `Job/langfuse-bucket-hook`, which `check` leaves out
+(RCP-25), so before 4.45 nothing would create the bucket. A Job that
+creates the bucket was considered. The chart side has no such Job outside
+the hook, so it would be an object only in the recipe. Renovate moves the
+image line of `s3.yml` and the tag in `tests/values.yaml` in one pull
+request (RCP-16). Docker Hub gives no release timestamps for
+`chrislusf/seaweedfs`, which has more than 1000 tags, so a package rule
+makes the timestamp optional, as for wordpress.
+
+DEC-246: `check` compares web, worker, the Service `langfuse-web`, the
+ServiceAccount `langfuse`, the Secrets and the objects of the option `s3`
+with the chart. The objects of the option `clickhouse` are given to the
+chart as `extraManifests` in `tests/values.yaml`, as immich gives its claim
+(DEC-49), so `renders` compares them only with their copy, and only
+`deploys` proves them. `tests/values.yaml` switches off the chart's
+PodDisruptionBudgets `langfuse-web-pdb` and `langfuse-worker-pdb`, which
+allow one unavailable pod each. The `kubernetes` generator names a
+component's PodDisruptionBudget after the component, so the recipe cannot
+render these names. With one replica each they allow every eviction. The
+README names `auto_pdb` for the same budget under the component's name.
+Helm writes the chart's default `s3.mediaUpload.maxContentLength` of
+1000000000 as `1e+09`, which Kapitan writes without quotes and kubectl then
+reads as a number, so `tests/values.yaml` sets it as the string
+`"1000000000"`.
+
+DEC-247: `langfuse` takes Langfuse's keys and the first account from
+required parameters, through the Secret `langfuse` that the recipe renders.
+`tests/values.yaml` points `langfuse.salt`, `encryptionKey` and
+`nextauth.secret` at its keys, and the web server's
+`LANGFUSE_INIT_PROJECT_PUBLIC_KEY`, `LANGFUSE_INIT_PROJECT_SECRET_KEY` and
+`LANGFUSE_INIT_USER_PASSWORD` too, so `check` accepts the Secret as a
+Referenced Secret (DEC-166). Without them the chart generates the keys at
+render time with `lookup`, and its README warns that `helm template`
+generates new ones on every render, which breaks every API key and every
+encrypted value. On each start the web server creates the organization
+`langfuse`, the project `langfuse` with these API keys and the user with
+this email and password as the organization's owner, each only when it is
+missing (`web/src/initialize.ts`). A later change of the password does not
+reach the user. `AUTH_DISABLE_SIGNUP` is `true`, the chart's
+`langfuse.features.signUpDisabled`, so `/api/auth/signup` refuses new
+accounts. The chart still renders the Secret `langfuse-app` for keys it
+would generate, empty with every key set, and so does the recipe. Sign-up
+left open for the first user was considered. Anyone who reaches the Service
+first would own the instance.
+
+DEC-248: The `tests/smoke` of `langfuse` sends a span to
+`/api/public/otel/v1/traces` and reads it back from
+`/api/public/v2/observations`. Langfuse 4 runs in the write mode
+`events_only` by default. `/api/public/ingestion` then accepts only scores,
+and `/api/public/traces` answers 404 with a pointer to OpenTelemetry.
+`LANGFUSE_MIGRATION_V4_WRITE_MODE=dual` would open both. Its message calls
+it a temporary bridge for migrating from Langfuse 3, which a new
+installation does not need.
+
+The chart's Ingress, AI gateway, autoscalers, KEDA objects and
+`extraManifests` other than the option `clickhouse` are off by default and
+not part of the recipe. Its hooks `Job/langfuse-bucket-hook` and
+`Secret/langfuse-s3-sftp-secret`, the SFTP users of SeaweedFS, which the
+all-in-one server does not start, are left out (RCP-25). The ServiceAccount
+`langfuse` has no role. The command of the SeaweedFS container and the
+content of `master.toml` are text of the subchart's templates, so
+`s3.yml.LICENSE` carries SeaweedFS' license (RCP-42).
+
+- RCP-320: `langfuse` MUST render the chart's Deployments `langfuse-web`
+  and `langfuse-worker`, the Service `langfuse-web`, the ServiceAccount
+  `langfuse` and the Secrets `langfuse-app`, `langfuse-clickhouse-auth` and
+  `langfuse-s3-auth` with the values of DEC-241, DEC-242, DEC-246 and
+  DEC-247, and `ghcr.io/langfuse/langfuse` and
+  `ghcr.io/langfuse/langfuse-worker` 4.75.0 pinned to their indexes.
+
+  - Test: `check langfuse`; CI `check` job
+  - Since: #120
+
+- RCP-321: `langfuse` MUST put `applications.langfuse.salt`,
+  `.encryption_key`, `.nextauth_secret`, `.init.public_key`,
+  `.init.secret_key` and `.init.user_password` into the Secret `langfuse`
+  and set `LANGFUSE_INIT_USER_EMAIL` from `.init.user_email`, MUST leave
+  all of them unset, and MUST set `AUTH_DISABLE_SIGNUP` to `true`.
+
+  The compile then stops with `Interpolation key ... not found` until the
+  target sets each of them, the secrets as refs (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); CI `check` job, report lines
+    `difference: Referenced Secret` and `smoke`
+  - Since: #120
+
+- RCP-322: The option `clickhouse` MUST render the StatefulSet and Service
+  `langfuse-clickhouse` with `docker.io/clickhouse/clickhouse-server`
+  26.8.36.3 pinned to its index, the user
+  `applications.langfuse.clickhouse.user` with the password of
+  `langfuse-clickhouse-auth`, UID, GID and `fsGroup` 101 and the claim
+  template `data`.
+
+  - Test: `check langfuse`; CI `check` job, report line `smoke`
+  - Since: #120
+
+- RCP-323: The option `s3` MUST render the subchart's Deployment, Service,
+  claim and ConfigMap of the all-in-one server, the ServiceAccount
+  `seaweedfs` and the key `seaweedfs_s3_config` of `langfuse-s3-auth`, with
+  `docker.io/chrislusf/seaweedfs` 4.52 or later pinned to its index and
+  without a ClusterRole.
+
+  - Test: `check langfuse`; CI `check` job, report line `smoke`
+  - Since: #120
+
+- RCP-324: Without the options, `langfuse` MUST render no object of
+  ClickHouse or SeaweedFS and MUST point Langfuse at
+  `applications.langfuse.clickhouse.host` and
+  `applications.langfuse.s3.endpoint`.
+
+  - Test: manual: a compile of `tests/target.yml` without both options
+  - Since: #120
+
+- RCP-325: The `tests/smoke` of `langfuse` MUST require `OK` from
+  `/api/public/health` and `/api/public/ready` of the web server through
+  its Service and `ok` from `/api/health` of the worker pod. With the API
+  keys of the Secret `langfuse` it MUST send a span to
+  `/api/public/otel/v1/traces`, read it back with its input from
+  `/api/public/v2/observations`, and read the file that Langfuse names for
+  it from the bucket through SeaweedFS' filer. It MUST get 422 and
+  `Sign up is disabled.` from `/api/auth/signup`, 200 and a session as the
+  owner of the organization for the email and password of the first user,
+  and 401 and no session with a wrong password. Once the pods of web, worker, ClickHouse
+  and SeaweedFS were deleted and their successors are ready, it MUST read
+  the same span and file, log in again and send and read a second span.
+
+  The worker has no readiness probe, as in the chart, so its rollout is
+  done once its container runs, also while it restarts until PostgreSQL is
+  ready. The test waits up to ten minutes for each health answer. The web
+  server answers the span only after it stored the file in the bucket and
+  queued its job in Valkey. The worker takes the job and
+  writes the span to ClickHouse, where the read finds it, so the read
+  needs all four stores. The login needs the user in PostgreSQL.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #120
+
+- AC-240 (RCP-320 to RCP-323, RCP-325): `check langfuse --level deploys`
+  passes in CI on each Kubernetes minor, with differences of the classes
+  Selector scheme, Derived name, Explicit default and Referenced Secret
+  only, its report lists the objects of `postgresql` and
+  `valkey` as included and `cnpg` as installed, and its smoke test reads
+  the span back after the pods were replaced.
+
 ## Stirling-PDF
 
 Stirling-PDF is a web UI and HTTP API that merges, splits, converts and
@@ -9582,6 +9839,7 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
+| langfuse | chart `langfuse` 2.2.3 of langfuse/langfuse-k8s (DEC-240), Langfuse 4.75.0 from GHCR (DEC-241), includes postgresql with TLS and valkey (DEC-242), options `clickhouse` with ClickHouse 26.8.36.3 (DEC-243) and `s3` with the subchart SeaweedFS on 4.52 (DEC-244, DEC-245), keys and first account required, sign-up off (DEC-247), `kubernetes` generator 1.14.0, level `deploys` (RCP-320 to RCP-325) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
 | jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
 | stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.0.2, level `deploys` (RCP-340 to RCP-349) |

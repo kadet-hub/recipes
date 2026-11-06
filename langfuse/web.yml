@@ -1,0 +1,150 @@
+parameters:
+  components:
+    langfuse-web:
+      application: langfuse
+      image: ghcr.io/langfuse/langfuse:4.75.0@sha256:23378ae8cdf1d92b647d68b81c0d0cea3632b43e9fbcbe9b765420af9c9c8662
+      pull_policy: Always
+      service_account:
+        create: true
+        name: langfuse
+        automount_service_account_token: true
+      # The chart leaves the token at the API default, true.
+      automount_service_account_token: true
+      env:
+        NODE_ENV: production
+        LANGFUSE_LOG_LEVEL: info
+        LANGFUSE_LOG_FORMAT: text
+        SALT:
+          secretKeyRef:
+            name: langfuse
+            key: salt
+        ENCRYPTION_KEY:
+          secretKeyRef:
+            name: langfuse
+            key: encryption-key
+        TELEMETRY_ENABLED: "true"
+        # No account is created through the sign-up page.
+        AUTH_DISABLE_SIGNUP: "true"
+        ENABLE_EXPERIMENTAL_FEATURES: "false"
+        NEXTAUTH_URL: ${applications.langfuse.url}
+        NEXTAUTH_SECRET:
+          secretKeyRef:
+            name: langfuse
+            key: nextauth-secret
+        DATABASE_HOST: ${applications.postgresql.cluster}-rw
+        DATABASE_USERNAME: ${applications.postgresql.owner}
+        DATABASE_PASSWORD:
+          secretKeyRef:
+            name: ${applications.postgresql.cluster}-app
+            key: password
+        DATABASE_NAME: ${applications.postgresql.database}
+        # CloudNativePG serves TLS. Langfuse encrypts without verifying the
+        # server's certificate.
+        DATABASE_ARGS: sslmode=require
+        LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED: "false"
+        REDIS_PASSWORD:
+          secretKeyRef:
+            name: valkey-auth
+            key: default-password
+        REDIS_TLS_ENABLED: "false"
+        # The password is part of this URL as it is, so it must not hold
+        # characters a URL reserves.
+        REDIS_CONNECTION_STRING: redis://default:$(REDIS_PASSWORD)@valkey:6379/0
+        CLICKHOUSE_MIGRATION_URL: clickhouse://${applications.langfuse.clickhouse.host}:9000
+        CLICKHOUSE_MIGRATION_SSL: "false"
+        CLICKHOUSE_URL: http://${applications.langfuse.clickhouse.host}:8123
+        CLICKHOUSE_DB: default
+        CLICKHOUSE_USER: ${applications.langfuse.clickhouse.user}
+        CLICKHOUSE_PASSWORD:
+          secretKeyRef:
+            name: langfuse-clickhouse-auth
+            key: password
+        # A single ClickHouse server without replication.
+        CLICKHOUSE_CLUSTER_ENABLED: "false"
+        LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "false"
+        LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${applications.langfuse.s3.bucket}
+        LANGFUSE_S3_EVENT_UPLOAD_REGION: ${applications.langfuse.s3.region}
+        LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${applications.langfuse.s3.endpoint}
+        LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:
+          secretKeyRef:
+            name: langfuse-s3-auth
+            key: accessKey
+        LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:
+          secretKeyRef:
+            name: langfuse-s3-auth
+            key: secretKey
+        LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+        LANGFUSE_S3_BATCH_EXPORT_ENABLED: "true"
+        LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${applications.langfuse.s3.bucket}
+        LANGFUSE_S3_BATCH_EXPORT_REGION: ${applications.langfuse.s3.region}
+        LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${applications.langfuse.s3.endpoint}
+        LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID:
+          secretKeyRef:
+            name: langfuse-s3-auth
+            key: accessKey
+        LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY:
+          secretKeyRef:
+            name: langfuse-s3-auth
+            key: secretKey
+        LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+        LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${applications.langfuse.s3.bucket}
+        LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${applications.langfuse.s3.region}
+        LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${applications.langfuse.s3.endpoint}
+        LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID:
+          secretKeyRef:
+            name: langfuse-s3-auth
+            key: accessKey
+        LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY:
+          secretKeyRef:
+            name: langfuse-s3-auth
+            key: secretKey
+        LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+        LANGFUSE_S3_MEDIA_UPLOAD_MAX_CONTENT_LENGTH: "1000000000"
+        LANGFUSE_S3_MEDIA_UPLOAD_DOWNLOAD_URL_EXPIRY_SECONDS: "3600"
+        LANGFUSE_S3_CONCURRENT_READS: "50"
+        LANGFUSE_S3_CONCURRENT_WRITES: "50"
+        PORT: "3000"
+        LANGFUSE_AI_GATEWAY_DEPLOYED: "false"
+        HOSTNAME: 0.0.0.0
+        # Headless initialization: the organization, the project with its
+        # API keys and its owner, created on start when missing.
+        LANGFUSE_INIT_ORG_ID: ${applications.langfuse.init.org_id}
+        LANGFUSE_INIT_PROJECT_ID: ${applications.langfuse.init.project_id}
+        LANGFUSE_INIT_PROJECT_PUBLIC_KEY:
+          secretKeyRef:
+            name: langfuse
+            key: init-project-public-key
+        LANGFUSE_INIT_PROJECT_SECRET_KEY:
+          secretKeyRef:
+            name: langfuse
+            key: init-project-secret-key
+        LANGFUSE_INIT_USER_EMAIL: ${applications.langfuse.init.user_email}
+        LANGFUSE_INIT_USER_PASSWORD:
+          secretKeyRef:
+            name: langfuse
+            key: init-user-password
+      ports:
+        http:
+          service_port: 3000
+          # The chart sets no appProtocol.
+          app_protocol: ""
+      service: {}
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /api/public/health
+          initial_delay_seconds: 20
+          period_seconds: 10
+          timeout_seconds: 5
+          success_threshold: 1
+          failure_threshold: 3
+        readiness:
+          type: http
+          port: http
+          path: /api/public/ready
+          initial_delay_seconds: 20
+          period_seconds: 10
+          timeout_seconds: 5
+          success_threshold: 1
+          failure_threshold: 3

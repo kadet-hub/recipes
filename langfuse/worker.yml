@@ -1,0 +1,77 @@
+parameters:
+  components:
+    langfuse-worker:
+      application: langfuse
+      image: ghcr.io/langfuse/langfuse-worker:4.75.0@sha256:5fd09700a8af5328f3ef004ca8ce5602f6e799aba13da5054d9b18ba1724533e
+      pull_policy: Always
+      service_account:
+        enabled: true
+        name: langfuse
+      automount_service_account_token: true
+      # The variables of langfuse-web that the chart gives the worker too, in
+      # the chart's order.
+      env:
+        NODE_ENV: ${components.langfuse-web.env.NODE_ENV}
+        LANGFUSE_LOG_LEVEL: ${components.langfuse-web.env.LANGFUSE_LOG_LEVEL}
+        LANGFUSE_LOG_FORMAT: ${components.langfuse-web.env.LANGFUSE_LOG_FORMAT}
+        SALT: ${components.langfuse-web.env.SALT}
+        ENCRYPTION_KEY: ${components.langfuse-web.env.ENCRYPTION_KEY}
+        TELEMETRY_ENABLED: ${components.langfuse-web.env.TELEMETRY_ENABLED}
+        AUTH_DISABLE_SIGNUP: ${components.langfuse-web.env.AUTH_DISABLE_SIGNUP}
+        ENABLE_EXPERIMENTAL_FEATURES: ${components.langfuse-web.env.ENABLE_EXPERIMENTAL_FEATURES}
+        NEXTAUTH_URL: ${components.langfuse-web.env.NEXTAUTH_URL}
+        NEXTAUTH_SECRET: ${components.langfuse-web.env.NEXTAUTH_SECRET}
+        DATABASE_HOST: ${components.langfuse-web.env.DATABASE_HOST}
+        DATABASE_USERNAME: ${components.langfuse-web.env.DATABASE_USERNAME}
+        DATABASE_PASSWORD: ${components.langfuse-web.env.DATABASE_PASSWORD}
+        DATABASE_NAME: ${components.langfuse-web.env.DATABASE_NAME}
+        DATABASE_ARGS: ${components.langfuse-web.env.DATABASE_ARGS}
+        LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED: ${components.langfuse-web.env.LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED}
+        REDIS_PASSWORD: ${components.langfuse-web.env.REDIS_PASSWORD}
+        REDIS_TLS_ENABLED: ${components.langfuse-web.env.REDIS_TLS_ENABLED}
+        REDIS_CONNECTION_STRING: ${components.langfuse-web.env.REDIS_CONNECTION_STRING}
+        CLICKHOUSE_MIGRATION_URL: ${components.langfuse-web.env.CLICKHOUSE_MIGRATION_URL}
+        CLICKHOUSE_MIGRATION_SSL: ${components.langfuse-web.env.CLICKHOUSE_MIGRATION_SSL}
+        CLICKHOUSE_URL: ${components.langfuse-web.env.CLICKHOUSE_URL}
+        CLICKHOUSE_DB: ${components.langfuse-web.env.CLICKHOUSE_DB}
+        CLICKHOUSE_USER: ${components.langfuse-web.env.CLICKHOUSE_USER}
+        CLICKHOUSE_PASSWORD: ${components.langfuse-web.env.CLICKHOUSE_PASSWORD}
+        CLICKHOUSE_CLUSTER_ENABLED: ${components.langfuse-web.env.CLICKHOUSE_CLUSTER_ENABLED}
+        LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: ${components.langfuse-web.env.LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED}
+        LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${components.langfuse-web.env.LANGFUSE_S3_EVENT_UPLOAD_BUCKET}
+        LANGFUSE_S3_EVENT_UPLOAD_REGION: ${components.langfuse-web.env.LANGFUSE_S3_EVENT_UPLOAD_REGION}
+        LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${components.langfuse-web.env.LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT}
+        LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${components.langfuse-web.env.LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID}
+        LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${components.langfuse-web.env.LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY}
+        LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: ${components.langfuse-web.env.LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE}
+        LANGFUSE_S3_BATCH_EXPORT_ENABLED: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_ENABLED}
+        LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_BUCKET}
+        LANGFUSE_S3_BATCH_EXPORT_REGION: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_REGION}
+        LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_ENDPOINT}
+        LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID}
+        LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY}
+        LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: ${components.langfuse-web.env.LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE}
+        LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_BUCKET}
+        LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_REGION}
+        LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT}
+        LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID}
+        LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY}
+        LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE}
+        LANGFUSE_S3_MEDIA_UPLOAD_MAX_CONTENT_LENGTH: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_MAX_CONTENT_LENGTH}
+        LANGFUSE_S3_MEDIA_UPLOAD_DOWNLOAD_URL_EXPIRY_SECONDS: ${components.langfuse-web.env.LANGFUSE_S3_MEDIA_UPLOAD_DOWNLOAD_URL_EXPIRY_SECONDS}
+        LANGFUSE_S3_CONCURRENT_READS: ${components.langfuse-web.env.LANGFUSE_S3_CONCURRENT_READS}
+        LANGFUSE_S3_CONCURRENT_WRITES: ${components.langfuse-web.env.LANGFUSE_S3_CONCURRENT_WRITES}
+        HOSTNAME: ${components.langfuse-web.env.HOSTNAME}
+      ports:
+        http:
+          container_port: 3030
+      healthcheck:
+        liveness:
+          type: http
+          port: http
+          path: /api/health
+          initial_delay_seconds: 20
+          period_seconds: 10
+          timeout_seconds: 5
+          success_threshold: 1
+          failure_threshold: 3

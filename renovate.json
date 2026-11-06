@@ -260,6 +260,13 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
+      "description": "RCP-16: Docker Hub gives no release timestamps for the seaweedfs image, which has more than 1000 tags, so the timestamp is optional; langfuse runs it ahead of its chart (DEC-245)",
+      "matchPackageNames": [
+        "docker.io/chrislusf/seaweedfs"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "RCP-294: Docker Hub gives no release timestamps for the ghost image, which has more than 1000 tags, so the timestamp is optional; the tag's -alpine suffix keeps the variant",
       "matchPackageNames": [
         "docker.io/library/ghost"

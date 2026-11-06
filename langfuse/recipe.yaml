@@ -1,0 +1,33 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.langfuse.salt
+    description: SALT, with which Langfuse hashes the API keys, so keep it for the life of the database.
+    secret: true
+  - path: applications.langfuse.encryption_key
+    description: ENCRYPTION_KEY, 64 hexadecimal digits that encrypt stored credentials such as LLM API keys, so keep it for the life of the database.
+    secret: true
+  - path: applications.langfuse.nextauth_secret
+    description: NEXTAUTH_SECRET, which signs the session cookies.
+    secret: true
+  - path: applications.langfuse.init.user_email
+    description: Email address of the first user, the owner of the organization, created on the first start.
+    secret: false
+  - path: applications.langfuse.init.user_password
+    description: Password of the first user, set only when the user is created.
+    secret: true
+  - path: applications.langfuse.init.public_key
+    description: Public API key of the first project, starting with pk-lf-.
+    secret: true
+  - path: applications.langfuse.init.secret_key
+    description: Secret API key of the first project, starting with sk-lf-.
+    secret: true
+  - path: applications.langfuse.clickhouse.password
+    description: Password of the ClickHouse user with which Langfuse connects, also the one the option clickhouse creates.
+    secret: true
+  - path: applications.langfuse.s3.secret_access_key
+    description: S3 secret access key of Langfuse's bucket, also the one the option s3 accepts and writes into SeaweedFS' JSON identities as it is, so without double quotes, backslashes or control characters.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, written into REDIS_CONNECTION_STRING as it is, so without characters a URL reserves.
+    secret: true
