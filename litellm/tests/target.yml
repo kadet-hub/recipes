@@ -1,0 +1,23 @@
+classes:
+  - recipes.litellm
+  - recipes.litellm.postgresql
+parameters:
+  namespace: litellm
+  kapitan:
+    vars:
+      target: litellm
+  applications:
+    litellm:
+      master_key: sk-aaaaaaaaaaaaaaaaaaaaaaaa
+      # A model that LiteLLM answers itself, without a provider (DEC-238).
+      model_list:
+        - model_name: smoke
+          litellm_params:
+            model: openai/smoke
+            mock_response: Hello from LiteLLM
+            # A price, so that LiteLLM records spend.
+            input_cost_per_token: 1
+            output_cost_per_token: 1
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
