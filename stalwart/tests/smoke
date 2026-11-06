@@ -75,6 +75,7 @@ fetch() { # subject: the stored message of b
     [[ -n $uid ]] && break
     sleep 2
   done
+  [[ -n $uid ]] || { echo "b has no message with the subject $1 after 40 seconds" >&2; return 1; }
   cx curl -fsS $tls "imaps://$host:993/INBOX;UID=$uid" --user "b@$domain:$b_password"
 }
 send smoke-plain "hello from a"
