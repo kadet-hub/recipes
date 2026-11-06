@@ -1134,6 +1134,11 @@ and the README lists the renames.
 | `cap_add` of capabilities that the documentation names as optional or as needed only for a feature the recipe does not set up | nothing | DEC-29. The README names each capability and what it would add. |
 | `init: true` where the image's start script runs the server as PID 1 and the server ends on `SIGTERM` | nothing | DEC-120 |
 | `depends_on` with `condition: service_healthy` on a service that becomes an included recipe, where the dependent exits while that service does not answer | an init container of the dependent's image that waits until the included recipe's Service accepts connections | DEC-121. It adds no image. |
+| a variable without a default that the documentation sets in `.env`, which it copies from an example file of the pinned repository | the example file's value. A credential becomes a parameter, and one that only a service of another compose file uses is left out. | DEC-306 |
+| bind mount of a directory below such a variable's directory, which the documentation has the user create empty | `volume_claims` with `volume_mounts` where the container writes data it keeps, nothing where it only reads | DEC-307 |
+| `aliases` on a network that every service shares | nothing. A reference to the alias, also through an image's default, is rewritten to the component's Service. | DEC-308 |
+| `read_only: true` | `read_only_root_filesystem: true` | DEC-309 |
+| `tmpfs` | `volumes` with an `emptyDir` of `medium: Memory` and the entry's `size` as `sizeLimit`, `volume_mounts` at its path | DEC-309. `mode` and `noexec` are dropped. |
 | bind mount of a file that the pinned repository does not contain, which the documentation copies from a file the image carries byte for byte at the mount target | nothing | DEC-301. The README names the file and its SHA-256. |
 
 What the table does not map is a gap, and so is each of these:
@@ -1142,9 +1147,9 @@ What the table does not map is a gap, and so is each of these:
 |---|---|
 | `build` without a published `image` | There is no image to pin |
 | `network_mode` | `host` puts the pod on the node's network, `service:` and `container:` share a network namespace, which only containers of one pod can |
-| bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
+| bind mounts of directories the pinned repository contains, of absolute paths or of paths outside the repository other than above, the Docker socket among them | They carry content or host state that a recipe cannot, and a hostPath reaches the node (RCP-20) |
 | `privileged`, `cap_add` other than above, `devices`, `pid: host`, `ipc: host` | They widen what a container may do on the node and need a review a migration cannot replace |
-| `networks` that separate services, `aliases`, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
+| `networks` that separate services, `aliases` other than above, fixed addresses, external networks | Services in one namespace reproduce only the DNS names. Nothing would prove the isolation. |
 | `extends` or `include` of a file outside the pinned repository | The content is not pinned |
 | a named volume of several services | `ReadWriteOnce` cannot be shared across nodes, and kind has no `ReadWriteMany` storage to prove it on |
 | `working_dir` | The `kubernetes` generator 1.7.0 has no key for `workingDir`. It is a generator request. |
@@ -1164,13 +1169,17 @@ What the table does not map is a gap, and so is each of these:
   for pihole (DEC-29). Revised in #91: `init`, which was a gap,
   and the wait for an included recipe's database, both for umami
   (DEC-120, DEC-121). Revised in #118: the bind mount of a file
-  the image carries, for ejabberd (DEC-301).
+  the image carries, for ejabberd (DEC-301). Revised in #117: `.env`
+  from an example file, which was resolved without one, the bind mounts
+  below its configuration directory and `aliases`, which were gaps,
+  `read_only` and `tmpfs`, all for jitsi-meet (DEC-306 to DEC-309).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; file the image
-    carries: #118
+    carries: #118; `.env`, configuration directory, `aliases`,
+    `read_only`, `tmpfs`: #117
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -5658,6 +5667,204 @@ moves the `Source` line through the `helm` datasource (RCP-16).
   Secret only, and its smoke test logs in as the admin of the Secret and
   reads the setting after the restart.
 
+## Jitsi Meet
+
+Jitsi Meet runs video meetings in the browser. Four services make it up:
+web serves the web app with nginx and proxies BOSH and the XMPP WebSocket
+to prosody, the XMPP server that carries the signalling. jicofo manages
+each meeting and allocates it on jvb, the video bridge, which forwards the
+participants' audio and video over UDP. jitsi/docker-jitsi-meet,
+Apache-2.0, builds the images `ghcr.io/jitsi/web`, `prosody`, `jicofo` and
+`jvb` under one tag per release and ships `docker-compose.yml` for the four.
+The only Helm chart, jitsi-contrib/jitsi-helm, comes from an organization
+that describes itself as community supported third-party packages, which
+DEC-11 rejects as a source, so DEC-10 makes the compose file the source.
+`jitsi-meet` takes it at commit `fca3e3a578a1bdd527c20b9d86a31cfc362d5426`,
+the tag `stable-11248-3` of 2026-11-02, the newest release on 2026-11-05,
+SHA-256 `e50de1a563bfeb005e7afd9b2defbeb298f21c8ea76ba0080724398191366a6e`.
+
+web becomes the StatefulSet `jitsi-meet`, prosody the StatefulSet
+`jitsi-meet-prosody`, jicofo and jvb the Deployments `jitsi-meet-jicofo`
+and `jitsi-meet-jvb`, each with a Service of its name. The images of this
+release run as the user `s6`, UID 1000, on a read-only root filesystem and
+render their configuration into `/run` at each start, so the pods pass Pod
+Security `baseline`. The compose file needs four mappings that RCP-37 did
+not have.
+
+DEC-306: The variables that `docker-compose.yml` uses without a default
+take the values of `env.example`, the file the handbook copies to `.env`
+before the first start. Without `.env`, `docker compose config` resolves
+`CONFIG`, `HTTP_PORT` and `HTTPS_PORT` to empty strings, so web publishes
+no host port and every volume source lies at the root of the host, and
+prosody exits with `FATAL ERROR: Jicofo auth password must be set`.
+`env.example` sets `TZ` to `UTC`, the ports to 8000 and 8443, and six empty
+passwords that `gen-passwords.sh` fills with random values.
+`JICOFO_AUTH_PASSWORD` and `JVB_AUTH_PASSWORD` become required parameters.
+The other four serve jigasi and jibri, which `jigasi.yml` and `jibri.yml`
+add, and prosody creates an account for each one that is set, so the recipe
+leaves them out. Resolving without `.env`, as the section's first paragraph
+does for other compose files, was considered. It gives no stack that
+starts. Rendering all six passwords was considered too. It would create
+four accounts that no running service uses.
+
+DEC-307: A bind mount below `${CONFIG}`, `~/.jitsi-meet-cfg` in
+`env.example`, becomes a claim where the container writes data it keeps,
+and renders nothing where the container only reads. The handbook has the
+user create these directories empty, and Docker creates a missing one empty
+as well, so each mount starts empty, as DEC-21 says of a relative bind
+mount of a directory the repository does not contain. The images copy
+`/config` into `/run` at start and read the custom CA certificates, the
+custom prosody plugins and the transcripts. They write web's `/storage`,
+which holds the self-signed TLS key, and prosody's `/var/lib/prosody`,
+which holds the accounts. These two are the claims `storage`. The images
+carry empty directories at the paths they only read, except
+`/usr/share/jitsi-meet/load-test`, which web serves only with
+`ENABLE_LOAD_TEST_CLIENT`. A claim per mount, as DEC-21 renders each, was
+considered. Eleven of the thirteen claims would stay empty, with no way to
+fill them but a shell in the pod, where a ConfigMap is how a target adds
+such files.
+
+DEC-308: The network alias `${XMPP_SERVER:-xmpp.meet.jitsi}` of prosody is
+rewritten like a service name, to the Service `jitsi-meet-prosody`. jicofo
+and jvb connect to the alias through the default of `XMPP_SERVER`, and web
+proxies BOSH and the WebSocket to it through the default of
+`XMPP_BOSH_URL_BASE`, `http://xmpp.meet.jitsi:5280`. The images set these
+defaults, so the recipe sets both variables, which the compose file leaves
+to `.env`. web's nginx resolves the upstream at request time with the
+nameservers of `/etc/resolv.conf` but without its search domains, and the
+short name answered 502 on kind. web therefore names the Service's full
+name, `jitsi-meet-prosody.<namespace>.svc.<cluster domain>`, with the
+cluster domain in `applications.jitsi-meet.cluster_domain`,
+`cluster.local`. An alias on a network that separates services stays a
+gap.
+
+DEC-309: `read_only: true` becomes the container's
+`readOnlyRootFilesystem: true`, and a `tmpfs` entry an `emptyDir` of
+`medium: Memory` at its path, with its `size` as `sizeLimit`. The kubelet
+mounts such an emptyDir as a tmpfs of that size, on kind 1.37 as well. It
+sets the directory's mode itself and mounts without `noexec`, so the
+entry's options `mode` and `noexec` are lost. The images keep
+s6-overlay's state, their rendered configuration and nginx's temporary
+files there, and the containers run as one user. Leaving the root
+filesystem writable was considered. It would drop the one hardening the
+compose file sets.
+
+### Accounts
+
+The compose file's defaults let anyone who reaches web open a meeting under
+any name. The user's defaults for applications with accounts (DEC-165)
+rule out open access.
+
+DEC-310: `jitsi-meet` runs Jitsi's secure domain with guests:
+`ENABLE_AUTH=1` on web, prosody and jicofo, and `ENABLE_GUESTS=1` on web
+and prosody, which `env.example` offers commented out. A user of
+`meet.jitsi` logs in to open a meeting, and guests join an open meeting
+anonymously on `guest.meet.jitsi`. `AUTH_TYPE` stays at the images'
+default `internal`, accounts in prosody's storage. prosody keeps in-band
+registration off. The secure domain without guests was considered. Every
+participant would then need an account that an operator creates.
+
+DEC-311: A postStart hook of prosody's container creates the first
+moderator, `moderator@meet.jitsi`, with the password of
+`applications.jitsi-meet.moderator_password`, and sets that password when
+the account exists. The images create only the accounts of jicofo and jvb
+from their passwords (`register-setup` of the prosody image). The hook
+waits for prosody's `/health` as that script does, then runs `prosodyctl
+shell user create` or `user password`. A hook that fails stops the
+container, so the rollout shows it. Leaving the first account to a
+`kubectl exec` that the README describes was considered. No meeting could
+start until an operator ran it, while the user's defaults ask for the first
+admin from required parameters. Replacing the image's `register-setup` was
+considered too. The recipe would carry a copy of the script that drifts
+from the image with each release.
+
+- RCP-386: The `Source` line of `jitsi-meet` MUST name `docker-compose.yml`
+  of jitsi/docker-jitsi-meet at the commit of a release tag, with its
+  SHA-256, and each component MUST run the image of its service under that
+  tag.
+
+  - Test: `check lint`; CI `check` job, report line `compose`; manual:
+    review of the four image tags
+  - Since: #117
+
+- RCP-387: `jitsi-meet` MUST take `JICOFO_AUTH_PASSWORD`,
+  `JVB_AUTH_PASSWORD` and the first moderator's password from the Secret
+  `jitsi-meet`, whose values are `applications.jitsi-meet.jicofo_auth_password`,
+  `.jvb_auth_password` and `.moderator_password`, which the recipe leaves
+  unset.
+
+  - Test: `check lint` (RCP-262)
+  - Since: #117
+
+- RCP-388: `jitsi-meet` MUST set `ENABLE_AUTH=1` on web, prosody and
+  jicofo and `ENABLE_GUESTS=1` on web and prosody.
+
+  - Test: `jitsi-meet/tests/smoke`; manual: on kind with `ENABLE_AUTH=0`
+    on jicofo the smoke test fails with `jicofo opened a meeting for a
+    guest`
+  - Since: #117
+
+- RCP-389: The postStart hook of `jitsi-meet-prosody` MUST create
+  `moderator@meet.jitsi` with the password of the Secret `jitsi-meet`, and
+  MUST set that password when the account exists.
+
+  - Test: `jitsi-meet/tests/smoke` logs in before and after deleting
+    prosody's pod; manual: prosody's log on kind shows `Account password
+    changed` for the existing account after the restart
+  - Since: #117
+
+### Media
+
+DEC-312: `jitsi-meet` exposes no media port and advertises no address.
+jvb sends and receives media on UDP port 10000 at the addresses it puts
+into its ICE candidates: its pod IP and the address that a STUN server of
+jitsi.net reports. The Service `jitsi-meet-jvb` carries 10000/UDP as a
+`ClusterIP`. A client outside the cluster needs that port exposed, such as
+by a `LoadBalancer` Service that carries UDP, and `JVB_ADVERTISE_IPS` set
+to the address it reaches. Clients behind a firewall that drops UDP need a
+TURN server as well, which docker-jitsi-meet does not run. Which of these
+fits depends on the cluster's network, as for Pi-hole's DNS port (DEC-30),
+so the target decides. kind proves none of them. A STUN binding request to
+jvb needs the ICE credentials of a session, and nothing on the runner sends
+media.
+
+### Proof
+
+`jitsi-meet` is at level `deploys`. `tests/target.yml` sets low-entropy
+test passwords. Some Service ports answer only with other settings, as
+with the compose file: jicofo binds its REST API on 8888 to its loopback
+address unless `JICOFO_ENABLE_REST` is set, and prosody listens on 5269
+only with `PROSODY_ENABLE_S2S` and on 5347 only for an external component.
+
+- RCP-390: The `tests/smoke` of `jitsi-meet` MUST, from a pod of its own
+  and through the Services, get answers from web on 8000 and 8443, from jvb
+  on 8080 and XMPP stream features from prosody on 5222. Over BOSH through
+  web it MUST require that `meet.jitsi` offers no anonymous login, refuses
+  in-band registration and a wrong password, and that jicofo refuses a
+  guest a new meeting. It MUST have the moderator open a meeting and a
+  guest join it, require jicofo's Jingle offer with a UDP candidate on port
+  10000 at jvb's pod IP, and require that a message of each reaches the
+  other. It MUST store data as the moderator, delete prosody's pod, and
+  read the data back once the moderator logs in again and jicofo grants a
+  meeting.
+
+  The test pod runs prosody's image, which carries bash and curl, and the
+  test speaks BOSH with curl. The Jingle offer shows that jicofo allocated
+  the meeting on jvb. jicofo grants a meeting also while no bridge has
+  joined it and then never offers a session, so the test first waits
+  until jicofo's REST API on its loopback address reports an operational
+  bridge. jicofo counts a member as joined only once the member answers
+  its disco#info query or the query times out after 15 seconds, and it
+  stops a new meeting that has no member after 15 seconds. CI runs
+  42134748555 and 42136796950 failed when the second timeout came first,
+  so the test's client answers disco#info with jicofo's default features,
+  as a Jitsi client answers it. The moderator's account is no proof of the claim,
+  because the hook of RCP-389 creates it again, so the test reads back
+  private XML data (XEP-0049), which only the claim keeps.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #117
+
 ## Zulip
 
 Zulip is a team chat whose messages are organized by channel and topic.
@@ -7141,6 +7348,7 @@ feature's design (OQ-6).
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
 | zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |

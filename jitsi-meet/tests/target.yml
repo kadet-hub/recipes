@@ -1,0 +1,12 @@
+classes:
+  - recipes.jitsi-meet
+parameters:
+  namespace: jitsi-meet
+  kapitan:
+    vars:
+      target: jitsi-meet
+  applications:
+    jitsi-meet:
+      jicofo_auth_password: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      jvb_auth_password: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      moderator_password: cccccccccccccccccccccccccccccccc

@@ -1,0 +1,50 @@
+parameters:
+  components:
+    jitsi-meet:
+      application: jitsi-meet
+      type: statefulset
+      # renovate: upstream
+      image: ghcr.io/jitsi/web:stable-11248-3@sha256:f2b3f749deb9b9d6d5b96cba50dc67f9c23a218af4fa13c63a7f17812ce4e147
+      pod_annotations:
+        service: jitsi-web
+      ports:
+        http:
+          service_port: 8000
+        https:
+          service_port: 8443
+      service:
+        type: ClusterIP
+      env:
+        TZ: UTC
+        ENABLE_AUTH: "1"
+        ENABLE_GUESTS: "1"
+        # prosody's network alias xmpp.meet.jitsi, the image's default. nginx
+        # resolves it at runtime without the search domains of resolv.conf.
+        XMPP_BOSH_URL_BASE: http://jitsi-meet-prosody.${namespace}.svc.${applications.jitsi-meet.cluster_domain}:5280
+      # The image runs as the user s6, UID 1000, which writes the claim.
+      workload_security_context:
+        fsGroup: 1000
+      volumes:
+        run:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        tmp:
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+      volume_mounts:
+        run:
+          mount_path: /run
+        tmp:
+          mount_path: /tmp
+        storage:
+          mount_path: /storage
+      volume_claims:
+        storage:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
