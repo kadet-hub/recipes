@@ -1,0 +1,71 @@
+# Service discovery and statistics from the cluster's API (DEC-228), with the
+# ClusterRole of homepage's Kubernetes installation page.
+parameters:
+  applications:
+    homepage:
+      kubernetes:
+        mode: cluster
+  components:
+    homepage:
+      application: homepage
+      service_account:
+        create: true
+      automount_service_account_token: true
+      config_maps:
+        config:
+          data:
+            kubernetes.yaml:
+              value: ${yaml:applications.homepage.kubernetes}
+      volume_mounts:
+        kubernetes:
+          volume: config
+          mount_path: /app/config/kubernetes.yaml
+          sub_path: kubernetes.yaml
+  generators:
+    kubernetes:
+      rbac:
+        homepage:
+          cluster_wide: true
+          service_accounts:
+            - ${namespace}/homepage
+          rules:
+            - apiGroups:
+                - ""
+              resources:
+                - namespaces
+                - pods
+                - nodes
+              verbs:
+                - get
+                - list
+            - apiGroups:
+                - extensions
+                - networking.k8s.io
+              resources:
+                - ingresses
+              verbs:
+                - get
+                - list
+            - apiGroups:
+                - traefik.io
+              resources:
+                - ingressroutes
+              verbs:
+                - get
+                - list
+            - apiGroups:
+                - gateway.networking.k8s.io
+              resources:
+                - httproutes
+                - gateways
+              verbs:
+                - get
+                - list
+            - apiGroups:
+                - metrics.k8s.io
+              resources:
+                - nodes
+                - pods
+              verbs:
+                - get
+                - list

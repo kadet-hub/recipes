@@ -1,0 +1,28 @@
+# No database of the chart's own (DEC-236). The option postgresql connects
+# the included recipe postgresql through DATABASE_URL below, and the proxy
+# applies its schema at start, without the chart's migrations Job.
+db:
+  deployStandalone: false
+migrationJob:
+  enabled: false
+# The chart puts the master key into its Secret litellm-masterkey.
+masterkey: sk-aaaaaaaaaaaaaaaaaaaaaaaa
+# The model list of tests/target.yml: a model that LiteLLM answers itself
+# with mock_response, without a provider (DEC-238).
+proxy_config:
+  model_list:
+    - model_name: smoke
+      litellm_params:
+        model: openai/smoke
+        mock_response: Hello from LiteLLM
+        # A price, so that LiteLLM records spend.
+        input_cost_per_token: 1
+        output_cost_per_token: 1
+  general_settings:
+    master_key: os.environ/PROXY_MASTER_KEY
+extraEnvVars:
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: postgresql-cluster-app
+        key: uri

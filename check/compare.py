@@ -26,6 +26,8 @@ DROP_LABELS = {
     "heritage",
     "component",
 }
+# The API server adds these to a Job's pod template, the UIDs differ on each side.
+JOB_LABELS = {"controller-uid", "batch.kubernetes.io/controller-uid", "job-name", "batch.kubernetes.io/job-name"}
 DROP_ANNOTATIONS = {"kubectl.kubernetes.io/last-applied-configuration"}
 HELM_PREFIXES = ("helm.sh/", "meta.helm.sh/")
 DIGEST = re.compile(r"@sha256:[0-9a-f]{64}")
@@ -72,11 +74,11 @@ def pod_templates(obj):
         yield ["spec", "jobTemplate", "spec", "template"], job["template"]
 
 
-def _clean_metadata(meta):
+def _clean_metadata(meta, drop=frozenset()):
     labels = {
         k: v
         for k, v in (meta.get("labels") or {}).items()
-        if k not in DROP_LABELS and not k.startswith(HELM_PREFIXES)
+        if k not in DROP_LABELS and k not in drop and not k.startswith(HELM_PREFIXES)
     }
     annotations = {
         k: v
@@ -97,9 +99,12 @@ def normalize(obj, side):
     meta = obj.setdefault("metadata", {})
     for key in DROP_METADATA:
         meta.pop(key, None)
-    _clean_metadata(meta)
+    generated = JOB_LABELS if obj.get("kind") == "Job" else frozenset()
+    # A Job without labels of its own gets its template's, the generated ones included.
+    template_labels = (((obj.get("spec") or {}).get("template") or {}).get("metadata") or {}).get("labels")
+    _clean_metadata(meta, generated if meta.get("labels") == template_labels else frozenset())
     for _, template in pod_templates(obj):
-        _clean_metadata(template.setdefault("metadata", {}))
+        _clean_metadata(template.setdefault("metadata", {}), generated)
         if not template["metadata"]:
             del template["metadata"]
         if side == "recipe":
@@ -350,15 +355,16 @@ def classify(d, chart_obj, recipe_obj, ctx):
     if last == "automountServiceAccountToken":
         unset_side = "chart" if d.chart is MISSING else "recipe" if d.recipe is MISSING else None
         value = d.recipe if unset_side == "chart" else d.chart
-        if unset_side and value is True:
-            if kind == "ServiceAccount":
-                return EXPLICIT_DEFAULT
+        if unset_side and value is True and kind == "ServiceAccount":
+            return EXPLICIT_DEFAULT
+        if unset_side and isinstance(value, bool) and kind != "ServiceAccount":
             obj = chart_obj if unset_side == "chart" else recipe_obj
             pod = _get(obj, path[:-1]) or {}
             sa = ctx[unset_side + "_by_id"].get(
                 f"ServiceAccount/{obj['metadata'].get('namespace')}/{pod.get('serviceAccountName', 'default')}"
             )
-            if sa is None or sa.get("automountServiceAccountToken") is not False:
+            # A pod without the field mounts the token unless its ServiceAccount sets false.
+            if value is (sa is None or sa.get("automountServiceAccountToken") is not False):
                 return EXPLICIT_DEFAULT
 
     # The generator renders securityContext: {} on a container that sets none.

@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# What the recipe homepage sets up (RCP-309): the pod passes Pod Security
+# restricted; from a pod of its own, through the Service homepage on port
+# 3000, homepage serves the dashboard of tests/target.yml and refuses a Host
+# outside HOMEPAGE_ALLOWED_HOSTS; with the option kubernetes it lists an
+# annotated Ingress and may only read; a changed inventory, compiled and
+# applied, changes the served dashboard after the rollout.
+set -euo pipefail
+command -v kapitan >/dev/null || { echo "kapitan is not on PATH; run tests/smoke through check" >&2; exit 1; }
+sa=system:serviceaccount:homepage:homepage
+fail() { echo "$1" >&2; kubectl logs deployment/homepage --tail=40 >&2 || true; exit 1; }
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod starts.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || fail "$warnings"
+
+image=$(kubectl get deployment homepage -o jsonpath='{.spec.template.spec.containers[0].image}')
+work=$(mktemp -d)
+kubectl run homepage-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod homepage-smoke --wait=false >/dev/null; kubectl delete ingress homepage-smoke --ignore-not-found --wait=false >/dev/null; rm -rf "$work"' EXIT
+kubectl wait pod/homepage-smoke --for=condition=Ready --timeout=300s >/dev/null
+
+# GET through the Service with node's http client, which the image carries and
+# which sends the Host header it is given. Prints the status, then the body.
+get() {
+  kubectl exec homepage-smoke -- node -e '
+const [path, host] = process.argv.slice(1);
+require("http").get({ host: "homepage", port: 3000, path, headers: { host } }, (res) => {
+  let body = "";
+  res.on("data", (d) => (body += d));
+  res.on("end", () => console.log(`${res.statusCode}\n${body}`));
+}).on("error", (e) => console.log(`0\n${e.message}`));' "$1" "${2:-homepage:3000}"
+}
+# Waits up to a minute for a jq filter on /api/services to hold.
+services() {
+  local out
+  for _ in $(seq 30); do
+    out=$(get /api/services)
+    [[ ${out%%$'\n'*} == 200 ]] && jq -e "$1" >/dev/null 2>&1 <<<"${out#*$'\n'}" && return 0
+    sleep 2
+  done
+  fail "/api/services does not satisfy $1: ${out:-no answer}"
+}
+has() { printf '([.[] | select(.name == "%s") | .services[] | select(.name == "%s")] | length == 1)' "$1" "$2"; }
+
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready, and refuses connections until then.
+for _ in $(seq 30); do
+  out=$(get /api/healthcheck)
+  [[ ${out%%$'\n'*} == 200 ]] && break
+  sleep 2
+done
+[[ ${out%%$'\n'*} == 200 ]] || fail "/api/healthcheck through the Service homepage: $out"
+out=$(get /)
+[[ ${out%%$'\n'*} == 200 ]] && grep -q '<title[^>]*>Smoke dashboard</title>' <<<"$out" || fail "/ serves no dashboard titled Smoke dashboard"
+out=$(get / other:3000)
+[[ ${out%%$'\n'*} == 400 ]] || fail "/ with the Host other:3000 answered ${out%%$'\n'*}, not 400"
+services "$(has Smoke 'Inventory service')"
+out=$(get /api/bookmarks)
+jq -e '[.[] | select(.name == "Smoke bookmarks") | .bookmarks[] | select(.name == "Kapitan")] | length == 1' \
+  >/dev/null <<<"${out#*$'\n'}" || fail "/api/bookmarks lacks Kapitan: $out"
+
+# The option kubernetes: read-only access, and an annotated Ingress becomes a
+# service of the dashboard.
+[[ $(kubectl auth can-i list ingresses.networking.k8s.io -A --as "$sa") == yes ]] || fail "$sa cannot list ingresses"
+for denied in "get secrets" "create ingresses.networking.k8s.io" "delete pods"; do
+  [[ $(kubectl auth can-i $denied -A --as "$sa" || true) == no ]] || fail "$sa may $denied"
+done
+services "$(has Smoke 'Inventory service') and ([.[] | select(.name == \"Smoke discovery\")] | length == 0)"
+kubectl apply -f - >/dev/null <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage-smoke
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/group: Smoke discovery
+    gethomepage.dev/name: Discovered service
+spec:
+  rules:
+    - host: discovered.example.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homepage
+                port:
+                  number: 3000
+EOF
+services "$(has 'Smoke discovery' 'Discovered service')"
+
+# A changed inventory: tests/target.yml with the service renamed, compiled with
+# the recipe's class files and the generator by the digest check verified, and
+# applied as check applied the first compile.
+mkdir -p "$work/inventory/classes/recipes/homepage" "$work/inventory/targets" "$work/lib/kubernetes" "$work/oci"
+cp ./*.yml "$work/inventory/classes/recipes/homepage/"
+sed 's/Inventory service/Changed service/' tests/target.yml >"$work/inventory/targets/homepage.yml"
+printf 'global:\n  inventory-backend: omegaconf\n' >"$work/.kapitan"
+generator=$(sed -n 's|^ *source: \(ghcr\.io/kadet-hub/kubernetes\):[^@]*\(@sha256:[0-9a-f]\{64\}\)$|\1\2|p' init.yml)
+oras pull -o "$work/oci" "$generator" >/dev/null
+tar -xf "$work/oci/kubernetes.tar" -C "$work/lib/kubernetes"
+(cd "$work" && kapitan compile >/dev/null 2>&1) || fail "kapitan compile of the changed inventory failed"
+kubectl apply --server-side --force-conflicts --field-manager check -R -f "$work/compiled/homepage/manifests" >/dev/null
+kubectl rollout status deployment/homepage --timeout=300s >/dev/null
+services "$(has Smoke 'Changed service') and ($(has Smoke 'Inventory service') | not)"
+echo "homepage served the dashboard of the inventory through the Service homepage, listed an annotated Ingress with read-only access, and served the changed inventory after the rollout"

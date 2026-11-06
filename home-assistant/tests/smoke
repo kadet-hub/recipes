@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# RCP-213: the pod under Pod Security baseline, then from a pod of the Home
+# Assistant image and through the Service home-assistant on port 8123 the
+# onboarding's owner, its tokens, the REST API, and a refresh token that
+# the new pod accepts after the old one was deleted.
+set -euo pipefail
+url=http://home-assistant:8123
+# The onboarding's client is the web UI at the address it was reached at.
+client=$url/
+image=$(kubectl get statefulset home-assistant -o jsonpath='{.spec.template.spec.containers[?(@.name=="home-assistant")].image}')
+tag=${image%@*}
+tag=${tag##*:}
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=baseline 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image brings curl, so the test pod needs no other image.
+kubectl run home-assistant-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod home-assistant-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/home-assistant-smoke --for=condition=Ready --timeout=300s >/dev/null
+run() { kubectl exec -i home-assistant-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs home-assistant-0 --tail=40 >&2; exit 1; }
+# The recipe has no probe, so the pod is ready before Home Assistant listens.
+steps() {
+  local out
+  for _ in $(seq 90); do
+    out=$(run curl -fsS -m 10 "$url/api/onboarding" 2>/dev/null) && { jq -c '[.[] | select(.done) | .step]' <<<"$out"; return; }
+    sleep 2
+  done
+  fail "/api/onboarding does not answer through the Service home-assistant"
+}
+token() { run curl -fsS --data-urlencode "client_id=$client" "$@" "$url/auth/token"; }
+owner() {
+  jq -nc --arg c "$client" '{client_id: $c, name: "Smoke", username: "smoke", password: "smoke-password", language: "en"}' |
+    run curl -sS -H 'Content-Type: application/json' -w '\n%{http_code}' --data @- "$url/api/onboarding/users"
+}
+api() { run curl -fsS -H "Authorization: Bearer $1" "$url$2"; }
+
+[[ $(steps) == '[]' ]] || fail "onboarding steps were done before the test"
+out=$(owner)
+[[ $(tail -1 <<<"$out") == 200 ]] || fail "creating the owner: $out"
+code=$(head -1 <<<"$out" | jq -er .auth_code)
+tokens=$(token --data-urlencode grant_type=authorization_code --data-urlencode "code=$code")
+access=$(jq -er .access_token <<<"$tokens")
+refresh=$(jq -er .refresh_token <<<"$tokens")
+[[ $(owner | tail -1) == 403 ]] || fail "a second owner did not get 403"
+
+status=$(run curl -sS -o /dev/null -w '%{http_code}' "$url/api/")
+[[ $status == 401 ]] || fail "/api/ without a token: $status"
+[[ $(api "$access" /api/ | jq -r .message) == "API running." ]] || fail "/api/ with the access token"
+version=$(api "$access" /api/config | jq -r .version)
+[[ $version == "$tag" ]] || fail "/api/config: version $version, the image tag is $tag"
+
+# The new pod reads the refresh token and the onboarding from .storage on the claim config.
+kubectl delete pod home-assistant-0 --wait >/dev/null
+kubectl wait pod/home-assistant-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/home-assistant-0 --for=condition=Ready --timeout=300s >/dev/null
+[[ $(steps) == *'"user"'* ]] || fail "the onboarding's owner step was lost with the restart"
+access=$(token --data-urlencode grant_type=refresh_token --data-urlencode "refresh_token=$refresh" | jq -er .access_token) ||
+  fail "the refresh token was lost with the restart"
+[[ $(api "$access" /api/ | jq -r .message) == "API running." ]] || fail "/api/ with the refreshed token"
+# check reports the last line.
+echo "Home Assistant $version created its owner in the onboarding and answered /api/ through the Service home-assistant, and again with a token refreshed after home-assistant-0 restarted. The pod passes Pod Security baseline."

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# RCP-253: the pod under Pod Security restricted, then from a pod of the
+# memos image and through the Service memos on port 5230 the health check,
+# the web UI and the instance profile, the first account as admin, a second
+# sign-up refused, a private memo written and read back with its token, and
+# the same account and memo after the pod was replaced.
+set -euo pipefail
+url=http://memos:5230
+username=smoke
+password=aaaaaaaa
+content='Smoke test memo'
+container='{.spec.template.spec.containers[?(@.name=="memos")]'
+image=$(kubectl get statefulset memos -o jsonpath="$container.image}")
+instance_url=$(kubectl get statefulset memos -o jsonpath="$container.env[?(@.name==\"MEMOS_INSTANCE_URL\")].value}")
+version=${image#*:}
+version=${version%@*}
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image's busybox brings wget, so the test pod needs no other image. jq
+# runs here.
+kubectl run memos-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod memos-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/memos-smoke --for=condition=Ready --timeout=120s >/dev/null
+fail() { echo "$1" >&2; kubectl logs memos-0 --tail=40 >&2; exit 1; }
+get() { kubectl exec memos-smoke -- wget -qO- -T 10 "$@"; }
+post() {
+  local path=$1 body=$2
+  shift 2
+  get --header 'Content-Type: application/json' --post-data "$body" "$@" "$url$path"
+}
+# The status code of a request that fails, from busybox wget's headers.
+status() {
+  { kubectl exec memos-smoke -- wget -S -O /dev/null -T 10 "$@" 2>&1 || true; } |
+    sed -n 's|^ *HTTP/[0-9.]* \([0-9]*\).*|\1|p' | tail -1
+}
+# The Service gets the ready pod as its endpoint a moment after the pod is ready.
+reachable() {
+  for _ in $(seq 30); do
+    [[ $(get "$url/healthz" 2>/dev/null) == 'Service ready.' ]] && return
+    sleep 2
+  done
+  fail "/healthz does not answer through the Service memos"
+}
+signin() {
+  post /api/auth/signin "$(jq -nc --arg u "$username" --arg p "$password" \
+    '{passwordCredentials: {username: $u, password: $p}}')" | jq -er .accessToken
+}
+read_memo() { get --header "Authorization: Bearer $1" "$url/api/$memo" | jq -r .content; }
+
+reachable
+# Read the page whole: grep -q in a pipe ends before wget, and pipefail then fails it.
+ui=$(get "$url/") || fail "/ does not answer"
+grep -q '<title>Memos</title>' <<<"$ui" || fail "/ serves no web UI"
+profile=$(get "$url/api/instance/profile") || fail "/api/instance/profile does not answer"
+jq -e --arg v "$version" --arg i "$instance_url" '.version == $v and .instanceUrl == $i
+  and .accessMode == "INSTANCE_ACCESS_MODE_PUBLIC" and .needsSetup' <<<"$profile" >/dev/null ||
+  fail "the instance profile is not that of a new instance of $version at $instance_url: $profile"
+
+# Without a login, the first account becomes the admin (DEC-173).
+user=$(post /api/users "$(jq -nc --arg u "$username" --arg p "$password" '{username: $u, password: $p}')") ||
+  fail "/api/users did not create the first account"
+[[ $(jq -r .role <<<"$user") == ADMIN ]] || fail "the first account is not the admin: $user"
+# The declarative configuration closed the registration for everyone after the admin.
+code=$(status --header 'Content-Type: application/json' --post-data \
+  "$(jq -nc --arg p "$password" '{username: "second", password: $p}')" "$url/api/users")
+[[ $code == 403 ]] || fail "a second account without a login got $code, not 403"
+code=$(status --header 'Content-Type: application/json' --post-data \
+  "$(jq -nc --arg u "$username" '{passwordCredentials: {username: $u, password: "bbbbbbbb"}}')" "$url/api/auth/signin")
+[[ $code == 400 ]] || fail "a wrong password got $code, not 400"
+token=$(signin) || fail "$username cannot sign in"
+memo=$(post /api/memos "$(jq -nc --arg c "$content" '{content: $c, visibility: "PRIVATE"}')" \
+  --header "Authorization: Bearer $token" | jq -er .name) || fail "the memo was not created"
+[[ $(read_memo "$token") == "$content" ]] || fail "$memo does not read back"
+code=$(status "$url/api/$memo")
+[[ $code == 401 ]] || fail "$memo without a token got $code, not 401"
+
+# The new pod reads the account and the memo from memos_prod.db on the claim.
+kubectl delete pod memos-0 --wait >/dev/null
+kubectl wait pod/memos-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/memos-0 --for=condition=Ready --timeout=300s >/dev/null
+reachable
+get "$url/api/instance/profile" | jq -e '.needsSetup == false' >/dev/null || fail "the restarted instance needs a setup"
+token=$(signin) || fail "$username cannot sign in after the restart"
+[[ $(read_memo "$token") == "$content" ]] || fail "$memo is gone after the restart"
+# check reports the last line.
+echo "memos made the first account admin, refused a second sign-up, stored a private memo and read it back through the Service memos, also after a restart. The pod passes Pod Security restricted."

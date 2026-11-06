@@ -239,9 +239,23 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
+      "description": "RCP-16: Docker Hub gives no release timestamps for the rocket.chat image, which has more than 1000 tags, so the timestamp is optional; the weekly window bundles its updates",
+      "matchPackageNames": [
+        "docker.io/rocketchat/rocket.chat"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "RCP-184: Docker Hub gives no release timestamps for the wordpress image, which has more than 1000 tags, so the timestamp is optional; the tag's -php8.5-apache suffix keeps PHP and the variant",
       "matchPackageNames": [
         "docker.io/library/wordpress"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": "RCP-298: Docker Hub gives no release timestamps for the navidrome image, which has more than 1000 tags, so the timestamp is optional",
+      "matchPackageNames": [
+        "docker.io/deluan/navidrome"
       ],
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
@@ -325,6 +339,26 @@
       "groupName": "umami"
     },
     {
+      "description": "RCP-16: jitsi-meet's Source line and its four images move in one pull request; Jitsi tags a release stable-<build> and a fix of it stable-<build>-<n>",
+      "matchPackageNames": [
+        "jitsi/docker-jitsi-meet",
+        "ghcr.io/jitsi/web",
+        "ghcr.io/jitsi/prosody",
+        "ghcr.io/jitsi/jicofo",
+        "ghcr.io/jitsi/jvb"
+      ],
+      "groupName": "jitsi-meet",
+      "versioning": "regex:^stable-(?<major>\\d+)(?:-(?<minor>\\d+))?$"
+    },
+    {
+      "description": "RCP-298: navidrome's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "navidrome/navidrome",
+        "docker.io/deluan/navidrome"
+      ],
+      "groupName": "navidrome"
+    },
+    {
       "description": "RCP-16: actual's Source line and its main image move in one pull request",
       "matchPackageNames": [
         "actualbudget/actual",
@@ -341,6 +375,14 @@
       "groupName": "ejabberd"
     },
     {
+      "description": "RCP-16: memos' Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "https://github.com/usememos/dotcom",
+        "docker.io/neosmemo/memos"
+      ],
+      "groupName": "memos"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",
@@ -352,6 +394,13 @@
       "description": "RCP-16: SearXNG's commits come from git-refs, which gives no release timestamps",
       "matchPackageNames": [
         "https://github.com/searxng/searxng"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": "RCP-250: the commits of the Memos documentation come from git-refs, which gives no release timestamps",
+      "matchPackageNames": [
+        "https://github.com/usememos/dotcom"
       ],
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },

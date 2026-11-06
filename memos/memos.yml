@@ -1,0 +1,69 @@
+parameters:
+  components:
+    memos:
+      application: memos
+      type: statefulset
+      # renovate: upstream
+      image: docker.io/neosmemo/memos:26.11.0@sha256:087e7dc6b76b31fcd1107a5767398b2a310ced209adb791efd8760c745dc8034
+      security_profile: restricted
+      # The image's user nonroot, UID and GID 10001 in its /etc/passwd. Started
+      # as that user, the entrypoint skips its chown and su-exec (DEC-172).
+      workload_security_context:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      ports:
+        http:
+          container_port: 5230
+          service_port: 5230
+      service:
+        type: ClusterIP
+      env:
+        MEMOS_PORT: "5230"
+        MEMOS_DRIVER: sqlite
+        # The example's https://memos.example.com stands for the target's URL (DEC-171).
+        MEMOS_INSTANCE_URL: ${applications.memos.instance_url}
+      # Not in the compose file: Memos' declarative configuration closes the
+      # registration once the first account, the admin, exists. ignoreChanges
+      # leaves the other fields of GENERAL to the web UI (DEC-173).
+      config_maps:
+        config:
+          mount: /etc/memos/config
+          data:
+            instance.json:
+              value: |
+                {
+                  "instanceSettings": [
+                    {
+                      "name": "instance/settings/GENERAL",
+                      "generalSetting": {
+                        "disallowUserRegistration": true
+                      }
+                    }
+                  ],
+                  "lifecycle": [
+                    {
+                      "resource": "instance/settings/GENERAL",
+                      "ignoreChanges": [
+                        "generalSetting.customProfile",
+                        "generalSetting.disallowPasswordAuth",
+                        "generalSetting.disallowChangeUsername",
+                        "generalSetting.disallowChangeNickname",
+                        "generalSetting.weekStartDayOffset",
+                        "generalSetting.additionalStyle",
+                        "generalSetting.additionalScript"
+                      ]
+                    }
+                  ]
+                }
+      volume_mounts:
+        data:
+          mount_path: /var/opt/memos
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
