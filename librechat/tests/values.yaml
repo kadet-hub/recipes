@@ -1,0 +1,67 @@
+# LibreChat on the MongoDB of the included recipe mongodb, without
+# Meilisearch and without the Ingress, with registration closed, and the
+# OpenAI-compatible stub of tests/smoke as the endpoint openAI. The
+# credentials come from the Secret the recipe renders, which the chart reads
+# as a user creates it next to the chart (RCP-243).
+global:
+  librechat:
+    existingSecretName: ""
+    env:
+      - name: CREDS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: CREDS_KEY
+      - name: CREDS_IV
+        valueFrom:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: CREDS_IV
+      - name: JWT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: JWT_SECRET
+      - name: JWT_REFRESH_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: JWT_REFRESH_SECRET
+      - name: MONGODB_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: mongodb
+            key: password
+      - name: MONGO_URI
+        value: mongodb://root:$(MONGODB_PASSWORD)@mongodb:27017/LibreChat?authSource=admin
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: librechat-credentials-env
+            key: OPENAI_API_KEY
+librechat:
+  configEnv:
+    ALLOW_REGISTRATION: "false"
+    OPENAI_REVERSE_PROXY: http://librechat-stub:8080/cgi-bin/v1
+    OPENAI_MODELS: stub
+# The pod under Pod Security restricted as the image's user node, UID 1000.
+podSecurityContext:
+  fsGroup: 2000
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 1000
+# The chart's default {} renders an empty lifecycle, which the generator
+# cannot; null renders none.
+lifecycle: null
+ingress:
+  enabled: false
+mongodb:
+  enabled: false
+meilisearch:
+  enabled: false
