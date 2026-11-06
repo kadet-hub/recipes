@@ -7,8 +7,8 @@
 # pod restarts. The test prints how long the pull and the completion took.
 set -euo pipefail
 ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
-# The chart sets no readiness probe, so the rollout ends before Open WebUI
-# listens.
+# The readiness probe on /ready (RCP-287) ends the rollout only once Open
+# WebUI answers; /health through the Service is what RCP-134 requires.
 health() {
   for _ in $(seq 150); do
     kubectl get --raw "/api/v1/namespaces/$ns/services/open-webui:http/proxy/health" 2>/dev/null | jq -e '.status == true' >/dev/null && return

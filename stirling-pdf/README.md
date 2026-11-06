@@ -17,15 +17,17 @@ command is the chart's, with its license in `stirling-pdf.yml.LICENSE`.
 Stirling-PDF is MIT except the directories its `LICENSE` names, such as
 `app/proprietary/`, which holds the login.
 
-`tests/values.yaml` changes three things against the chart's defaults
-(DEC-162 to DEC-164 in [docs/specs/recipes.md](../docs/specs/recipes.md)):
+`tests/values.yaml` changes four things against the chart's defaults
+(DEC-162 to DEC-165 in [docs/specs/recipes.md](../docs/specs/recipes.md)):
 
 - the image comes from `docker.io` instead of `docker.stirlingpdf.com`,
   a proxy in front of Docker Hub that answered anonymous pulls with 429;
 - `/configs`, where Stirling-PDF keeps `settings.yml`, its H2 database
   with the users and its keys, is a claim instead of an `emptyDir`;
 - the pod runs as `stirlingpdfuser`, UID and GID 1001, and passes Pod
-  Security `restricted`.
+  Security `restricted`;
+- `envs` read the initial admin's login and password from the Secret
+  `stirling-pdf-admin`, which the recipe renders.
 
 The chart names its objects `<release>-stirling-pdf-chart`, so with the
 release name `stirling-pdf` the Deployment, Service, ServiceAccount and
@@ -44,21 +46,34 @@ parameters:
   kapitan:
     vars:
       target: stirling-pdf
+  applications:
+    stirling-pdf:
+      admin:
+        username: <login>
+        password: <ref>
 ```
 
 ## Required parameters
 
-No parameter has to be set.
+`applications.stirling-pdf.admin.username` and
+`applications.stirling-pdf.admin.password` are the login and password of
+the first admin. The recipe puts them into the Secret `stirling-pdf-admin`,
+from which the container reads `SECURITY_INITIALLOGIN_USERNAME` and
+`SECURITY_INITIALLOGIN_PASSWORD`. Stirling-PDF creates the account on its
+first start, while its database on the claim holds no user, and does not
+create the default `admin` with the password `stirling` then. A later change
+of either parameter does not reach the account. Change the password in the
+web UI instead.
+
+Set the password to a ref with the backend of your choice. Without either
+parameter the compile stops with `Interpolation key '<key>' not found`.
 
 ## Login
 
 Stirling-PDF 3.2.0 turns the login on by default, and every API call needs
-a session or an API key. On its first start it creates the user `admin`
-with the password `stirling`, and the web UI asks for a new password at the
-first login. Log in and change it before you expose the Service. To create
-the first account with other credentials, set
-`SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD` in
-`components.stirling-pdf-stirling-pdf-chart.env` before the first start.
+a session or an API key. Only a logged-in admin adds users. The sign-up
+endpoint `/api/v1/user/register` answers 401 without a login, and Stirling-PDF
+has no setting that opens it.
 
 ## Settings
 
@@ -103,13 +118,17 @@ objects differ in three ways. The Deployment and the Service select on
 select the same pods. The container is named after the component, the
 chart's `stirling-pdf-chart`. The ServiceAccount sets
 `automountServiceAccountToken: true`, the API default the chart leaves
-unset, while the pod opts out as in the chart. The chart binds no role.
+unset, while the pod opts out as in the chart. The Secret
+`stirling-pdf-admin` is only in the recipe, accepted as a Referenced
+Secret: the chart's container reads exactly its keys `username` and
+`password` through `envs`. The chart binds no role.
 
 `tests/smoke` checks that the pod passes Pod Security `restricted` and
 that `/api/v1/info/status` reports the image tag through the Service. The
-merge endpoint answers 401 without a login. As `admin` it merges two
-one-page PDFs that the test writes, and `qpdf --check` and `pdftotext` in
-the image find a valid file with both pages in order. The test changes the
+merge endpoint and the sign-up answer 401 without a login, and so does a
+login as `admin` with `stirling`. As the admin of `tests/target.yml` it
+merges two one-page PDFs that the test writes, and `qpdf --check` and
+`pdftotext` in the image find a valid file with both pages in order. The test changes the
 setting `ui.appNameNavbar` through the admin API, deletes the pod, and
 reads the new value from its successor, which loads it from `settings.yml`
 on the claim.

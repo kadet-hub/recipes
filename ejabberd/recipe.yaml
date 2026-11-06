@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.ejabberd.admin_password
+    description: Password of the admin account admin@<host>, which the image registers when the database is empty.
+    secret: true
+  - path: applications.ejabberd.erlang_cookie
+    description: Erlang cookie of the ejabberd node, which ejabberdctl and the Erlang distribution authenticate with.
+    secret: true
