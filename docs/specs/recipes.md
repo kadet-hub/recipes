@@ -6969,6 +6969,99 @@ primary, and after 90 failed tries the container starts again.
 keeps proving the server without a replica set. `check rocketchat` proves
 the option, and CI runs it for every change to `mongodb` (RCP-50).
 
+## MongoDB application users
+
+`mongodb` creates one user, `root`, whose role `root` reaches every
+database and every administrative command. A parent that connects as
+`root` gives all of that to its application and to anyone who reads the
+connection string in the parent's Secret. A user per application with
+rights on its own database only limits both. The option `users`, which a
+target or a parent includes as `recipes.mongodb.users`, creates such users
+from parameters.
+
+DEC-330: `applications.mongodb.users` maps the name of each user to an
+entry whose `value` is the user's password, set by the target as a ref.
+The option creates each user in the database of its name, which is also
+the database the user authenticates in, with `readWrite` on that database
+as its only role. `readWrite` covers what an application does in its
+database: reads, writes, indexes, transactions and change streams on its
+collections. The map goes unchanged into the `string_data` of the Secret
+`mongodb-users`, so an entry has the shape of a Secret entry of the
+`kubernetes` generator, `value` included. A target that includes
+`recipes.mongodb` without the option compiles the same objects as before.
+
+| Alternative | Why it was not taken |
+|---|---|
+| A list of users, each with `database`, `roles` and `password` | The generator writes each Secret value as one string, so a list reaches the pod only as the YAML text of the resolver `yaml`. The image has no YAML parser: no Python, jq, awk or sed, and mongosh 2.6.0 cannot `require` one. No recipe needs more than `readWrite` on its own database (Rocket.Chat). |
+| Users created when the data directory is initialized, as the entrypoint creates `root` | A user added later, or a parent added to a `mongodb` that has data, would never be created. |
+
+DEC-331: An additional container `users` in the pod of `mongodb` creates
+the users in its postStart hook. The option `replica-set` sets the
+postStart hook of the container `mongodb` (DEC-323), and a second option
+cannot add a step to it. Both would write the list
+`lifecycle.postStart.exec.command`, and the omegaconf backend merges the
+two lists into one (RCP-43), which makes the second script an argument of
+the first. With a container of its own each option works without the
+other, and `replica-set` renders as before.
+
+The container runs the image of `mongodb`. Its process only waits, and it
+exits on `SIGTERM`, so it does not hold up the deletion of the pod for the
+grace period. It mounts the Secret `mongodb-users` and reads the password
+of `root` from the Secret `mongodb`. The hook runs mongosh as `root`
+against `localhost` every 2 seconds, up to 90 times, until the server is a
+writable primary, which a server without a replica set is once it answers.
+It then creates each user that does not exist and sets password and role
+of each user that does. Kubernetes does not mark a container as running
+before its postStart hook returns, so the pod becomes ready, and the
+Service `mongodb` sends clients to it, only once every user exists. After
+90 failed tries the hook prints mongosh's last output, which the kubelet
+reports in the pod's events, and the kubelet starts the container again.
+
+mongosh with the hook's script used at most 154 MiB, the cgroup's
+`memory.peak` of a container that ran only mongosh against the pinned
+image under Docker. The container's memory limit is 256Mi.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The postStart hook of the container `mongodb` | The option `replica-set` sets it, and the two command lists would merge into one. |
+| A Job | As for the replica set (DEC-323): it would have to wait for the pod, and a Job's pod template cannot change. |
+| An init container with `restartPolicy: Always` | Kubernetes starts it before the container `mongodb` and waits for its postStart hook, which would wait for a server that has not started. |
+
+DEC-332: The hook applies the map on every start of the pod and at no
+other time. A changed password takes effect once the pod restarts, for
+example after `kubectl rollout restart statefulset/mongodb`, because the
+pod template does not change with the Secret. A client reads its password
+when it starts, so MongoDB refuses it until it restarts as well. A role
+that an admin granted by hand is gone after the next start. A user removed
+from the map stays in MongoDB until an admin drops it with `dropUser`.
+
+The Secret `mongodb-users` is not `versioned`, which would restart the pod
+on a change. Its name would then carry a hash of the passwords, and
+`check` assigns an object to an included recipe by kind and name
+(RCP-49), so the compile of a parent with other passwords would no longer
+match.
+
+`tests/target.yml` of `mongodb` includes the option with the user `app`.
+Otherwise the Secret `mongodb-users` would count as an object of
+`rocketchat` and fail its comparison with the chart (RCP-49). `check
+mongodb` therefore proves the option on a server without a replica set,
+and `check rocketchat` on a replica set.
+
+- RCP-404: With the option `users`, `mongodb` MUST create each user of
+  `applications.mongodb.users` in the database of its name, with the
+  password of its `value` and with `readWrite` on that database as its
+  only role. For a user that exists, it MUST set that password and role.
+  Without the option, `mongodb` MUST render the same objects as before
+  this change.
+
+  - Test: `mongodb/tests/smoke`: the user `app` writes and reads its
+    database, and after a new password in the Secret and a restart of the
+    pod, the new password logs in, the old one is refused and the role is
+    unchanged; manual: a compile of `mongodb/tests/target.yml` of the
+    parent commit, alone and with `recipes.mongodb.replica-set`, gives the
+    same files before and after this change
+  - Since: this change
+
 ## Rocket.Chat
 
 Rocket.Chat is a team chat. Its server, a Meteor application on Node.js,
@@ -7020,15 +7113,29 @@ member, and both exchanged messages through the REST API. The replica set
 keeps the change stream and the transactions working. The chart's own
 subchart runs MongoDB as a replica set of one member as well.
 
-DEC-327: Rocket.Chat connects as the user `root` of `mongodb`, the only
-user that recipe creates, with the URL
-`mongodb://root:<password>@mongodb:27017/rocketchat?authSource=admin&directConnection=true`
-in the Secret `rocketchat-rocketchat`, which the chart renders from
-`externalMongodbUrl`. The password stands in the URL unencoded, so the
-README asks for letters and digits, as for open-webui. A user
-`rocketchat` with rights on its database only, as the chart's subchart
-creates, was considered. `mongodb` creates no user from parameters, and
-adding that is a change of its own.
+DEC-327: Rocket.Chat connects as the user `rocketchat`, which the option
+`users` of `mongodb` creates with `readWrite` on the database `rocketchat`
+(MongoDB application users). The URL
+`mongodb://rocketchat:<password>@mongodb:27017/rocketchat?directConnection=true`
+is in the Secret `rocketchat-rocketchat`, which the chart renders from
+`externalMongodbUrl`. Without `authSource` the user authenticates in the
+URL's database, `rocketchat`. The password is
+`applications.mongodb.users.rocketchat.value` and stands in the URL
+unencoded, so the README asks for letters and digits, as for open-webui.
+Until this change Rocket.Chat connected as `root`, the only user `mongodb`
+created then.
+
+Rocket.Chat 8.9.1 needs no more than `readWrite` on its database. Its one
+change stream watches the collection `instances`
+(`watchActiveInstances` in `packages/models/src/models/InstanceStatus.ts`).
+The package `rocketchat-mongo-config` turns Meteor's oplog tailing off,
+so nothing reads `local.oplog.rs`. Besides queries, transactions and
+`ping`, Rocket.Chat sends `serverStatus` and `buildinfo`.
+`getMongoInfo` in `apps/meteor/server/lib/utils/functions/getMongoInfo.ts`
+falls back to `buildinfo` when `serverStatus` fails, which needs
+`clusterMonitor`, and then reports the storage engine as `unknown`. The
+recipe does not grant `clusterMonitor` for a value in the startup banner
+and the statistics.
 
 DEC-328: Rocket.Chat runs as one process, without microservices and NATS.
 The chart's default `microservices.enabled: true` runs it as several
@@ -7094,6 +7201,24 @@ defaults to false. The recipe is at level `deploys`.
 - AC-400 (RCP-400 to RCP-403): `check rocketchat --level deploys` passes
   in CI on each Kubernetes minor. On kind, with `rocketchat` compiled
   without the option `replica-set`, `tests/smoke` fails.
+
+- RCP-405: `rocketchat` MUST connect to MongoDB as the user `rocketchat`
+  of the option `users` (DEC-327). Its `tests/smoke` MUST require that
+  every authenticated connection from Rocket.Chat's pod is one of that
+  user, that a change stream as that user delivers the admin's message,
+  that `listDatabases` names only `rocketchat` to it, and that it gets
+  `Unauthorized` for a read in the database `local`, a write in `admin`,
+  `serverStatus` and `createUser`. After it deletes the MongoDB pod, it
+  MUST require the user with `readWrite` on `rocketchat` as its only role.
+
+  - Test: CI `check` job of `rocketchat`, report line `smoke`
+  - Since: this change
+
+- AC-401 (RCP-404, RCP-405): `check mongodb --level deploys` and
+  `check rocketchat --level deploys` pass in CI on each Kubernetes minor.
+  A compile of `mongodb/tests/target.yml` of the parent commit, alone and
+  with `recipes.mongodb.replica-set`, gives the same files with this
+  change as without it.
 
 ## Memos
 
@@ -8394,6 +8519,7 @@ feature's design (OQ-6).
 | ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
 | matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
 | mongodb option `replica-set` | `recipes.mongodb.replica-set`, replica set `rs0` of one member `localhost:27017` (DEC-321), key file generated by the init container `key` (DEC-322), initiated by a postStart hook (DEC-323) (RCP-400, RCP-401) |
-| rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) as `root` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403) |
+| mongodb option `users` | `recipes.mongodb.users`, users from `applications.mongodb.users` with `readWrite` on the database of their name (DEC-330), created by the postStart hook of the container `users` (DEC-331) on every start of the pod (DEC-332) (RCP-404) |
+| rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) and `users`, as its user `rocketchat` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403, RCP-405) |
 | memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
 | homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
