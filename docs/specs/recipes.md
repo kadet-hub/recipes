@@ -9600,8 +9600,9 @@ argument as a literal `${...}` and reads nothing.
   - Since: tags `check-v0.9.0` and `check-v0.10.0`; the skill pins
     `check-v0.10.0` since kapitan-recipes 0.3.0, Moep90/agent-skills#9
 
-- RCP-406: A pull request that changes a file under `check/` MUST change
-  `VERSION` in `check/check.py`. The CI job `version` fails it otherwise.
+- RCP-406: A pull request that changes a file under `check/` outside
+  `check/tests/` MUST change `VERSION` in `check/check.py`. The CI job
+  `version` fails it otherwise.
 
   The registry gate and the `to-recipe` skill run a `check` release
   (RCP-22), and a change without a new version reaches neither of them.
@@ -9611,14 +9612,18 @@ argument as a literal `${...}` and reads nothing.
   The job compares `VERSION` in the pull request's merge commit with the
   base. The new version takes effect only after the merge, once the commit
   is tagged `check-vX.Y.Z` and the registry gate pins that tag (REC-5,
-  REC-9 there). The job checks neither step. A change to check's tests or
-  lock, Renovate's included, fails the job too and waits for a commit that
+  REC-9 there). The job checks neither step.
+
+  The gate does not run check's tests, so a change under `check/tests/`
+  alone needs no new version. A change to check's lock or to a pin in
+  `check/`, Renovate's included, fails the job and waits for a commit that
   raises `VERSION`.
 
   - Test: CI `version` job; manual: the job's script fails on a merge
-    commit that changes `check/compare.py` alone and passes once the
-    commit also raises `VERSION`
-  - Since: #133
+    commit that changes `check/compare.py` or `check/uv.lock` alone,
+    passes once the commit also raises `VERSION`, and passes on one that
+    changes only `check/tests/`
+  - Since: #133; `check/tests/` exempt: #137
 
 - RCP-67: `check/pyproject.toml` MAY lift a dependency's version constraint
   only to reach a release that fixes a published advisory. The override is
