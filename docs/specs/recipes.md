@@ -6478,8 +6478,21 @@ only with `PROSODY_ENABLE_S2S` and on 5347 only for an external component.
   because the hook of RCP-389 creates it again, so the test reads back
   private XML data (XEP-0049), which only the claim keeps.
 
-  - Test: CI `check` job, report line `smoke`
-  - Since: #117
+  When a step before prosody's restart fails, the test MUST print to
+  stderr what jvb and jicofo logged in the last 10 minutes about the
+  meeting and jicofo's bridge counters, each of the three also when
+  another one matches nothing.
+
+  The test runs with `pipefail`, and jvb logs no conference line before
+  jicofo allocates a meeting on it. Before #134 a grep without a match
+  ended the diagnostics, and a step that failed before the meeting printed
+  nothing.
+
+  - Test: CI `check` job, report line `smoke`; manual: with the check of
+    in-band registration changed to fail, on kind more than 10 minutes
+    after the last meeting, stderr shows jicofo's
+    `operational_bridge_count`
+  - Since: #117, #134
 
 ## Stalwart
 
