@@ -202,7 +202,9 @@ ChromeDriver. Elsewhere set `CHROMEDRIVER` to a ChromeDriver of the
 installed Chrome's version. A login through an OpenID Connect provider is
 not tested.
 
-`check` deploys one target, so the option `federation` is proven by hand
-on kind. Two targets with the option federated, and with the option off
-on one of them the join got 404 (RCP-362 in
+`check` deploys one target, so the option `federation` is proven in the
+CI of kadet-hub/examples, in
+[matrix-federation](https://github.com/kadet-hub/examples/tree/main/matrix-federation).
+Two targets of this recipe with the option federate there, and with the
+option off on one of them the join gets 404 (RCP-362 in
 [docs/specs/recipes.md](../docs/specs/recipes.md)).
