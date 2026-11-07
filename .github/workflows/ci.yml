@@ -226,9 +226,30 @@ jobs:
           tar -xzf zizmor.tgz zizmor
           ./zizmor --format plain .github
 
+  # A change under check/ raises check's VERSION (RCP-406).
+  version:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - run: |
+          set -euo pipefail
+          # HEAD is the merge commit and HEAD^1 the base.
+          if git diff --quiet HEAD^1 HEAD -- check; then exit 0; fi
+          version() { git show "$1:check/check.py" | grep '^VERSION = '; }
+          if [[ $(version HEAD^1) == "$(version HEAD)" ]]; then
+            echo "::error file=check/check.py::files under check/ changed, VERSION did not (RCP-406)"
+            exit 1
+          fi
+
   # The one required check of the main ruleset (RCP-65).
   ci:
-    needs: [test, select, lint, check, convert, deps]
+    needs: [test, select, lint, check, convert, deps, version]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
