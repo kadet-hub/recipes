@@ -7724,7 +7724,7 @@ the same file.
     the two servers above: `examples` workflow of kadet-hub/examples, job
     `matrix-federation`
   - Since: #124; federation of two servers: #128; in CI of
-    kadet-hub/examples: examples#172
+    kadet-hub/examples: #136, examples#172
 
 - RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
   Security warning from a server-side dry run of the label
