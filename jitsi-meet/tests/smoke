@@ -95,6 +95,8 @@ run() { kubectl exec -i jitsi-meet-smoke -- bash -s -- "$password" "$jvb" <<<"$c
 # On a failure, what jvb and jicofo logged about the meeting, addresses
 # masked, short enough for the 3000 characters of stderr that check keeps.
 logs() {
+  # A grep without a match must not end the other parts (RCP-390).
+  set +e
   local mask='s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<ip>/g'
   kubectl logs deploy/jitsi-meet-jvb --since=10m | grep -E 'SEVERE|[Cc]onference|[Ee]ndpoint' |
     sed -E "$mask" | cut -c1-200 | tail -4 >&2
