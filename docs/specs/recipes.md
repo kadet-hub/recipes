@@ -6,7 +6,8 @@ Status: Draft. check 0.19.0 implements renders and deploys, for charts
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
         RCP-55), and renders from given outputs (RCP-34);
-        migrates (RCP-14) and RCP-21 are not implemented;
+        migrates (RCP-14), RCP-21 and RCP-52 before publication are
+        not implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
 Code: <name>/, check/, .github/, renovate.json, README.md
@@ -617,7 +618,7 @@ reclass-rs 0.10.1 from check's lock, on the recipes at `a723bd2`.
   (RCP-36). RCP-4 and RCP-4a apply to it as to a class file.
 
   - Test: `check lint`; `check/tests/test_lint.py` (`Meta`)
-  - Since: this change
+  - Since: #101
 
 - RCP-261: `check lint` MUST fail unless `recipe.yaml` matches the README.
   Each path MUST appear in backticks in the section "Required parameters"
@@ -634,7 +635,7 @@ reclass-rs 0.10.1 from check's lock, on the recipes at `a723bd2`.
   paths such as `.email` until this change.
 
   - Test: `check lint`; `check/tests/test_lint.py` (`Meta`)
-  - Since: this change
+  - Since: #101
 
 - RCP-262: `check lint` MUST prove each path of `required`. The Include
   snippet as the recipe's only target MUST resolve with
@@ -654,7 +655,7 @@ reclass-rs 0.10.1 from check's lock, on the recipes at `a723bd2`.
   RCP-263.
 
   - Test: `check lint`; `check/tests/test_check.py` (`Meta`)
-  - Since: this change
+  - Since: #101
 
 - RCP-263: `check lint` MUST run `kapitan inventory` on `tests/target.yml`
   with each backend of `backends`, and MUST fail when one of them does not
@@ -665,7 +666,7 @@ reclass-rs 0.10.1 from check's lock, on the recipes at `a723bd2`.
   compared the values once.
 
   - Test: `check lint`; `check/tests/test_check.py` (`Meta`)
-  - Since: this change
+  - Since: #101
 
 ## Proof
 
@@ -766,7 +767,7 @@ helm, kubectl, kind, oras and gh come from `PATH`; CI installs them pinned
   `minimumReleaseAgeBehaviour: timestamp-required` would hold it forever.
 
   - Test: manual: Renovate dry run
-  - Since: #3; release age exempted: this change
+  - Since: #3; release age exempted: #11
 
 - RCP-29a: Before it runs the `next` image, `check` MUST verify the image's
   attestation with `gh attestation verify`, issued to the workflow
@@ -929,7 +930,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   its RoleBinding to `view`.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; RoleBinding without a namespace: this change
+  - Since: #2; RoleBinding without a namespace: #24
 
 - RCP-12: After normalization the object diff MUST be empty, except for
   differences of the classes below. `check` reports each remaining
@@ -1273,7 +1274,7 @@ cert-manager Certificates with their Issuer, so the recipe
   helm does not render the file, so RCP-25 has no hooks to leave out.
 
   - Test: CI `check` job
-  - Since: #22, this change
+  - Since: #22, #25
 
 ## Designed recipes
 
@@ -1634,7 +1635,8 @@ same bytes with both versions.
 
   - Test: manual: the README's "Using a recipe" steps for nextcloud on a
     fresh clone
-  - Since: not implemented
+  - Since: commit SHA: not implemented; digest: registry #536, the
+    Include sections: #95
 
 - RCP-53: A parent version MUST be tagged on a commit where the directory
   of each included recipe, without `tests/`, equals a tagged version of
@@ -9625,7 +9627,7 @@ argument as a literal `${...}` and reads nothing.
   release passes it. This diff is what a reviewer can still catch.
 
   - Test: `check` tests; Renovate configuration
-  - Since: not implemented
+  - Since: not implemented; no automatic merge: #56 (RCP-30a)
 
 - RCP-22: `check` MUST be released with its own version tag
   `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version
