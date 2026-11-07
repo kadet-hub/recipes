@@ -1193,7 +1193,7 @@ What the table does not map is a gap, and so is each of these:
   below its configuration directory and `aliases`, which were gaps,
   `read_only` and `tmpfs`, all for jitsi-meet (DEC-306 to DEC-309).
   Revised in #115: an `emptyDir` at `/tmp` of a read-only service that
-  writes there, for navidrome (DEC-215). Revised in #tbd: `-h 127.0.0.1`
+  writes there, for navidrome (DEC-215). Revised in #141: `-h 127.0.0.1`
   for a `pg_isready` health check, for miniflux (DEC-334).
 
   - Test: manual: review against the compose file
@@ -1202,7 +1202,7 @@ What the table does not map is a gap, and so is each of these:
     `cap_add`: #68; `init`, wait for the database: #91; file the image
     carries: #118; `.env`, configuration directory, `aliases`,
     `read_only`, `tmpfs`: #117; `/tmp` of a read-only service: #115;
-    `pg_isready` over TCP: #tbd
+    `pg_isready` over TCP: #141
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -1848,7 +1848,7 @@ nothing once the server runs.
 
   - Test: `tests/smoke` in the CI `check` job; manual: the probe loop on
     kind above
-  - Since: #tbd
+  - Since: #141
 
 ## Nextcloud
 
