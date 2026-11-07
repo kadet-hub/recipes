@@ -7704,26 +7704,27 @@ the same file.
   `/.well-known/matrix/server`, and MUST federate with another server
   that has the option.
 
-  `check` deploys one target, so CI tests the default only. Two servers
-  with the option federated by hand on kind: `a.example.test` and
-  `b.example.test`, each a target in a namespace of its own behind an
-  nginx with a certificate of a test CA, and CoreDNS rewrote each name to
-  that nginx's Service. Each target added a file `kind.yaml` to the
-  ConfigMap with `federation_custom_ca_list` for the test CA and
-  `ip_range_whitelist` for the cluster's Services, `10.96.0.0/12`. The
-  admin of `a.example.test` joined a room of `b.example.test` through its
-  alias and read its message, and `b.example.test` read the reply. With
-  the option off on `b.example.test` the join got 404. Without
-  `ip_range_whitelist` it got 502, and Synapse logged that the name had no
-  address, as it drops addresses in its default `ip_range_blacklist`. A
-  proof in CI needs two targets of the published recipe, which
-  kadet-hub/examples can run.
+  `check` deploys one target, so CI here tests the default only.
+  `matrix-federation/` of kadet-hub/examples proves the option in its CI
+  with two targets of the published recipe, `a.example.test` and
+  `b.example.test`, each in a namespace of its own behind an nginx with a
+  certificate of a test CA, and CoreDNS rewrites each name to that nginx's
+  Service. Each target adds a file `kind.yaml` to the ConfigMap with
+  `federation_custom_ca_list` for the test CA and `ip_range_whitelist` for
+  the cluster's Services, `10.96.0.0/12`. The admin of `a.example.test`
+  joins a room of `b.example.test` through its alias and reads its
+  message, and `b.example.test` reads the reply. With the option off on
+  `b.example.test` the join gets 404. Without `ip_range_whitelist` it gets
+  502, because Synapse drops addresses in its default
+  `ip_range_blacklist`. That example's spec is EX-33 and EX-33a.
 
   - Test: CI `check` job, report line `smoke`, for the default; manual:
     on kind with Kubernetes 1.37 and the option, `/_matrix/federation/v1/version`,
     `/_matrix/key/v2/server` and `/.well-known/matrix/server` answered;
-    manual: the two servers above on kind with Kubernetes 1.37
-  - Since: #124; federation of two servers: #128
+    the two servers above: `examples` workflow of kadet-hub/examples, job
+    `matrix-federation`
+  - Since: #124; federation of two servers: #128; in CI of
+    kadet-hub/examples: #136, examples#172
 
 - RCP-363: The `tests/smoke` of `matrix-synapse` MUST require no Pod
   Security warning from a server-side dry run of the label
