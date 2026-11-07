@@ -1352,7 +1352,7 @@ first API request through the Service got `Connection refused` from a
 ready pod. The smoke test therefore asks `GET /api/v1/servers/localhost`
 through the Service for up to a minute before it writes the record, as the
 smoke tests of vaultwarden and other recipes wait for their Service.
-Changed in #PDNS_PR.
+Changed in #142.
 
 `pdnsutil zone create` writes the SOA from the setting
 `default-soa-content`. Its default,
