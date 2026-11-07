@@ -198,7 +198,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   passes it on, and only the proof shows it as a difference (#138).
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
-  - Since: #100; `serviceName` mapped: this change
+  - Since: #100; `serviceName` mapped: #139
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
