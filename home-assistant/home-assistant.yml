@@ -14,6 +14,16 @@ parameters:
         type: ClusterIP
       # The container guide's stop timeout, time to close the database.
       grace_period: 60
+      # Home Assistant catches SIGTERM only once it has started, and an
+      # earlier SIGTERM loses its pending writes (DEC-333). Bit 14 of SigCgt
+      # is SIGTERM.
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - bash
+              - -c
+              - while pid=$(pgrep -o -x python3) && ! (( 0x$(awk '/^SigCgt/ {print $2}' /proc/$pid/status) >> 14 & 1 )); do sleep 1; done
       volume_mounts:
         config:
           mount_path: /config

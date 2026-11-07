@@ -5623,6 +5623,35 @@ container runs, and `tests/smoke` waits until Home Assistant answers. The
 container guide gives Home Assistant 60 seconds to stop, so that it closes
 its database. The recipe sets that as the pod's termination grace period.
 
+DEC-333: The container `home-assistant` has a preStop hook that waits
+until Home Assistant catches SIGTERM. Home Assistant 2026.11.0 registers
+its handler for SIGTERM only once its start has completed (`async_run` in
+`homeassistant/core.py`). Until then a SIGTERM ends the process at once,
+before the final write, the stage of Home Assistant's stop in which each
+store writes the changes it holds back. The auth store holds users and
+tokens back for 1 second (`DEFAULT_SAVE_DELAY` in
+`homeassistant/auth/auth_store.py`). The onboarding writes its progress
+at once.
+
+CI run 42307186943 lost the smoke test's refresh token this way on
+Kubernetes 1.36. The test deletes the pod a few requests after it got the
+token, and on a fresh claim Home Assistant can still be starting then.
+The new pod found the owner's step done and refused the token. On kind
+with the container limited to 300m CPU, Home Assistant answered
+`/api/onboarding` after about 19 seconds and caught SIGTERM after 30.
+Without the hook, five deletions in that window lost the token, and s6
+logged `received signal 15`. Each took 4 to 6 seconds, so the grace
+period was not reached. With the hook, five deletions kept the token, and
+Home Assistant exited with code 0.
+
+The hook reads `SigCgt` in `/proc/<pid>/status` of the oldest `python3`
+process, the mask of the signals the process catches, in which bit 14 is
+SIGTERM. It returns once the bit is set or the process has ended. The
+wait counts against the grace period of 60 seconds, so a start that takes
+longer still ends without the final write. A longer grace period without
+the hook was considered. It changes nothing, because SIGTERM comes at the
+start of the period and ends a process without a handler at once.
+
 The claim `config` at `/config` holds `configuration.yaml`, the users and
 tokens in `.storage`, and the recorder's database `home-assistant_v2.db`.
 It has 1Gi, the size Compose sources give a volume without one, and the
@@ -5688,6 +5717,16 @@ in UTC, and the README names `TZ` as a setting.
 
   - Test: CI `check` job, report line `smoke`
   - Since: #96
+
+- RCP-407: The container `home-assistant` MUST have a preStop hook that
+  returns once Home Assistant's process catches SIGTERM or has ended
+  (DEC-333).
+
+  - Test: manual: on kind with the container limited to 300m CPU, the
+    steps of `tests/smoke` on a fresh claim with the pod deleted right
+    after the token keep the refresh token with the hook and lose it
+    without; CI `check` job, report line `smoke`
+  - Since: #135
 
 - AC-130 (RCP-210, RCP-211, RCP-213): `check home-assistant --level
   deploys` passes in CI on each Kubernetes minor, and its smoke test gets
@@ -9850,7 +9889,7 @@ feature's design (OQ-6).
 | wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
 | ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
 | umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
-| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213) |
+| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), preStop hook until Home Assistant catches SIGTERM (DEC-333), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213, RCP-407) |
 | memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
 | langfuse | chart `langfuse` 2.2.3 of langfuse/langfuse-k8s (DEC-240), Langfuse 4.75.0 from GHCR (DEC-241), includes postgresql with TLS and valkey (DEC-242), options `clickhouse` with ClickHouse 26.8.36.3 (DEC-243) and `s3` with the subchart SeaweedFS on 4.52 (DEC-244, DEC-245), keys and first account required, sign-up off (DEC-247), `kubernetes` generator 1.14.0, level `deploys` (RCP-320 to RCP-325) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
