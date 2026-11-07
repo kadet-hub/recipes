@@ -4,7 +4,17 @@
 # over UDP and TCP on port 53.
 set -euo pipefail
 ip=$(kubectl get service powerdns -o jsonpath='{.spec.clusterIP}')
-# The container has the key as PDNS_AUTH_API_KEY, from the Secret powerdns.
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready, and refuses connections until then. The container has the key as
+# PDNS_AUTH_API_KEY, from the Secret powerdns.
+for _ in $(seq 30); do
+  kubectl exec statefulset/powerdns -c powerdns -- python3 -c '
+import os, urllib.request
+urllib.request.urlopen(urllib.request.Request("http://powerdns:8081/api/v1/servers/localhost",
+                                              headers={"X-API-Key": os.environ["PDNS_AUTH_API_KEY"]}), timeout=5)
+' 2>/dev/null && break
+  sleep 2
+done
 kubectl exec statefulset/powerdns -c powerdns -- python3 -c '
 import json, os, urllib.request
 body = {"rrsets": [{"name": "smoke.example.internal.", "type": "A", "ttl": 60, "changetype": "REPLACE",
