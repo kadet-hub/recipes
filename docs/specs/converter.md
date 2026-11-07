@@ -184,22 +184,24 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
 
   A StatefulSet's `serviceName` other than its own name is the
   component's `statefulset_service_name`, which 1.15.0 added (K8S-17 in
-  kadet-hub/generators).
+  kadet-hub/generators). A StatefulSet with claim templates gets
+  `volume_claim_name_label: false`, so the generator adds no `name` label
+  to them and they keep the chart's labels (K8S-18 there).
 
   The converter does not use the other keys that 1.15.0 added yet
-  (#138). Without `volume_claim_name_label: false` the generator adds
-  the label `name: <claim>` to every claim template. A container's
-  `workingDir`, the pod's `shareProcessNamespace`, a port without a name
-  and a Service's `ipFamilyPolicy` and `ipFamilies` have keys in 1.15.0,
-  and the report still lists them as not mappable. The keys are K8S-18 to
-  K8S-22 in kadet-hub/generators.
+  (#138). A container's `workingDir`, the pod's `shareProcessNamespace`,
+  a port without a name and a Service's `ipFamilyPolicy` and `ipFamilies`
+  have keys in 1.15.0, and the report still lists them as not mappable.
+  The keys are K8S-19 to K8S-22 in kadet-hub/generators.
 
-  The report misses an empty value that the generator leaves out, such as
-  the `lifecycle: {}` of redis-ha's sentinel container. The converter
-  passes it on, and only the proof shows it as a difference (#138).
+  The report misses an empty value that the generator leaves out, because
+  the converter passes it on (#138). The proof shows it as a difference
+  unless RCP-12 accepts it. RCP-12 accepts a container's empty
+  `securityContext` and `lifecycle`, such as the `lifecycle: {}` of
+  redis-ha's sentinel container.
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
-  - Since: #100; `serviceName` mapped: #139
+  - Since: #100; `serviceName` and claim labels: #139
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
