@@ -1131,7 +1131,7 @@ and the README lists the renames.
 | `environment`, `env_file` | `env` | A credential, or a value that contains one such as a database URL, becomes a key of the component's `secrets`, referenced with `secretKeyRef`. Its value is a parameter under `applications.<name>` that the recipe leaves unset, so the compile fails until the target sets it (RCP-19). |
 | `ports` | a port with `container_port` and `service_port`, `service.type: ClusterIP` | The published port becomes the Service port. A host IP is dropped, and exposing the Service outside the cluster is left to the target. |
 | `expose`, and ports other services connect to | a port with `service_port` | Services on a compose network reach every port, so a port the others use is declared even without `expose`. |
-| `healthcheck` | `healthcheck.readiness` of `type: command`, `CMD` as the command list, `CMD-SHELL` as `sh -c` | `interval`, `timeout` and `retries` become period, timeout and failure threshold. The compose defaults 30s, 30s and 3 are written where the generator's differ. Compose never restarts an unhealthy container, so there is no liveness probe. `start_period` and `start_interval` only delay failures and are dropped. `disable: true` renders no probe. |
+| `healthcheck` | `healthcheck.readiness` of `type: command`, `CMD` as the command list, `CMD-SHELL` as `sh -c` | `interval`, `timeout` and `retries` become period, timeout and failure threshold. The compose defaults 30s, 30s and 3 are written where the generator's differ. Compose never restarts an unhealthy container, so there is no liveness probe. `start_period` and `start_interval` only delay failures and are dropped. `disable: true` renders no probe. A `pg_isready` without `-h` gets `-h 127.0.0.1` (DEC-334). |
 | `depends_on` | nothing | The dependency's readiness probe keeps its Service without endpoints until it is ready, and the dependent restarts until it connects. An init container that waits was rejected, because it adds an image the compose file does not have. |
 | `deploy.replicas` | `replicas` | |
 | `deploy.resources` | `resources`: `limits` from `limits`, `requests` from `reservations` | `cpus` is in CPU units. Compose memory units are binary, so `512M` is `512Mi`. |
@@ -1193,14 +1193,16 @@ What the table does not map is a gap, and so is each of these:
   below its configuration directory and `aliases`, which were gaps,
   `read_only` and `tmpfs`, all for jitsi-meet (DEC-306 to DEC-309).
   Revised in #115: an `emptyDir` at `/tmp` of a read-only service that
-  writes there, for navidrome (DEC-215).
+  writes there, for navidrome (DEC-215). Revised in #tbd: `-h 127.0.0.1`
+  for a `pg_isready` health check, for miniflux (DEC-334).
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
     `name`, missing `env_file`, SELinux option, settings directory: #66;
     `cap_add`: #68; `init`, wait for the database: #91; file the image
     carries: #118; `.env`, configuration directory, `aliases`,
-    `read_only`, `tmpfs`: #117; `/tmp` of a read-only service: #115
+    `read_only`, `tmpfs`: #117; `/tmp` of a read-only service: #115;
+    `pg_isready` over TCP: #tbd
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -1814,6 +1816,39 @@ miniflux keeps no state of its own.
   - Test: manual (#107): `tests/smoke` against miniflux 1.0.0 on kind fails at
     the probe; CI `check` job
   - Since: #107
+
+The compose file checks the service `db` with `pg_isready -U miniflux`,
+which asks over the Unix socket. On its first start the postgres image's
+entrypoint initialises the data directory with a temporary server that
+listens on the socket alone (`listen_addresses=''` in
+`docker_temp_server_start` of `docker-entrypoint.sh`), stops it, and then
+starts the server that listens on port 5432. A pod of the image the
+recipe pins, `postgres:18.6`, on kind 1.37 ran both checks every 50
+milliseconds from the container's start. The socket check answered 0,
+accepting connections, for about 0.27 seconds while the temporary server
+ran, then 1 and 2 until the server listened on TCP, and 0 again from
+there. `pg_isready -h 127.0.0.1` answered 2, no response, until the server
+listened on TCP. `docker run` of the same image gave the same sequence.
+
+DEC-334: The readiness probe of `miniflux-db` runs `pg_isready -h
+127.0.0.1 -U <user>`. A probe that lands in the temporary server's window
+marks the pod ready, the Service `miniflux-db` gets an endpoint, and
+miniflux, which connects over TCP, can reach the port before the server
+listens, exit and restart. Over TCP the probe passes only once miniflux
+can connect. With the compose period of 10 seconds a probe lands in a
+window of about 0.27 seconds rarely. The single replica of the target
+`dev` restarted in none of the 34 passing runs of the job `multi-env` in
+kadet-hub/examples on 2026-11-07, but nothing bounds the window. Keeping the compose file's check as it is
+was considered, as the table maps it. The host is one argument and changes
+nothing once the server runs.
+
+- RCP-408: The readiness probe of `miniflux-db` MUST run `pg_isready -h
+  127.0.0.1 -U <database user>`, and `tests/smoke` MUST fail before its
+  first request when the StatefulSet's probe runs another command.
+
+  - Test: `tests/smoke` in the CI `check` job; manual: the probe loop on
+    kind above
+  - Since: #tbd
 
 ## Nextcloud
 
