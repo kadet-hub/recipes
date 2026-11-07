@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.19.0 implements renders and deploys, for charts
+Status: Draft. check 0.20.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,

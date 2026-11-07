@@ -29,7 +29,7 @@ import compare
 
 # Moves with Renovate like the other pins of check (RCP-30); a new version may need new mappings.
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kubernetes
-GENERATOR = "ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080"
+GENERATOR = "ghcr.io/kadet-hub/kubernetes:1.15.0@sha256:dc02ea8530be005377503155a52a9432975755c251cd30c2eaadbda44d331afa"
 RELEASE_NAME = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 CLUSTER_SCOPED = {
     "Namespace", "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition", "PersistentVolume",
@@ -324,8 +324,8 @@ class Mapper:
                     self.gap(o, f"spec.{field}: {value}")
         if kind == "StatefulSet":
             service = spec.pop("serviceName", None)
-            if service and service != o["metadata"]["name"]:
-                self.gap(o, f"spec.serviceName: {service}")
+            if service and service != o["metadata"]["name"]:  # the generator defaults to the component name
+                comp["statefulset_service_name"] = service
             claims = {}
             for t in spec.pop("volumeClaimTemplates", None) or []:
                 t = copy.deepcopy(t)
@@ -850,7 +850,7 @@ def report(out, source, release, namespace, mapper, rows, result, regenerated, v
                   "them with `--cascade=orphan` first (CNV-17).", ""]
     if mapper.not_mappable:
         lines += ["## Not mappable fields", "",
-                  "The `kubernetes` generator cannot set these fields. They count only where the proof shows a "
+                  "The converter does not map these fields. They count only where the proof shows a "
                   "difference.", ""]
         lines += [f"- `{o}`: " + ", ".join(f"`{f}`" for f in fields) for o, fields in mapper.not_mappable.items()]
         lines.append("")

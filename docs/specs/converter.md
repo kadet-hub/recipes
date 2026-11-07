@@ -1,7 +1,7 @@
 # Converter
 
 ```text
-Status: Draft. check 0.16.0 implements CNV-1 to CNV-19.
+Status: Draft. check 0.20.0 implements CNV-1 to CNV-20.
 Code: check/convert.py, check/tests/test_convert.py,
       check/tests/fixtures/convert/, check/pyproject.toml, check/uv.lock,
       .github/workflows/ci.yml (job convert), docs/convert.md, README.md
@@ -27,9 +27,12 @@ Kapitan project for the `kubernetes` generator out, proven against
 `helm template` with the comparison of `check`, plus a list of what it
 could not map. A spike on podinfo 6.17.0, oauth2-proxy 10.7.1 with the
 redis-ha subchart, and cert-manager v1.21.2 found every mapped object equal
-except one StatefulSet whose `serviceName` the generator cannot set. It
-also measured that chart values turn into inventory parameters for only
-21 % to 32 % of the probed values, which shaped DEC-181.
+except redis-ha's StatefulSet. It differed in its `serviceName`, which the
+generator could not set then, in the empty `lifecycle` of its sentinel
+container and in the `name` label the generator adds to its claim
+template. The spike also measured that chart values turn into inventory
+parameters for only 21 % to 32 % of the probed values, which shaped
+DEC-181.
 
 ## Decisions
 
@@ -172,17 +175,30 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
 - CNV-5: The report MUST list every field of an object that the converter
   cannot map, with its path, as not mappable.
 
-  With the `kubernetes` generator 1.14.0 these are, among others, a
-  StatefulSet's `serviceName` other than its own name,
-  `podManagementPolicy`, a container's `workingDir`, the pod's
-  `shareProcessNamespace`, a Service's `ipFamilyPolicy`, a port without a
-  name, an env `valueFrom` other than `fieldRef`, `secretKeyRef` and
-  `configMapKeyRef`, and `revisionHistoryLimit`, `minReadySeconds` or
-  `progressDeadlineSeconds` of 0, which the generator writes only when
-  truthy (DEC-188).
+  With the `kubernetes` generator 1.15.0 these are, among others, a
+  StatefulSet's `podManagementPolicy`, an env `valueFrom` other than
+  `fieldRef`, `secretKeyRef` and `configMapKeyRef`, and
+  `revisionHistoryLimit`, `minReadySeconds` or `progressDeadlineSeconds`
+  of 0, which the generator writes only when truthy (DEC-188).
+
+  A StatefulSet's `serviceName` other than its own name is the
+  component's `statefulset_service_name`, which 1.15.0 added (K8S-17 in
+  kadet-hub/generators).
+
+  The converter does not use the other keys that 1.15.0 added yet
+  (#138). Without `volume_claim_name_label: false` the generator adds
+  the label `name: <claim>` to every claim template. A container's
+  `workingDir`, the pod's `shareProcessNamespace`, a port without a name
+  and a Service's `ipFamilyPolicy` and `ipFamilies` have keys in 1.15.0,
+  and the report still lists them as not mappable. The keys are K8S-18 to
+  K8S-22 in kadet-hub/generators.
+
+  The report misses an empty value that the generator leaves out, such as
+  the `lifecycle: {}` of redis-ha's sentinel container. The converter
+  passes it on, and only the proof shows it as a difference (#138).
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
-  - Since: #100
+  - Since: #100; `serviceName` mapped: #139
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
@@ -416,7 +432,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 
 | Value | Setting |
 |---|---|
-| `kubernetes` generator | `ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080` |
+| `kubernetes` generator | `ghcr.io/kadet-hub/kubernetes:1.15.0@sha256:dc02ea8530be005377503155a52a9432975755c251cd30c2eaadbda44d331afa` |
 | podinfo | `oci://ghcr.io/stefanprodan/charts/podinfo@sha256:258d0da545724b4eea8de5d5e724cd9a75aab3de79a87ba8d82ec402745cea58`, version 6.17.0 |
 | Kind clusters | `<prefix>-<release>-chart`, `<prefix>-<release>-recipe`, prefix `convert` |
 | Output | `<out>/project/`, `<out>/report.md`, `<out>/value-map.json`, `<out>/render.yaml` |
