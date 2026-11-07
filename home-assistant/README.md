@@ -78,7 +78,9 @@ The pod has no probe, because neither the image nor its documentation
 names a check. It is ready once the container runs, before Home Assistant
 listens on port 8123. Its termination grace period is 60 seconds, the stop
 timeout of the container guide, so that Home Assistant closes its
-database.
+database. Until Home Assistant has started, a SIGTERM ends it before it
+writes the changes it holds back, such as a new token. A preStop hook
+holds the stop until Home Assistant catches SIGTERM (DEC-333).
 
 Behind a route or Ingress, Home Assistant refuses forwarded requests until
 its `http` integration names the proxy's addresses in
