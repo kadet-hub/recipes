@@ -56,7 +56,7 @@ To change a value the chart turns into an object or a field, such as
 `<dir>/report.md` puts every rendered object into one class: exact; equal up
 to the differences `check` accepts for recipes, such as the generator's own
 selector; mapped with differences; not mapped; a hook left out; a CRD
-copied. It lists the fields the generator cannot set, fields that differ
+copied. It lists the fields the converter does not map, fields that differ
 between two renders (random passwords), renamed RBAC objects and whether
 each subject's permissions are equal. Its `Values` section names, for each
 chart value, the inventory fields it reached, from `<dir>/value-map.json`.
