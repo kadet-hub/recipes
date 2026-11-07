@@ -1,11 +1,12 @@
 # Converter
 
 ```text
-Status: Draft. check 0.20.0 implements CNV-1 to CNV-20.
+Status: As-built. check 0.20.0 implements CNV-1 to CNV-20, CNV-5 without
+        the empty values that the generator leaves out (#138).
 Code: check/convert.py, check/tests/test_convert.py,
       check/tests/fixtures/convert/, check/pyproject.toml, check/uv.lock,
       .github/workflows/ci.yml (job convert), docs/convert.md, README.md
-Verified against: main @ a723bd2
+Verified against: main @ 07f7685 with #139
 ```
 
 Related: [recipes.md](recipes.md) RCP-9 to RCP-12 (comparison), RCP-22
@@ -318,7 +319,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 - CNV-13: The converter MUST leave out every object with the annotation
   `helm.sh/hook` and list each as `<Kind>/<name>` (DEC-187).
 
-  - Test: CI `convert` job, report section `Left out`
+  - Test: CI `convert` job, report section `Objects`, class `hook left out`
   - Since: #100
 
 - CNV-14: The converter MUST prove the output as DEC-182 says, on two
