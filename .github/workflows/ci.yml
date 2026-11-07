@@ -226,7 +226,7 @@ jobs:
           tar -xzf zizmor.tgz zizmor
           ./zizmor --format plain .github
 
-  # A change under check/ raises check's VERSION (RCP-406).
+  # A change under check/, outside its tests, raises check's VERSION (RCP-406).
   version:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
@@ -240,10 +240,10 @@ jobs:
       - run: |
           set -euo pipefail
           # HEAD is the merge commit and HEAD^1 the base.
-          if git diff --quiet HEAD^1 HEAD -- check; then exit 0; fi
+          if git diff --quiet HEAD^1 HEAD -- check ':!check/tests'; then exit 0; fi
           version() { git show "$1:check/check.py" | grep '^VERSION = '; }
           if [[ $(version HEAD^1) == "$(version HEAD)" ]]; then
-            echo "::error file=check/check.py::files under check/ changed, VERSION did not (RCP-406)"
+            echo "::error file=check/check.py::files under check/ outside check/tests/ changed, VERSION did not (RCP-406)"
             exit 1
           fi
 
