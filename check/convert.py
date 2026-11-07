@@ -335,6 +335,7 @@ class Mapper:
                 claims[name] = t
             if claims:
                 comp["volume_claims"] = claims
+                comp["volume_claim_name_label"] = False  # the claims keep the chart's labels (K8S-18)
         self.pod(o, spec.pop("template")["spec"], comp)
         for k in spec:
             self.gap(o, f"spec.{k}")
