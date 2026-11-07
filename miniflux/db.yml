@@ -20,11 +20,15 @@ parameters:
           string_data:
             POSTGRES_PASSWORD:
               value: ${applications.miniflux.database.password}
+      # The compose file's check over TCP: the image's first start answers on
+      # the Unix socket before PostgreSQL listens on port 5432 (DEC-334).
       healthcheck:
         readiness:
           type: command
           command:
             - pg_isready
+            - -h
+            - 127.0.0.1
             - -U
             - ${applications.miniflux.database.user}
           timeout_seconds: 30
