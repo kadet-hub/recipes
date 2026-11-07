@@ -6,7 +6,7 @@ Status: As-built. check 0.20.0 implements CNV-1 to CNV-20, CNV-5 without
 Code: check/convert.py, check/tests/test_convert.py,
       check/tests/fixtures/convert/, check/pyproject.toml, check/uv.lock,
       .github/workflows/ci.yml (job convert), docs/convert.md, README.md
-Verified against: main @ 07f7685 with #139
+Verified against: main @ c9301aa with #139
 ```
 
 Related: [recipes.md](recipes.md) RCP-9 to RCP-12 (comparison), RCP-22
