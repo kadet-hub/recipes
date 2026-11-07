@@ -80,14 +80,20 @@ class Mapping(unittest.TestCase):
         self.assertEqual(kubernetes["services"]["web"]["ports"]["http"]["app_protocol"], "")
 
     def test_not_mappable_fields(self):
-        """CNV-5"""
+        """CNV-5; a StatefulSet's serviceName other than its name and its claim labels are mapped (generator 1.15.0)."""
         sts = deployment(shareProcessNamespace=True)
         sts["kind"] = "StatefulSet"
+        sts["spec"]["serviceName"] = "web"
+        self.assertNotIn("statefulset_service_name", mapped(sts).p["components"]["web"])
         sts["spec"]["serviceName"] = "other"
         sts["spec"]["template"]["spec"]["containers"][0]["workingDir"] = "/srv"
         sts["spec"]["template"]["spec"]["containers"][0]["ports"].append({"containerPort": 9090})
-        self.assertEqual(sorted(mapped(sts).not_mappable["StatefulSet/ns/web"]), [
-            "spec.serviceName: other",
+        self.assertNotIn("volume_claim_name_label", mapped(sts).p["components"]["web"])
+        sts["spec"]["volumeClaimTemplates"] = [{"metadata": {"name": "data"}, "spec": {"accessModes": ["ReadWriteOnce"]}}]
+        m = mapped(sts)
+        self.assertEqual(m.p["components"]["web"]["statefulset_service_name"], "other")
+        self.assertIs(m.p["components"]["web"]["volume_claim_name_label"], False)
+        self.assertEqual(sorted(m.not_mappable["StatefulSet/ns/web"]), [
             "spec.template.spec.containers[web].ports[9090] without name",
             "spec.template.spec.containers[web].workingDir",
             "spec.template.spec.shareProcessNamespace",

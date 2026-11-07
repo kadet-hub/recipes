@@ -1,11 +1,12 @@
 # Converter
 
 ```text
-Status: Draft. check 0.16.0 implements CNV-1 to CNV-19.
+Status: As-built. check 0.20.0 implements CNV-1 to CNV-20, CNV-5 without
+        the empty values that the generator leaves out (#138).
 Code: check/convert.py, check/tests/test_convert.py,
       check/tests/fixtures/convert/, check/pyproject.toml, check/uv.lock,
       .github/workflows/ci.yml (job convert), docs/convert.md, README.md
-Verified against: main @ a723bd2
+Verified against: main @ c9301aa with #139
 ```
 
 Related: [recipes.md](recipes.md) RCP-9 to RCP-12 (comparison), RCP-22
@@ -27,9 +28,12 @@ Kapitan project for the `kubernetes` generator out, proven against
 `helm template` with the comparison of `check`, plus a list of what it
 could not map. A spike on podinfo 6.17.0, oauth2-proxy 10.7.1 with the
 redis-ha subchart, and cert-manager v1.21.2 found every mapped object equal
-except one StatefulSet whose `serviceName` the generator cannot set. It
-also measured that chart values turn into inventory parameters for only
-21 % to 32 % of the probed values, which shaped DEC-181.
+except redis-ha's StatefulSet. It differed in its `serviceName`, which the
+generator could not set then, in the empty `lifecycle` of its sentinel
+container and in the `name` label the generator adds to its claim
+template. The spike also measured that chart values turn into inventory
+parameters for only 21 % to 32 % of the probed values, which shaped
+DEC-181.
 
 ## Decisions
 
@@ -172,17 +176,32 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
 - CNV-5: The report MUST list every field of an object that the converter
   cannot map, with its path, as not mappable.
 
-  With the `kubernetes` generator 1.14.0 these are, among others, a
-  StatefulSet's `serviceName` other than its own name,
-  `podManagementPolicy`, a container's `workingDir`, the pod's
-  `shareProcessNamespace`, a Service's `ipFamilyPolicy`, a port without a
-  name, an env `valueFrom` other than `fieldRef`, `secretKeyRef` and
-  `configMapKeyRef`, and `revisionHistoryLimit`, `minReadySeconds` or
-  `progressDeadlineSeconds` of 0, which the generator writes only when
-  truthy (DEC-188).
+  With the `kubernetes` generator 1.15.0 these are, among others, a
+  StatefulSet's `podManagementPolicy`, an env `valueFrom` other than
+  `fieldRef`, `secretKeyRef` and `configMapKeyRef`, and
+  `revisionHistoryLimit`, `minReadySeconds` or `progressDeadlineSeconds`
+  of 0, which the generator writes only when truthy (DEC-188).
+
+  A StatefulSet's `serviceName` other than its own name is the
+  component's `statefulset_service_name`, which 1.15.0 added (K8S-17 in
+  kadet-hub/generators). A StatefulSet with claim templates gets
+  `volume_claim_name_label: false`, so the generator adds no `name` label
+  to them and they keep the chart's labels (K8S-18 there).
+
+  The converter does not use the other keys that 1.15.0 added yet
+  (#138). A container's `workingDir`, the pod's `shareProcessNamespace`,
+  a port without a name and a Service's `ipFamilyPolicy` and `ipFamilies`
+  have keys in 1.15.0, and the report still lists them as not mappable.
+  The keys are K8S-19 to K8S-22 in kadet-hub/generators.
+
+  The report misses an empty value that the generator leaves out, because
+  the converter passes it on (#138). The proof shows it as a difference
+  unless RCP-12 accepts it. RCP-12 accepts a container's empty
+  `securityContext` and `lifecycle`, such as the `lifecycle: {}` of
+  redis-ha's sentinel container.
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
-  - Since: #100
+  - Since: #100; `serviceName` and claim labels: #139
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
@@ -302,7 +321,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 - CNV-13: The converter MUST leave out every object with the annotation
   `helm.sh/hook` and list each as `<Kind>/<name>` (DEC-187).
 
-  - Test: CI `convert` job, report section `Left out`
+  - Test: CI `convert` job, report section `Objects`, class `hook left out`
   - Since: #100
 
 - CNV-14: The converter MUST prove the output as DEC-182 says, on two
@@ -416,7 +435,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 
 | Value | Setting |
 |---|---|
-| `kubernetes` generator | `ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080` |
+| `kubernetes` generator | `ghcr.io/kadet-hub/kubernetes:1.15.0@sha256:dc02ea8530be005377503155a52a9432975755c251cd30c2eaadbda44d331afa` |
 | podinfo | `oci://ghcr.io/stefanprodan/charts/podinfo@sha256:258d0da545724b4eea8de5d5e724cd9a75aab3de79a87ba8d82ec402745cea58`, version 6.17.0 |
 | Kind clusters | `<prefix>-<release>-chart`, `<prefix>-<release>-recipe`, prefix `convert` |
 | Output | `<out>/project/`, `<out>/report.md`, `<out>/value-map.json`, `<out>/render.yaml` |

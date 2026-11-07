@@ -367,8 +367,8 @@ def classify(d, chart_obj, recipe_obj, ctx):
             if value is (sa is None or sa.get("automountServiceAccountToken") is not False):
                 return EXPLICIT_DEFAULT
 
-    # The generator renders securityContext: {} on a container that sets none.
-    if last == "securityContext" and "containers" in path and {_canon(d.chart), _canon(d.recipe)} == {_canon(MISSING), "{}"}:
+    # The generator renders securityContext: {} on a container that sets none, and no lifecycle: {} (RCP-12).
+    if last in ("securityContext", "lifecycle") and "containers" in path and {_canon(d.chart), _canon(d.recipe)} == {_canon(MISSING), "{}"}:
         return EXPLICIT_DEFAULT
 
     # cert-manager 1.18 and later default a Certificate's rotationPolicy to Always.

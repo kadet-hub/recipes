@@ -102,6 +102,15 @@ class Compare(unittest.TestCase):
         container["securityContext"] = {"runAsNonRoot": True}
         self.assertIn("containers[0].securityContext", " ".join(self.unaccepted(self.run_compare())))
 
+    def test_empty_container_lifecycle_is_an_explicit_default(self):
+        container = find(self.chart, "Deployment")["spec"]["template"]["spec"]["containers"][0]
+        container["lifecycle"] = {}
+        find(self.recipe, "Deployment")["spec"]["template"]["spec"]["containers"][0].pop("lifecycle", None)
+        found = {(d.cls, d.where()) for d in self.run_compare()["differences"]}
+        self.assertIn((compare.EXPLICIT_DEFAULT, "spec.template.spec.containers[0].lifecycle"), found)
+        container["lifecycle"] = {"preStop": {"exec": {"command": ["true"]}}}
+        self.assertIn("containers[0].lifecycle", " ".join(self.unaccepted(self.run_compare())))
+
     def test_certificate_rotation_policy_always_is_an_explicit_default(self):
         cert = {"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "demo", "namespace": "demo"},
                 "spec": {"secretName": "demo-tls", "issuerRef": {"kind": "Issuer", "name": "demo"}}}

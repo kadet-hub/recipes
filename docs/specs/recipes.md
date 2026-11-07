@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.19.0 implements renders and deploys, for charts
+Status: Draft. check 0.20.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -939,7 +939,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   | Class | Example | Why it is accepted |
   |---|---|---|
   | Selector scheme | the generator selects on `name`, the chart on `app.kubernetes.io/*` | RCP-10 proves the same selection |
-  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, or `false` where its ServiceAccount sets `false`, a container's empty `securityContext`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
+  | Explicit default | pod `automountServiceAccountToken: true` where the chart leaves it unset, or `false` where its ServiceAccount sets `false`, a container's empty `securityContext` or `lifecycle`, a Certificate's `privateKey.rotationPolicy: Always` | same value as the ServiceAccount's, every field unset as on the other side, or cert-manager's default since 1.18 |
   | Port by name | `targetPort: http-metrics` against `9402` | resolves to the same container port |
   | Derived name | container named after the component, webhook configuration `<ns>-<component>`, sorted container ports | names the generator derives, no change in behaviour |
   | Referenced Secret | a Secret only in the recipe that a pod of the chart side reads through a `secretKeyRef` | the chart reads a Secret that the user creates, RCP-243 |
@@ -951,7 +951,8 @@ For a compose source and a designed recipe, `renders`, also as part of
   difference where RCP-10 found the same selection, `true` where the other
   side is unset and the pod's ServiceAccount does not disable the token,
   `false` where the other side is unset and that ServiceAccount does,
-  `{}` as a container's `securityContext` where the other side has none,
+  `{}` as a container's `securityContext` or `lifecycle` where the other
+  side has none,
   `Always` as a cert-manager Certificate's `privateKey.rotationPolicy`
   where the other side leaves it unset, a port name that resolves to the other side's number in the selected pods
   or the same pod, a first container named after its workload, container
@@ -962,6 +963,16 @@ For a compose source and a designed recipe, `renders`, also as part of
   The `kubernetes` generator renders `securityContext: {}` on a container
   that sets no `security_context`. The Keycloak Operator's chart sets none.
 
+  The redis-ha chart, a subchart of oauth2-proxy 10.7.1, renders
+  `lifecycle: {}` on its container `sentinel`, and the generator writes
+  `lifecycle` only when it is not empty. The API server keeps the empty
+  object. On kind with Kubernetes 1.37.0, a Pod and a StatefulSet applied
+  with `lifecycle: {}` on one container read back `{}` there, in a
+  server-side dry run and once stored, and no `lifecycle` on the container
+  that had none. An empty `lifecycle` sets no handler, so the container
+  runs as one without it. `kadet-convert` meets this difference
+  (CNV-5 in [converter.md](converter.md)).
+
   The `certmanager` generator 1.0.2 renders `privateKey.rotationPolicy:
   Always` on every Certificate, and the RabbitMQ Cluster Operator's
   manifest sets no `privateKey`. cert-manager 1.18 made `Always` the
@@ -971,7 +982,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   cert-manager 1.18 or later with that gate on, and its README says so.
 
   - Test: `check/tests/test_compare.py`; CI `check` job
-  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103; a pod's `false`: #116
+  - Since: #2; empty `securityContext`: #24; `rotationPolicy`: #30; Referenced Secret: #103; a pod's `false`: #116; empty `lifecycle`: #139
 
 DEC-166: `check` accepts a Secret that only the recipe renders when pods
 of the chart side read it by name (Referenced Secret, RCP-243). A chart
