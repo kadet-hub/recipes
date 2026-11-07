@@ -1344,6 +1344,16 @@ probe on port 53, the CI run on main of 2026-11-04 marked the pod ready on
 Kubernetes 1.37 before the API listened, and `tests/smoke` got `Connection
 refused` from it. Changed in #83.
 
+The probe does not cover the Service. `check` runs `tests/smoke` once
+`kubectl rollout status` returns, and the Service `powerdns` gets the
+ready pod as its endpoint a moment later. Until then the Service refuses
+connections. In the CI run of #139 on Kubernetes 1.37, the smoke test's
+first API request through the Service got `Connection refused` from a
+ready pod. The smoke test therefore asks `GET /api/v1/servers/localhost`
+through the Service for up to a minute before it writes the record, as the
+smoke tests of vaultwarden and other recipes wait for their Service.
+Changed in #PDNS_PR.
+
 `pdnsutil zone create` writes the SOA from the setting
 `default-soa-content`. Its default,
 `a.misconfigured.dns.server.invalid hostmaster.@ 0 10800 3600 604800 3600`,
