@@ -71,7 +71,7 @@ The service `db` is renamed to `miniflux-db`, also as the host in
 | service `db` | StatefulSet `miniflux-db`, Service `miniflux-db` on port 5432, Secret `miniflux-db` with `POSTGRES_PASSWORD` |
 | `${MINIFLUX_IMAGE:-miniflux/miniflux:latest}` | `miniflux/miniflux:2.3.4@sha256:72e49f513a63104506aab98ba8cfc3a409d4fde23550a583dec07ec941f1e94e`, which `latest` was at migration |
 | `postgres:latest` | `postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6`, which `latest` was at migration |
-| `healthcheck` of `db` | readiness probe `pg_isready -U miniflux` every 10s with the compose default timeout of 30s. `start_period` is dropped. |
+| `healthcheck` of `db` | readiness probe `pg_isready -h 127.0.0.1 -U miniflux` every 10s with the compose default timeout of 30s. `start_period` is dropped. |
 | commented-out `healthcheck` of `miniflux` | readiness probe `/usr/bin/miniflux -healthcheck auto` with the compose defaults, every 30s with a timeout of 30s |
 | port 5432 of `db` | declared, because miniflux connects to it. Compose needs no declaration for that. |
 | volume `miniflux-db` at `/var/lib/postgresql` | volume claim template `miniflux-db`, `ReadWriteOnce`, `1Gi` |
@@ -85,12 +85,19 @@ has migrated its database and answers `/healthcheck`, and
 and the path of `BASE_URL`. miniflux 1.0.0 had no probe, and its pod was
 ready before miniflux listened.
 
+The compose file checks `db` with `pg_isready -U miniflux`, over the Unix
+socket. On its first start the postgres image runs a temporary server that
+listens on the socket alone, for about a quarter of a second on kind, so
+that check can pass before PostgreSQL listens on port 5432, where miniflux
+connects. The recipe adds `-h 127.0.0.1`. Up to 1.0.1 it checked over the
+socket.
+
 ## Proof
 
 `check miniflux --level deploys` with `tests/target.yml`, which sets the
 passwords of the compose file, on kind for each Kubernetes minor CI tests. A
 compose file has no Kubernetes objects to compare with, so the recipe is
-proven by deploying it (RCP-38). `tests/smoke` requires the readiness probe
-`miniflux -healthcheck auto` on the Deployment, runs `pg_isready` in the
-database pod, expects `OK` from `/healthcheck` on the Service's port 80, and
+proven by deploying it (RCP-38). `tests/smoke` requires the readiness probes
+`miniflux -healthcheck auto` on the Deployment and `pg_isready -h 127.0.0.1`
+on the StatefulSet, runs the latter in the database pod, expects `OK` from `/healthcheck` on the Service's port 80, and
 creates a category through the API with the admin account and reads it back.

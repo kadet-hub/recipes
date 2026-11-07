@@ -10,7 +10,12 @@ probe=$(kubectl get deployment miniflux \
   -o jsonpath='{.spec.template.spec.containers[?(@.name=="miniflux")].readinessProbe.exec.command}')
 [[ $probe == '["/usr/bin/miniflux","-healthcheck","auto"]' ]] ||
   { echo "deployment/miniflux has no readiness probe miniflux -healthcheck auto: $probe" >&2; exit 1; }
-kubectl exec statefulset/miniflux-db -- pg_isready -U miniflux
+# RCP-408: the database's probe asks over TCP, where miniflux connects.
+probe=$(kubectl get statefulset miniflux-db \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="miniflux-db")].readinessProbe.exec.command}')
+[[ $probe == '["pg_isready","-h","127.0.0.1","-U","miniflux"]' ]] ||
+  { echo "statefulset/miniflux-db has no readiness probe pg_isready -h 127.0.0.1: $probe" >&2; exit 1; }
+kubectl exec statefulset/miniflux-db -- pg_isready -h 127.0.0.1 -U miniflux
 password=$(kubectl get secret miniflux -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d)
 kubectl port-forward service/miniflux 18080:80 >/dev/null &
 trap 'kill $!' EXIT
@@ -20,4 +25,4 @@ for _ in $(seq 30); do curl -fsS "$url/healthcheck" >/dev/null 2>&1 && break; sl
 curl -fsS -u "admin:$password" -H 'Content-Type: application/json' \
   -d '{"title":"smoke"}' "$url/v1/categories" >/dev/null
 curl -fsS -u "admin:$password" "$url/v1/categories" | grep -q '"title":"smoke"'
-echo "readiness probe miniflux -healthcheck auto, category smoke created and read back through the miniflux API"
+echo "readiness probes miniflux -healthcheck auto and pg_isready -h 127.0.0.1, category smoke created and read back through the miniflux API"
