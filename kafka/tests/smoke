@@ -60,5 +60,6 @@ spec:
         secretName: kafka-orders-app
 YAML
 kubectl wait pod/kafka-smoke --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s
-kubectl logs kafka-smoke | grep -qx recipe-check
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+grep -qx recipe-check <<<"$(kubectl logs kafka-smoke)"
 echo "kafka-orders-app wrote recipe-check to the topic orders and read it back over mutual TLS"

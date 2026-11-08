@@ -64,7 +64,8 @@ kubectl exec zulip-0 -c zulip -- runuser -u zulip -- /home/zulip/deployments/cur
 # The CSRF cookie is Secure, which curl sends back only over HTTPS.
 api -D "$work/headers" -o "$work/register" "$url/register/"
 cookie=$(sed -n 's/^set-cookie: \(__Host-csrftoken=[^;]*\).*/\1/ip' "$work/headers")
-token=$(sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' "$work/register" | head -n1)
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+token=$(head -n1 <<<"$(sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' "$work/register")")
 signup=$(api -H "Cookie: $cookie" -X POST "$url/accounts/home/" --data-urlencode "csrfmiddlewaretoken=$token" \
   --data-urlencode email=stranger@example.com)
 grep -q "Please request an invite for stranger@example.com" <<<"$signup"

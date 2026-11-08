@@ -19,7 +19,8 @@ kubectl get --raw "/api/v1/namespaces/$ns/services/mattermost-team-edition:8065/
 deploy=deployment/mattermost-mattermost-team-edition
 # The Job creates the admin once Mattermost answers.
 kubectl wait job/mattermost-admin --for=condition=Complete --timeout=480s >/dev/null
-kubectl logs job/mattermost-admin | grep -q 'created the system admin' || fail "the Job created no admin: $(kubectl logs job/mattermost-admin)"
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+grep -q 'created the system admin' <<<"$(kubectl logs job/mattermost-admin)" || fail "the Job created no admin: $(kubectl logs job/mattermost-admin)"
 admin=$(kubectl get job mattermost-admin -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_USERNAME")].value}')
 password=$(kubectl get secret mattermost-admin -o jsonpath='{.data.password}' | base64 -d)
 reader=smoke-reader
@@ -92,7 +93,7 @@ job=$(kubectl get job mattermost-admin -o json | jq 'del(.metadata.uid, .metadat
 kubectl delete job mattermost-admin --wait=true >/dev/null
 kubectl create -f - <<<"$job" >/dev/null
 kubectl wait job/mattermost-admin --for=condition=Complete --timeout=120s >/dev/null || fail "the Job run again failed: $(kubectl logs job/mattermost-admin)"
-kubectl logs job/mattermost-admin | grep -q 'created none' || fail "the Job run again did not leave the accounts: $(kubectl logs job/mattermost-admin)"
+grep -q 'created none' <<<"$(kubectl logs job/mattermost-admin)" || fail "the Job run again did not leave the accounts: $(kubectl logs job/mattermost-admin)"
 [[ $(users) == "$count" ]] || fail "the Job run again changed the number of accounts from $count"
 token=$(login "$admin")
 [[ $token ]] || fail "the admin cannot log in after the Job ran again"

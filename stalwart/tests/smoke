@@ -189,8 +189,9 @@ pod=$(kubectl get pod stalwart-0 -o jsonpath='{.status.podIP}')
 
 # RCP-347: the option relay set the route relay and sends mail for other domains to it.
 routes=$(jmap "admin:$admin_password" '[["x:MtaRoute/get",{"ids":null},"0"],["x:MtaOutboundStrategy/get",{"ids":["singleton"]},"1"]]')
-field "next(x for x in r['methodResponses'][0][1]['list'] if x['name'] == 'relay')['host']" <<<"$routes" | grep -qx relay.example.test
-field "r['methodResponses'][1][1]['list'][0]['route']['else']" <<<"$routes" | grep -qx "'relay'"
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+grep -qx relay.example.test <<<"$(field "next(x for x in r['methodResponses'][0][1]['list'] if x['name'] == 'relay')['host']" <<<"$routes")"
+grep -qx "'relay'" <<<"$(field "r['methodResponses'][1][1]['list'][0]['route']['else']" <<<"$routes")"
 
 # RCP-348: b registers an S/MIME certificate whose key is generated in the client pod and never leaves
 # it. A message stored for b is then an S/MIME enveloped part without the text, and the key decrypts it.
@@ -242,7 +243,7 @@ for _ in $(seq 90); do
   sleep 2
 done
 [[ $state != "$uid "* && $state == *' True' ]]
-fetch smoke-plain | grep -q 'hello from a'
+grep -q 'hello from a' <<<"$(fetch smoke-plain)"
 
 # check reports the last line.
 echo "a sent to b over 465 with TLS and AUTH, b read it over 993 with TLS, its DKIM signature verified against the record PowerDNS answers, no relay without AUTH, no AUTH without TLS, S/MIME encryption at rest for b, a ban at the 101st failed login, a renewed certificate served without a restart, and the mail again after stalwart-0 restarted"

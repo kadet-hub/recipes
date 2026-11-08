@@ -22,9 +22,10 @@ done
 curl_tls -o /dev/null "https://$host:18443/realms/master"
 user=$(kubectl get secret keycloak-initial-admin -o jsonpath='{.data.username}' | base64 -d)
 password=$(kubectl get secret keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d)
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
 token() {
-  "$@" -d grant_type=password -d client_id=admin-cli \
-    --data-urlencode "username=$user" --data-urlencode "password=$password" | grep -q '"access_token"'
+  grep -q '"access_token"' <<<"$("$@" -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=$user" --data-urlencode "password=$password")"
 }
 token curl_tls "https://$host:18443/realms/master/protocol/openid-connect/token"
 curl -fsSk -o /dev/null https://127.0.0.1:19000/health/ready
