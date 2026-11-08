@@ -9503,8 +9503,21 @@ argument as a literal `${...}` and reads nothing.
   The tools are installed by `.github/actions/tools`, kind by the `check`
   job (RCP-70), uv by `astral-sh/setup-uv` with its cache off.
 
-  - Test: CI `test` and `lint` jobs
-  - Since: #2
+  The workflows and `.github/actions/tools` MUST fetch what they download
+  from GitHub with the job's `GITHUB_TOKEN`.
+
+  A release asset comes through the REST API with `gh release download`,
+  because github.com ignores a token on a release download URL.
+  `kubernetes-versions.json` comes from raw.githubusercontent.com with the
+  token as a Bearer header. GitHub rate-limits anonymous requests more
+  tightly, and on 2026-11-08, during its timeouts for unauthenticated
+  users, the anonymous downloads in the tools step of #143 failed with
+  HTTP 504. setup-uv downloads uv with the token by default. The SHA-256
+  checks stay as they are. check's own downloads of RCP-23 sources are
+  still anonymous.
+
+  - Test: CI `test` and `lint` jobs; actionlint (`test`) and zizmor (`deps`)
+  - Since: #2; downloads with the job's token: #145
 
 - RCP-68: CI MUST fail when pip-audit reports an advisory for a package in
   `check/uv.lock`, or zizmor a finding in `.github/`.
