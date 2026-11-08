@@ -9509,11 +9509,12 @@ argument as a literal `${...}` and reads nothing.
   A release asset comes through the REST API with `gh release download`,
   because github.com ignores a token on a release download URL.
   `kubernetes-versions.json` comes from raw.githubusercontent.com with the
-  token as a Bearer header. An anonymous request counts against the runner
-  address's limit of 60 an hour, and on 2026-11-08 anonymous downloads in
-  the tools step of #143 failed with HTTP 504. setup-uv downloads uv with
-  the token by default. The SHA-256 checks stay as they are. check's own
-  downloads of RCP-23 sources are still anonymous.
+  token as a Bearer header. GitHub rate-limits anonymous requests more
+  tightly, and on 2026-11-08, during its timeouts for unauthenticated
+  users, the anonymous downloads in the tools step of #143 failed with
+  HTTP 504. setup-uv downloads uv with the token by default. The SHA-256
+  checks stay as they are. check's own downloads of RCP-23 sources are
+  still anonymous.
 
   - Test: CI `test` and `lint` jobs; actionlint (`test`) and zizmor (`deps`)
   - Since: #2; downloads with the job's token: #145
