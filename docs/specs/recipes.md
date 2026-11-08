@@ -7801,6 +7801,13 @@ the same file.
   The message comes from PostgreSQL, and the upload and the signing key
   from the claim, so the reads after the restart need both.
 
+  The test reads Element Web's page from `kubectl exec` into a variable
+  and matches the title there. Piped into `grep -q`, the match ended grep
+  while `kubectl exec` still had part of the page to write, whenever the
+  page came in more than one write. `pipefail` then failed the line with
+  the writer's status 141 from SIGPIPE and nothing on stderr. That failed
+  the CI run on main of 2026-11-07 on Kubernetes 1.36. Changed in #MSYN_PR.
+
   Chrome loads Element Web through a port forward, and the host and port
   of the homeserver's URL in `config.json` resolve to the port forward of
   Synapse (`--host-resolver-rules`). Element Web lists the provider only
@@ -7814,7 +7821,7 @@ the same file.
   uses, would bring Node and a lock file into this repository.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #124; Chrome: #128
+  - Since: #124; Chrome: #128; title without a pipe: #MSYN_PR
 
 - RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
   with `register_new_matrix_user --exists-ok --admin` and the shared
