@@ -9516,7 +9516,7 @@ argument as a literal `${...}` and reads nothing.
   downloads of RCP-23 sources are still anonymous.
 
   - Test: CI `test` and `lint` jobs; actionlint (`test`) and zizmor (`deps`)
-  - Since: #2; downloads with the job's token: this change
+  - Since: #2; downloads with the job's token: #145
 
 - RCP-68: CI MUST fail when pip-audit reports an advisory for a package in
   `check/uv.lock`, or zizmor a finding in `.github/`.
