@@ -107,7 +107,7 @@ read_back "after the pod was replaced"
 # Element Web through its Service, and the homeserver at the URL it names.
 web=http://matrix-synapse-element-web
 in_pod() { kubectl exec matrix-synapse-0 -c matrix-synapse -- curl -fsS "$@"; }
-in_pod "$web/" | grep -q '<title>Element' || fail "Element Web does not answer"
+[[ $(in_pod "$web/") == *'<title>Element'* ]] || fail "Element Web does not answer"
 config=$(in_pod "$web/config.json")
 base_url=$(jq -er '.default_server_config["m.homeserver"].base_url' <<<"$config")
 jq -e --arg s "$server" '.default_server_config["m.homeserver"].server_name == $s' <<<"$config" >/dev/null ||
