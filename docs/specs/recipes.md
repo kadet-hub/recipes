@@ -6964,6 +6964,7 @@ tries again. On kind the 30 tries took 281 seconds. The startup probe ends
 a container whose `/health` never passed 300 seconds after its start, after
 a delay of 10 seconds and 30 failures 10 seconds apart. A container it ends
 during the wait has created nothing, and its next start tries again.
+Changed in #146.
 
 A new organization requires an invitation to join (`invite_required`
 defaults to true in `zerver/models/realms.py` of 12.3), and
@@ -7029,8 +7030,8 @@ the proof fits a CI runner. The recipe is at level `deploys`.
     script created the owner once RabbitMQ answered and the smoke test
     passed. With RabbitMQ stopped for the whole wait, the script exited 1
     before `create_realm`, and a run after RabbitMQ answered created the
-    organization with the owner (this change)
-  - Since: this change
+    organization with the owner (#146)
+  - Since: #146
 
 - RCP-395: The `tests/smoke` of `zulip` MUST reach Zulip through the
   Service `zulip`, log in as the owner, and have a member created with
