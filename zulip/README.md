@@ -83,7 +83,11 @@ later change of the parameters does not reach the account.
 Before it creates anything, the script checks the password with Zulip's
 strength check. A rejected password stops the script with
 `ZULIP_OWNER_PASSWORD is too weak for Zulip.` in the pod's log, Zulip runs
-without an organization, and the next start tries again.
+without an organization, and the next start tries again. `create_realm`
+also needs RabbitMQ, which can still be starting. The script waits for it
+up to 30 times, 5 seconds apart. If RabbitMQ never answers, the script
+stops with `RabbitMQ does not answer, the next start tries again.` and
+creates nothing.
 
 The organization requires an invitation to join, Zulip's default for a new
 organization. An administrator invites users, which needs outgoing mail,

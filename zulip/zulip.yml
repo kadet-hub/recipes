@@ -125,6 +125,16 @@ parameters:
                 # create_realm commits the organization before it sets the owner's
                 # password, so a password Zulip rejects would leave it without an owner.
                 runuser -u zulip -- "$manage" shell -c "import sys; from zproject.backends import check_password_strength as strong; sys.exit(0 if strong(open('$password_file').read().strip()) else 'ZULIP_OWNER_PASSWORD is too weak for Zulip.')"
+                # It also sends events through RabbitMQ before it creates the owner,
+                # and the image waits only for PostgreSQL.
+                for try in $(seq 30); do
+                  runuser -u zulip -- "$manage" shell -c "from zerver.views.health import check_rabbitmq; check_rabbitmq()" >/dev/null 2>&1 && break
+                  if ((try == 30)); then
+                    echo "RabbitMQ does not answer, the next start tries again." >&2
+                    exit 1
+                  fi
+                  sleep 5
+                done
                 runuser -u zulip -- "$manage" create_realm Zulip "$SETTING_ZULIP_ADMINISTRATOR" Owner \
                   --password-file "$password_file"
       # A component Secret would also be mounted as a volume.
