@@ -9,8 +9,9 @@ kubectl wait cluster/postgresql-cluster --for=condition=Ready --timeout=600s >/d
 address=$(kubectl -n gateway get gateway gateway -o jsonpath='{.status.addresses[0].value}')
 url=http://$address
 get() { curl -fsS -H "Host: $host" "$@"; }
-for _ in $(seq 60); do get "$url/status.php" 2>/dev/null | grep -q '"installed":true' && break; sleep 5; done
-get "$url/status.php" | grep -q '"installed":true'
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+for _ in $(seq 60); do grep -q '"installed":true' <<<"$(get "$url/status.php" 2>/dev/null)" && break; sleep 5; done
+grep -q '"installed":true' <<<"$(get "$url/status.php")"
 password=$(kubectl get secret nextcloud -o jsonpath='{.data.nextcloud-password}' | base64 -d)
 echo "written by tests/smoke" | get -u "admin:$password" -T - "$url/remote.php/dav/files/admin/smoke.txt"
 [[ $(get -u "admin:$password" "$url/remote.php/dav/files/admin/smoke.txt") == "written by tests/smoke" ]]

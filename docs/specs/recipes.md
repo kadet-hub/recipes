@@ -806,6 +806,29 @@ helm, kubectl, kind, oras and gh come from `PATH`; CI installs them pinned
   - Test: CI `check` job
   - Since: #2
 
+- RCP-409: A `tests/smoke` MUST NOT end a pipe in a reader that can exit
+  before its input ends, such as `grep -q`, `grep -m`, `head` or a `sed`
+  or `awk` that quits. It reads the output whole first, into a variable or
+  a here-string.
+
+  Every smoke test runs under `pipefail`. Such a reader exits at its first
+  match. A writer that still has output, such as `kubectl exec`,
+  `kubectl logs` or `curl`, then dies from SIGPIPE or fails its write, and
+  the pipe fails although the reader found what it looked for. On kind
+  with Kubernetes 1.37.0, `kubectl exec ... | grep -q` failed every time
+  the output came in two writes, with status 141 and nothing on stderr.
+  kadet-hub/examples fixed the same pattern in the same way, in
+  kadet-hub/examples#187 and kadet-hub/examples#189.
+  #143 changed every such pipe in the smoke tests. A reader in a script
+  without `pipefail`, such as one run with `sh -c` in a pod, and a writer
+  whose status is ignored, as in `{ cmd || true; } | grep -q`, do not fail
+  the pipe and stay as they are.
+
+  - Test: manual: `grep -nE` over `*/tests/smoke` for a pipe into
+    `grep -q`, `grep -m`, `grep -l`, `head`, or a `sed` or `awk` that
+    quits finds only those two cases
+  - Since: #143
+
 - RCP-270: When a rollout at level `deploys` fails, `check` MUST add to
   its error the output of `kubectl describe` and the last 100 log lines of
   each container for every pod in the cluster that is neither ready nor
@@ -7837,6 +7860,10 @@ the same file.
   The message comes from PostgreSQL, and the upload and the signing key
   from the claim, so the reads after the restart need both.
 
+  The test reads Element Web's page into a variable before it matches the
+  title (RCP-409). Piped into `grep -q`, the match failed the CI run on
+  main of 2026-11-07 on Kubernetes 1.36. Changed in #143.
+
   Chrome loads Element Web through a port forward, and the host and port
   of the homeserver's URL in `config.json` resolve to the port forward of
   Synapse (`--host-resolver-rules`). Element Web lists the provider only
@@ -7850,7 +7877,7 @@ the same file.
   uses, would bring Node and a lock file into this repository.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: #124; Chrome: #128
+  - Since: #124; Chrome: #128; title without a pipe: #143
 
 - RCP-364: The Job `matrix-synapse-admin` MUST register the first admin
   with `register_new_matrix_user --exists-ok --admin` and the shared

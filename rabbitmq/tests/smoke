@@ -13,7 +13,8 @@ set -euo pipefail
 admin=(rabbitmqadmin --non-interactive -H rabbitmq -P 15672 --username="$1" --password="$2")  # = form: the operator's random password can start with -
 "${admin[@]}" declare queue --name recipe-smoke --type quorum
 "${admin[@]}" publish message --routing-key recipe-smoke --payload recipe-check
-"${admin[@]}" get messages --queue recipe-smoke | grep -q recipe-check
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+grep -q recipe-check <<<"$("${admin[@]}" get messages --queue recipe-smoke)"
 "${admin[@]}" delete queue --name recipe-smoke
 exec 3<>/dev/tcp/rabbitmq/5672
 printf 'AMQP\0\0\x09\x01' >&3

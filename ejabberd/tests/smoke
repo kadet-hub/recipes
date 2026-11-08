@@ -34,7 +34,8 @@ api() {
 # started, which can be after the readiness probe passed.
 wait_for_admin() {
   for _ in $(seq 30); do
-    jq -nc --arg h "$host" '{host: $h}' | api registered_users 2>/dev/null | grep -q '"admin"' && return
+    # Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+    grep -q '"admin"' <<<"$(jq -nc --arg h "$host" '{host: $h}' | api registered_users 2>/dev/null)" && return
     sleep 2
   done
   fail "the admin account does not answer the API"

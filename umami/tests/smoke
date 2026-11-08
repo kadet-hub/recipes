@@ -51,7 +51,8 @@ pageviews() {
 start=$(date +%s)
 reachable
 [[ $(login wrong-password | tail -1) == 401 ]] || fail "a wrong password did not get 401"
-token=$(login umami | head -1 | jq -er .token) || fail "admin cannot log in with the password umami"
+# Read whole first: grep -q or head at the end of a pipe can fail it under pipefail (RCP-409).
+token=$(head -1 <<<"$(login umami)" | jq -er .token) || fail "admin cannot log in with the password umami"
 api "$url/api/2fa/status" | jq -e .isConfigured >/dev/null || fail "two-factor authentication has no key"
 website=$(api --data "$(jq -nc --arg d "$domain" '{name: "Smoke", domain: $d}')" "$url/api/websites" | jq -er .id)
 # The tracker script's request for a page view.
@@ -64,7 +65,7 @@ run curl -fsS -A "$agent" -H 'Content-Type: application/json' --data "$event" "$
 # signed with the old one.
 api --data "$(jq -nc --arg p "$password" '{currentPassword: "umami", newPassword: $p}')" \
   "$url/api/me/password" >/dev/null
-token=$(login "$password" | head -1 | jq -er .token) || fail "admin cannot log in with the new password"
+token=$(head -1 <<<"$(login "$password")" | jq -er .token) || fail "admin cannot log in with the new password"
 
 # The old pod is gone before its successor is ready, so no request below
 # reaches it.
