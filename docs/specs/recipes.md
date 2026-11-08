@@ -6944,6 +6944,28 @@ strength check first and stops before `create_realm` on a weak password,
 so the next start tries again. Wrapping both steps in one transaction was
 considered. The durable transaction of `do_create_realm` cannot be nested.
 
+After that commit and before the owner, `do_create_realm` creates the
+organization's channels, and each channel's event goes to Tornado through
+RabbitMQ (`ensure_stream` in `zerver/lib/streams.py`,
+`send_event_rollback_unsafe` in `zerver/tornado/django_api.py` of 12.3).
+The image waits for PostgreSQL before the migrations and the scripts, but
+not for RabbitMQ (`entrypoint.sh` of `12.3-0`). A RabbitMQ that still
+refuses connections makes `create_realm` fail with `AMQPConnectionError`
+and leaves the organization without an owner. The image ignores the
+script's status and starts the server, and every later start skips the
+organization. The CI runs 42189666104 on Kubernetes 1.36 and 42478224375,
+attempt 2 on 1.35 and attempt 3 on 1.37, failed this way: the smoke
+test's first login as the owner got 401 from `fetch_api_key`, and the
+smoke test exited 4. The script therefore waits before `create_realm`
+until Zulip's own RabbitMQ check, `check_rabbitmq` in
+`zerver/views/health.py`, passes. It tries 30 times, 5 seconds apart, and
+stops before `create_realm` if RabbitMQ never answers, so the next start
+tries again. On kind the 30 tries took 281 seconds. The startup probe ends
+a container whose `/health` never passed 300 seconds after its start, after
+a delay of 10 seconds and 30 failures 10 seconds apart. A container it ends
+during the wait has created nothing, and its next start tries again.
+Changed in #146.
+
 A new organization requires an invitation to join (`invite_required`
 defaults to true in `zerver/models/realms.py` of 12.3), and
 `OPEN_REALM_CREATION` stays at its default, off, so a new organization
@@ -6996,6 +7018,20 @@ the proof fits a CI runner. The recipe is at level `deploys`.
     Zulip.`, and after the Secret got a strong password the next start
     created the organization with the owner (#123)
   - Since: #123
+
+- RCP-394a: `create-organization.sh` MUST wait before `create_realm` until
+  Zulip reaches RabbitMQ, and MUST create nothing when RabbitMQ does not
+  answer within the wait.
+
+  - Test: `zulip/tests/smoke`, the owner's first login; manual: on kind
+    with Kubernetes 1.37.0, RabbitMQ's application stopped for 60 seconds
+    from the script's start left the organization without a user before
+    the change, and the smoke test exited 4 with the 401; after it, the
+    script created the owner once RabbitMQ answered and the smoke test
+    passed. With RabbitMQ stopped for the whole wait, the script exited 1
+    before `create_realm`, and a run after RabbitMQ answered created the
+    organization with the owner (#146)
+  - Since: #146
 
 - RCP-395: The `tests/smoke` of `zulip` MUST reach Zulip through the
   Service `zulip`, log in as the owner, and have a member created with
