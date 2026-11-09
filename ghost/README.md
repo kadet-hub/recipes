@@ -5,7 +5,7 @@ content directory on a claim, designed in kadet-hub on Ghost's Docker
 image and rendered by the kadet-hub `kubernetes` generator 1.14.0. The
 database is the included recipe `mysql`.
 
-Source: `docker.io/library/ghost:6.75.0-alpine@sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7`
+Source: `docker.io/library/ghost:6.75.0-alpine@sha256:3af1575bb8917c6c0057beff85db92a4ac650f726956fd9de96932fea01c397c`
 
 Level: `deploys`
 
