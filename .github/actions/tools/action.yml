@@ -20,8 +20,8 @@ runs:
         ORAS_VERSION: v1.3.5
         ORAS_SHA256: f48a73ea6d026a862c3919fc773da9a8c86fc259c2c737d5baed3b8b9614ad22
         # renovate: datasource=github-release-attachments depName=cli/cli
-        GH_VERSION: v2.103.1
-        GH_SHA256: 57500f347b5e84efb6578c9b644eeb3b4e54046762635a939dd0ee2cca1c1add
+        GH_VERSION: v2.103.3
+        GH_SHA256: 4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
         # gateway-api of check (RCP-55).
         # renovate: datasource=github-release-attachments depName=kubernetes-sigs/cloud-provider-kind
         CLOUD_PROVIDER_KIND_VERSION: v0.12.0
