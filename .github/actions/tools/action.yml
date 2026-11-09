@@ -9,8 +9,8 @@ runs:
         # Renovate moves the version only: set the SHA-256 from
         # https://dl.k8s.io/release/<version>/bin/linux/amd64/kubectl.sha256.
         # renovate: datasource=github-releases depName=kubernetes/kubernetes
-        KUBECTL_VERSION: v1.37.1
-        KUBECTL_SHA256: 65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+        KUBECTL_VERSION: v1.37.2
+        KUBECTL_SHA256: c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
         # Renovate moves the version only: set the SHA-256 from
         # https://get.helm.sh/helm-<version>-linux-amd64.tar.gz.sha256sum.
         # renovate: datasource=github-releases depName=helm/helm
