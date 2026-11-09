@@ -4,7 +4,7 @@ parameters:
       application: mongodb
       type: statefulset
       # renovate: Source
-      image: docker.io/mongodb/mongodb-community-server:9.0.4-ubi9-slim@sha256:449f87becbf5f3a5d915ead43356254034ea3f8d90c67e33e0e4a89acbb7313c
+      image: docker.io/mongodb/mongodb-community-server:9.0.4-ubi9-slim@sha256:096eb497dea8c13c10ee040c0dd8ea29ff56bd75ac4cfce2e9a5ec1e11bda65c
       security_profile: restricted
       # The image runs as the user mongod, UID 1000 in its /etc/passwd.
       workload_security_context:
