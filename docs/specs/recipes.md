@@ -9089,6 +9089,158 @@ ServiceAccount has no role.
   default and Referenced Secret only, and its smoke test reads the
   conversation with the stub's reply after the restart.
 
+## ntfy
+
+ntfy is a notification server. A client publishes a message to a topic
+with an HTTP PUT or POST, and the phones, browsers and scripts subscribed
+to that topic receive it. The web app and the API share one port.
+binwiederhier/ntfy is dual-licensed under Apache-2.0 and GPL-2.0 and builds
+the image `docker.io/binwiederhier/ntfy`. Release v2.37.2 of 2026-11-04 was
+the newest on 2026-11-12. Its tag `v2.37.2` is an index for amd64, arm64,
+arm/v6 and arm/v7,
+`sha256:1875ddcf815c8a3c981d6d78c67a93452d0abba79b1ab9520b1f5f5238902bd7`,
+which `latest` pointed to on 2026-11-12. The image carries no
+`org.opencontainers.image.revision` label. The one advisory of the GitHub
+advisory database for `heckel.io/ntfy/v2`, GHSA-pqhx-w72w-m393, names
+2.22.0 as fixed. Docker Hub listed 505 tags of `binwiederhier/ntfy` on
+2026-11-12, fewer than the 1000 past which Renovate gets no release
+timestamps, so the image needs no package rule.
+
+DEC-335: `ntfy` is a designed recipe on
+`docker.io/binwiederhier/ntfy:v2.37.2` (Designed recipes). The project
+ships no chart and no Kustomize base, and Compose sources stop on each of
+its compose files. `docker-compose.yml` in the repository's root and the
+compose example under "Docker" in `docs/install.md` bind-mount the absolute
+paths `/var/cache/ntfy` and `/etc/ntfy`. The compose examples under
+"Example config" in `docs/config.md` bind-mount `./`, which next to the
+pinned file is `docs/`, a directory the repository contains. The
+Kubernetes and Kustomize sections of `docs/install.md` show manifests in
+code blocks, which no source type of DEC-9 takes. The Helm chart that page
+names is HelmForge's, a third party's, which DEC-11 rejects. The recipe
+takes its settings from the example "Docker Compose (w/ auth, cache,
+attachments)" in `docs/config.md` of v2.37.2 and its workload from the
+stateful set of the Kubernetes section. A compose recipe from that example,
+with a new mapping for `./`, was considered. The mapping would serve this
+one recipe. `docs/config.md` changed in 3 of the 4 release steps from
+v2.35.0 to v2.37.2, so most image updates would fail on the file's SHA-256
+although only the image moved.
+
+The StatefulSet `ntfy` runs `ntfy serve` in one replica. The claim
+`data`, `ReadWriteOnce` with `1Gi`, is mounted at `/var/lib/ntfy`, where
+the example keeps the message cache `cache.db`, the user database
+`auth.db` and the directory `attachments`. ntfy listens on its default
+port 80, which becomes port 80 of the Service `ntfy`. The readiness probe
+gets `/v1/ready`, the endpoint that ntfy's documentation names for load
+balancers. Without clustering it answers 200 whenever the server answers
+("Health checks" in `docs/config.md`). The recipe renders no liveness
+probe, as for a compose `healthcheck`.
+
+`NTFY_BEHIND_PROXY` is `true`, as in the example. ntfy then counts each
+visitor by the last address in `X-Forwarded-For`, which the target's
+Ingress or Gateway adds, and falls back to the connection's address
+without the header (`extractIPAddress` in `server/util.go`). Without the
+setting, ntfy counts every visitor behind the proxy as one for its rate
+limits. A client that reaches the Service directly can set the header
+itself and count as another visitor.
+
+DEC-336: `ntfy` runs as UID, GID and `fsGroup` 1000 under
+`security_profile: restricted`, and sets the pod's sysctl
+`net.ipv4.ip_unprivileged_port_start` to 0, so ntfy binds port 80 without
+a capability on any runtime, as `wordpress` does (DEC-113). The image has
+no `USER` and starts as root. ntfy's Docker documentation runs it as any
+user with `-u UID:GID` and asks only that this user owns the files in the
+data directories. With `fsGroup` the user may write to the claim.
+`NTFY_LISTEN_HTTP=:8080`
+was considered. The container would leave the port that the
+documentation's manifests and health checks use, and the Service would
+map port 80 to another container port.
+
+DEC-337: `ntfy` is a private instance, as the example sets it up.
+`NTFY_AUTH_FILE` turns on access control, `NTFY_AUTH_DEFAULT_ACCESS` is
+`deny-all`, and `NTFY_AUTH_USERS` takes the users from the parameter
+`applications.ntfy.auth_users` through the Secret `ntfy`.
+`NTFY_ENABLE_LOGIN` is `true`, so the web app can log in. Without an auth
+file, anyone who reaches the server reads and writes every topic, and the
+documentation asks for `deny-all` on a private instance ("Access control"
+in `docs/config.md`). ntfy provisions the users of the parameter at every
+start and deletes a provisioned user that the parameter no longer lists.
+Sign-up stays off, ntfy's default. An attachment is still served to anyone
+who has its URL: with the pinned image, a request without credentials got
+the file from `/file/<id>` under `deny-all`. Keeping ntfy's open default
+was considered. A target that exposed the Service would then serve every
+topic unless it changed four settings. An optional user list was
+considered too. With `deny-all` and no user, nobody could publish until
+someone ran `ntfy user add` in the pod.
+
+DEC-338: `ntfy` requires `applications.ntfy.base_url` and sets it as
+`NTFY_BASE_URL`. ntfy refuses to start with `attachment-cache-dir` set and
+no `base-url`, and refuses a base URL with a path (`cmd/serve.go`). It
+builds the URLs of attachments from it. The example's
+`http://ntfy.example.com` stands for the user's address, as vaultwarden's
+domain does (RCP-111). A default of the Service's name in the cluster was
+considered. Phones and browsers reach ntfy through the target's Ingress or
+route, which the recipe cannot know, and attachment links would point into
+the cluster.
+
+- RCP-410: `ntfy` MUST run the image of its `Source` line with the argument
+  `serve` as the StatefulSet `ntfy`, as UID, GID and `fsGroup` 1000 under
+  `security_profile: restricted` with the sysctl
+  `net.ipv4.ip_unprivileged_port_start` at 0 (DEC-336), with the claim
+  `data` at `/var/lib/ntfy`, port 80 of the Service `ntfy` and the
+  readiness probe on `/v1/ready`.
+
+  - Test: `check lint` (RCP-23); RCP-412
+  - Since: this change
+
+- RCP-411: `ntfy` MUST set `NTFY_BASE_URL` from
+  `applications.ntfy.base_url` and `NTFY_AUTH_USERS` from the Secret
+  `ntfy`, whose value is `applications.ntfy.auth_users`, and MUST leave
+  both parameters unset. It MUST set `NTFY_CACHE_FILE`, `NTFY_AUTH_FILE`
+  and `NTFY_ATTACHMENT_CACHE_DIR` below `/var/lib/ntfy`,
+  `NTFY_AUTH_DEFAULT_ACCESS` to `deny-all`, and `NTFY_ENABLE_LOGIN` and
+  `NTFY_BEHIND_PROXY` to `true`.
+
+  Each user is `<name>:<bcrypt hash>:<role>`, and several are
+  comma-separated. `ntfy user hash` prints the hash. The compile stops with
+  `Interpolation key ... not found` until the target sets each parameter,
+  the users as a ref (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); RCP-412
+  - Since: this change
+
+- RCP-412: The `tests/smoke` of `ntfy` MUST require no Pod Security warning
+  from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From a
+  pod of the ntfy image and through the Service `ntfy` on port 80, it MUST
+  get `/v1/health`, get 403 for a message published without credentials
+  and 401 for one with a wrong password, and publish a message and a file
+  as the admin of `tests/target.yml`. It MUST find both with `poll=1`,
+  require that the file's attachment URL starts with the base URL of
+  `tests/target.yml`, and download the file byte for byte from `/file/`.
+  Once the pod `ntfy-0` was deleted and its successor is ready, it MUST
+  find both messages again as the admin and download the file again.
+
+  The image carries the `ntfy` client and busybox `wget`, so the test needs
+  no other image. The messages come back after the restart only from
+  `cache.db` and the file only from `attachments`, both on the claim
+  `data`. The admin's login does not show the claim, because ntfy
+  provisions the users of `NTFY_AUTH_USERS` again at every start. With an
+  `emptyDir` in place of the claim, the smoke test failed on the messages
+  after the restart.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-410 (RCP-410 to RCP-412): `check ntfy --level deploys` passes in CI on
+  each Kubernetes minor, and its smoke test finds the message and the file
+  after the restart. `tests/target.yml` without `applications.ntfy.base_url`
+  or `applications.ntfy.auth_users` stops the compile with
+  `Interpolation key` and that key.
+
+Not proven: the phone apps and their push through ntfy.sh, web push, the
+web app in a browser, e-mail, a route or Ingress in front of the Service,
+the rate limits behind a proxy, and PostgreSQL in place of SQLite.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10069,3 +10221,4 @@ feature's design (OQ-6).
 | litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.14.0, level `deploys` (RCP-315 to RCP-318) |
 | mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
 | librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.14.0, level `deploys` (RCP-335 to RCP-339) |
+| ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
