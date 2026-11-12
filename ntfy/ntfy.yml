@@ -1,0 +1,60 @@
+parameters:
+  components:
+    ntfy:
+      application: ntfy
+      type: statefulset
+      # renovate: Source
+      image: docker.io/binwiederhier/ntfy:v2.37.2@sha256:1875ddcf815c8a3c981d6d78c67a93452d0abba79b1ab9520b1f5f5238902bd7
+      args:
+        subcommand: serve
+      security_profile: restricted
+      # ntfy runs as any user (-u UID:GID in its Docker documentation). The
+      # sysctl lets that user bind ntfy's default port 80 (DEC-336).
+      workload_security_context:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      ports:
+        http:
+          container_port: 80
+          service_port: 80
+      service:
+        type: ClusterIP
+      # The example "Docker Compose (w/ auth, cache, attachments)" in
+      # docs/config.md, a private instance (DEC-337).
+      env:
+        NTFY_BASE_URL: ${applications.ntfy.base_url}
+        NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+        NTFY_AUTH_FILE: /var/lib/ntfy/auth.db
+        NTFY_AUTH_DEFAULT_ACCESS: deny-all
+        NTFY_AUTH_USERS:
+          secretKeyRef:
+            key: NTFY_AUTH_USERS
+        NTFY_BEHIND_PROXY: "true"
+        NTFY_ATTACHMENT_CACHE_DIR: /var/lib/ntfy/attachments
+        NTFY_ENABLE_LOGIN: "true"
+      secrets:
+        users:
+          string_data:
+            NTFY_AUTH_USERS:
+              value: ${applications.ntfy.auth_users}
+      # The endpoint ntfy's documentation names for load balancers.
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /v1/ready
+      volume_mounts:
+        data:
+          mount_path: /var/lib/ntfy
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi

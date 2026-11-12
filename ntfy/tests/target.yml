@@ -1,0 +1,14 @@
+classes:
+  - recipes.ntfy
+parameters:
+  namespace: ntfy
+  kapitan:
+    vars:
+      target: ntfy
+  applications:
+    ntfy:
+      # The example's base URL.
+      base_url: http://ntfy.example.com
+      # The admin smoke-admin with the password smoke-password, tests/smoke's
+      # login. `ntfy user hash` of the pinned image printed the hash.
+      auth_users: 'smoke-admin:$2a$10$Kmm4NsCEi9MPaJrwIRS9l.x4/sSBJtH3xgM3NvX3EnBBfBklH4GvK:admin'
