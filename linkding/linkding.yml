@@ -1,0 +1,73 @@
+parameters:
+  components:
+    linkding:
+      application: linkding
+      type: statefulset
+      # renovate: upstream
+      image: docker.io/sissbruecker/linkding:1.47.0@sha256:e35cb50e0581178f245125ffaa909c565416c94c9f22ace305a7d234a4345522
+      security_profile: restricted
+      # www-data, the user that uwsgi switches to in the image and that
+      # bootstrap.sh gives the data directory (DEC-339).
+      workload_security_context:
+        runAsUser: 33
+        runAsGroup: 33
+        fsGroup: 33
+      ports:
+        http:
+          container_port: 9090
+          service_port: 9090
+      service:
+        type: ClusterIP
+      # The lines of .env.sample, which the documentation copies to the
+      # compose file's env_file .env.
+      env:
+        LD_CONTAINER_NAME: linkding
+        LD_HOST_PORT: "9090"
+        LD_HOST_DATA_DIR: ./data
+        LD_CONTEXT_PATH: ""
+        # The initial superuser (DEC-341).
+        LD_SUPERUSER_NAME: ${applications.linkding.superuser_name}
+        LD_SUPERUSER_PASSWORD:
+          secretKeyRef:
+            key: LD_SUPERUSER_PASSWORD
+        # The image starts its task processor only as root (DEC-340).
+        LD_DISABLE_BACKGROUND_TASKS: "True"
+        LD_DISABLE_URL_VALIDATION: "False"
+        LD_ENABLE_AUTH_PROXY: "False"
+        LD_AUTH_PROXY_USERNAME_HEADER: ""
+        LD_AUTH_PROXY_LOGOUT_URL: ""
+        LD_DISABLE_LOGIN_FORM: "False"
+        LD_CSRF_TRUSTED_ORIGINS: ""
+        LD_DB_ENGINE: ""
+        LD_DB_DATABASE: ""
+        LD_DB_USER: ""
+        LD_DB_HOST: ""
+        LD_DB_PORT: ""
+        LD_DB_OPTIONS: ""
+      secrets:
+        superuser:
+          string_data:
+            LD_SUPERUSER_PASSWORD:
+              value: ${applications.linkding.superuser_password}
+      # The image's HEALTHCHECK, which compose runs. The shell's ${...} are
+      # written as ${escape:...}.
+      healthcheck:
+        readiness:
+          type: command
+          command:
+            - sh
+            - -c
+            - curl -f http://localhost:${escape:LD_SERVER_PORT:-9090}/${escape:LD_CONTEXT_PATH}health || exit 1
+          period_seconds: 30
+          timeout_seconds: 1
+      volume_mounts:
+        data:
+          mount_path: /etc/linkding/data
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi

@@ -390,6 +390,14 @@
       "groupName": "memos"
     },
     {
+      "description": "RCP-16: linkding's Source line and its main image move in one pull request",
+      "matchPackageNames": [
+        "sissbruecker/linkding",
+        "docker.io/sissbruecker/linkding"
+      ],
+      "groupName": "linkding"
+    },
+    {
       "description": "RCP-16: immich's server and machine learning images move in one pull request",
       "matchPackageNames": [
         "ghcr.io/immich-app/immich-server",
