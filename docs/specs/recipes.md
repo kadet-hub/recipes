@@ -10,7 +10,7 @@ Status: Draft. check 0.20.2 implements renders and deploys, for charts
         not implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
-Code: <name>/, check/, .github/, renovate.json, README.md
+Code: <name>/, check/, .github/, renovate.json, README.md, CONTRIBUTING.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
                   #19, powerdns at deploys; #29, strimzi at deploys;
@@ -9277,6 +9277,21 @@ lists the open requests on `/wanted/`, most 👍 first (CAT-41 in
 kadet-hub/registry), so a second reader adds a 👍 instead of a duplicate.
 GitHub applies the label only when it exists in this repository.
 
+## Contributing
+
+`CONTRIBUTING.md` is where someone outside the project starts. It covers
+a recipe request, a new or changed recipe, a change to `check` or CI, and
+how a pull request is proven, reviewed, merged and released. For the
+rules themselves it links the requirements of this spec.
+
+- RCP-417: `CONTRIBUTING.md` MUST describe how to request a recipe, how to
+  add or change one and prove it with `check`, and how a pull request is
+  reviewed and merged. The README MUST link it.
+
+  - Test: manual: review of `CONTRIBUTING.md` against RCP-20, RCP-31,
+    RCP-57, RCP-65 and RCP-406, and of the README's link
+  - Since: this change
+
 ## Distribution
 
 A recipe is published as `ghcr.io/kadet-hub/recipes/<name>`, one OCI
@@ -10138,6 +10153,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
+| `CONTRIBUTING.md` | Requests, recipe and `check` changes, review and merge (RCP-417) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
