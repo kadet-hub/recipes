@@ -9190,7 +9190,7 @@ the cluster.
   readiness probe on `/v1/ready`.
 
   - Test: `check lint` (RCP-23); RCP-412
-  - Since: this change
+  - Since: #161
 
 - RCP-411: `ntfy` MUST set `NTFY_BASE_URL` from
   `applications.ntfy.base_url` and `NTFY_AUTH_USERS` from the Secret
@@ -9206,7 +9206,7 @@ the cluster.
   the users as a ref (RCP-19, RCP-40).
 
   - Test: `check lint` (RCP-262); RCP-412
-  - Since: this change
+  - Since: #161
 
 - RCP-412: The `tests/smoke` of `ntfy` MUST require no Pod Security warning
   from a server-side dry run of the label
@@ -9229,7 +9229,7 @@ the cluster.
   after the restart.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #161
 
 - AC-410 (RCP-410 to RCP-412): `check ntfy --level deploys` passes in CI on
   each Kubernetes minor, and its smoke test finds the message and the file
