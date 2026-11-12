@@ -159,14 +159,13 @@ recipe at level `renders`. A recipe whose `Requires:` line names
 `gateway-api` needs cloud-provider-kind, which touches every kind cluster on
 the host, so prove that part in CI.
 
-Pull requests come from forks. CI checks every changed recipe at its
-README's level, and the `deploys` proof of a fork waits for a maintainer's
-approval (RCP-20). A pull request merges only after the `ci` job passed and
-a maintainer approved it (RCP-65). The rules `check lint` and the registry
-gate apply are in [docs/specs/recipes.md](docs/specs/recipes.md): the README
-lines and the 300-character description (RCP-23, RCP-32), the shipped files
-and their licenses (RCP-33, RCP-42), generator pins by digest, and
-`recipe.yaml` against the README and Kapitan (RCP-260 to RCP-263).
+The rules `check lint` and the registry gate apply are in
+[docs/specs/recipes.md](docs/specs/recipes.md): the README lines and the
+300-character description (RCP-23, RCP-32), the shipped files and their
+licenses (RCP-33, RCP-42), generator pins by digest, and `recipe.yaml`
+against the README and Kapitan (RCP-260 to RCP-263).
+[CONTRIBUTING.md](CONTRIBUTING.md) describes the spec change a recipe
+starts with, and how CI and the review take a pull request to the merge.
 
 ## Security
 
