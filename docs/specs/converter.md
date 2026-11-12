@@ -192,6 +192,10 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   server keeps the empty value, the proof shows it as a difference unless
   RCP-12 accepts it, as it accepts a container's empty `lifecycle`.
 
+  A container port whose `ports` key another port of the container
+  already has is not mappable, as `ports[<key>] more than once`. The
+  generator renders one port per key.
+
   1.15.0 has keys for these chart fields (K8S-17 to K8S-22 in
   kadet-hub/generators), and the converter writes them:
 
@@ -201,7 +205,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   | A StatefulSet's `volumeClaimTemplates` | `volume_claim_name_label: false`, so the claims keep the chart's labels |
   | A container's `workingDir` | `working_dir` |
   | The pod's `shareProcessNamespace` | `share_process_namespace` |
-  | A container port without a name | The `ports` entry `port-<containerPort>` with `unnamed: true` |
+  | A container port without a name | The `ports` entry `port-<containerPort>`, with `-<protocol>` in lowercase after it for a protocol other than TCP, and `unnamed: true` |
   | A Service's `ipFamilyPolicy` and `ipFamilies` | `ip_family_policy` and `ip_families` of its entry |
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
