@@ -4,7 +4,7 @@ parameters:
   kapitan:
     dependencies:
       - type: oci
-        source: ghcr.io/kadet-hub/strimzi:1.1.0@sha256:375ec870554a3d645f6b05abbeb8d16e6bdcbfbe1d7741a699308e45d1ef92d7
+        source: ghcr.io/kadet-hub/strimzi:1.1.2@sha256:6493a07b7f44f6e9034c97cf45c2bf0e421cfe700cdf5ae9bd8488975707705a
         output_path: lib/strimzi
     compile:
       - input_type: kadet
