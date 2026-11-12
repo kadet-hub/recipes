@@ -1,6 +1,7 @@
 """AC-19 and AC-21: check downloads a release manifest, and a chart from an HTTP repository served on localhost,
 and fails unless the SHA-256 is the one of the Source line (RCP-23).
 AC-15: null fields, the order of prerequisites, the owner of an object and the wait for Established CRDs, which need no cluster.
+AC-414: the steps of a migration, their order and verdict, without a cluster (RCP-14 to RCP-14b).
 RCP-34: check at renders on a given compiled output and chart render, without Kapitan, helm or a cluster."""
 
 import contextlib
@@ -241,6 +242,95 @@ def write_all(path, *objs):
 
 def obj(kind, name, api="v1", **fields):
     return {"apiVersion": api, "kind": kind, "metadata": {"name": name, "namespace": "nextcloud"}, **fields}
+
+
+class MigrationPlan(unittest.TestCase):
+    """RCP-14b: the chart's Deployments whose selector changes, and its objects under names the recipe does not use,
+    without those whose deletion takes data with them."""
+
+    def test_plan(self):
+        def deployment(name, labels):
+            return {**obj("Deployment", name), "spec": {"selector": {"matchLabels": labels}}}
+
+        role = obj("Role", "web:leader")
+        chart = [deployment("web", {"app.kubernetes.io/name": "web"}), deployment("worker", {"name": "worker"}),
+                 {**role, "metadata": {**role["metadata"], "namespace": "kube-system"}},
+                 {"kind": "ServiceAccount", "metadata": {"name": "web"}},
+                 {"kind": "CustomResourceDefinition", "metadata": {"name": "a.example.org"}}, obj("PersistentVolumeClaim", "data")]
+        recipe = [deployment("web", {"name": "web"}), deployment("worker", {"name": "worker"}), obj("ServiceAccount", "web")]
+        changed, leftovers, kept = check.migration_plan(chart, recipe, "nextcloud")
+        names = [[f"{o['kind']}/{o['metadata']['name']}" for o in objs] for objs in (changed, leftovers, kept)]
+        self.assertEqual(names, [["Deployment/web"], ["Role/web:leader"],
+                                 ["CustomResourceDefinition/a.example.org", "PersistentVolumeClaim/data"]])
+
+
+class Migrate(unittest.TestCase):
+    """RCP-14: the steps of Migration in their order with tests/smoke before, during and after; RCP-14a."""
+
+    CHART = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"app.kubernetes.io/name": "web"}}}},
+             obj("Service", "web"), obj("Role", "web:leader")]
+    RECIPE = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"name": "web"}}}},
+              obj("Service", "web"), obj("Role", "web-leader")]
+
+    def migrate(self, failing_run=None, labelled=()):
+        self.steps, self.report, calls = [], [], []
+        replicasets = {"items": [{"metadata": {"name": "web-1", "ownerReferences": [{"kind": "Deployment", "name": "web"}]}},
+                                 {"metadata": {"name": "other-1"}}]}
+
+        def kubectl(*args, input=None, **kw):
+            names = [o["metadata"]["name"] for o in check.load_all(input)] if input else []
+            self.steps.append(" ".join(args) + (f" {names}" if names else ""))
+            return json.dumps(replicasets) if args[:2] == ("get", "replicasets") else ""
+
+        def smoke(cluster, recipe):
+            calls.append(None)
+            threading.Event().wait(0.001)
+            if len(calls) == failing_run:
+                raise check.Failed("smoke failed")
+            return "ok"
+
+        cluster = mock.Mock(kubeconfig=Path("/nonexistent"))
+        cluster.kubectl.side_effect = kubectl
+        cluster.apply_for_real.side_effect = lambda objs, *f: self.steps.append(f"apply_for_real {[o['kind'] for o in objs]} {f}")
+        cluster.apply.side_effect = lambda objs, *f: self.steps.append(f"apply {[o['kind'] for o in objs]} {f}")
+        for target in ("check.prepare", "check.install"):
+            mock.patch(target).start()
+        mock.patch("check.run", return_value="v4.3.1+gc0d08d0").start()
+        mock.patch("check.smoke", side_effect=smoke).start()
+        mock.patch("check.wait_rollouts", side_effect=lambda c, objs: self.steps.append("rollout")).start()
+        mock.patch("time.sleep", side_effect=lambda s: self.steps.append(f"sleep {s}")).start()
+        mock.patch("check.helm_labelled", return_value=list(labelled)).start()
+        self.addCleanup(mock.patch.stopall)
+        return check.migrate(cluster, Path("web.tgz"), self.CHART, self.RECIPE, Path("/recipes/web"), "nextcloud",
+                             {"nextcloud"}, (), self.report.append)
+
+    def test_steps_in_order(self):
+        self.assertFalse(self.migrate())
+        self.assertEqual(self.steps, [
+            "delete secret -n nextcloud -l owner=helm,name=web",
+            "get replicasets -n nextcloud -o json",
+            "delete deployment web -n nextcloud --cascade=orphan",
+            "apply_for_real ['Deployment', 'Role'] ('--force-conflicts',)",
+            "rollout",
+            "apply ['Service'] ('--force-conflicts',)",
+            "apply --server-side --field-manager helm -f - ['web', 'web', 'web-leader']",
+            "rollout",
+            f"sleep {check.SERVICE_SWITCH_WAIT}",
+            "delete replicaset web-1 -n nextcloud --cascade=foreground",
+            "delete --ignore-not-found -f - ['web:leader']",
+        ])
+        self.assertEqual(self.report[:3], ["migrates: selector changed: Deployment/web", "migrates: leftover: Role/web:leader",
+                                           "migrates: chart installed with helm v4.3.1+gc0d08d0, smoke before: ok"])
+        self.assertRegex(self.report[3], r"^migrates: smoke during the steps: \d+ runs passed$")
+        self.assertEqual(self.report[4:], ["migrates: smoke after: ok", "migrates: no object labelled app.kubernetes.io/managed-by: Helm"])
+
+    def test_failed_run_during_the_steps_fails(self):
+        self.assertTrue(self.migrate(failing_run=2))
+        self.assertRegex(self.report[3], r"^migrates: smoke during the steps failed in 1 of \d+ runs, first: smoke failed$")
+
+    def test_object_labelled_by_helm_fails(self):
+        self.assertTrue(self.migrate(labelled=["serviceaccount/web"]))
+        self.assertEqual(self.report[-1], "migrates: labelled app.kubernetes.io/managed-by: Helm: serviceaccount/web")
 
 
 class GivenOutputs(unittest.TestCase):
