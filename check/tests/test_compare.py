@@ -283,6 +283,79 @@ class ReferencedSecret(unittest.TestCase):
         self.assertDenied()
 
 
+class Changes(unittest.TestCase):
+    """AC-6, RCP-21: what changed between an old and a new recipe, from their objects alone."""
+
+    IMAGE = "registry.example.org/demo:v1.0.0@sha256:" + "0" * 63 + "1"
+    NEW_IMAGE = "registry.example.org/demo:v1.1.0@sha256:" + "0" * 63 + "3"
+    SOLVER = "registry.example.org/solver:v1.0.0@sha256:" + "0" * 63 + "2"
+
+    def setUp(self):
+        role = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": {"name": "demo"},
+                "rules": [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get"]}]}
+        binding = {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": {"name": "demo"},
+                   "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "demo"},
+                   "subjects": [{"kind": "ServiceAccount", "name": "demo", "namespace": "demo"}]}
+        self.old = load("recipe.yaml") + [role, binding]
+        self.new = copy.deepcopy(self.old)
+        self.pod = find(self.new, "Deployment")["spec"]["template"]["spec"]
+
+    def changes(self):
+        return compare.changes(self.old, self.new, "demo")
+
+    def test_unchanged_lists_nothing(self):
+        self.assertEqual(self.changes(), [])
+
+    def test_image_cluster_role_verb_and_host_path(self):
+        self.pod["containers"][0]["image"] = self.NEW_IMAGE
+        find(self.new, "ClusterRole")["rules"][0]["verbs"].append("list")
+        self.pod["volumes"] = [{"name": "host", "hostPath": {"path": "/var/run"}}]
+        self.assertEqual(self.changes(), [
+            f"image: {self.IMAGE} -> {self.NEW_IMAGE}",
+            "permissions: ServiceAccount demo/demo cluster-wide: only old: pods [] [] [get]",
+            "permissions: ServiceAccount demo/demo cluster-wide: only new: pods [] [] [get list]",
+            "added hostPath volume Deployment.apps/demo/demo host: /var/run",
+        ])
+
+    def test_webhook_privileged_container_and_host_namespace(self):
+        webhooks = find(self.new, "ValidatingWebhookConfiguration")["webhooks"]
+        webhooks.append({**webhooks[0], "name": "other.demo.example.org"})
+        self.pod["containers"][0]["securityContext"] = {"privileged": True}
+        self.pod["hostPID"] = True
+        self.new.append({"apiVersion": "v1", "kind": "PersistentVolume", "metadata": {"name": "demo"},
+                         "spec": {"hostPath": {"path": "/srv"}}})
+        self.assertEqual(self.changes(), [
+            "added host namespace Deployment.apps/demo/demo hostPID",
+            "added hostPath volume PersistentVolume/demo: /srv",
+            "added privileged container Deployment.apps/demo/demo demo",
+            "added webhook ValidatingWebhookConfiguration.admissionregistration.k8s.io/demo-demo-webhook other.demo.example.org",
+        ])
+
+    def test_image_argument_removed(self):
+        del self.pod["containers"][0]["args"]
+        self.assertEqual(self.changes(), [f"image: {self.SOLVER} -> none"])
+
+    def test_role_not_rendered_by_name(self):
+        find(self.new, "RoleBinding")["roleRef"]["name"] = "cluster-admin"
+        self.assertEqual(self.changes(), [
+            "permissions: Group demo-readers in demo: only old: ClusterRole view, not rendered",
+            "permissions: Group demo-readers in demo: only new: ClusterRole cluster-admin, not rendered",
+        ])
+
+    def test_aggregated_rules(self):
+        """RCP-11: rules aggregated into view count for its users, an aggregationRule adds the selected rules."""
+        labels = {"rbac.authorization.k8s.io/aggregate-to-view": "true", "demo.example.org/aggregate": "true"}
+        self.new.append({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole",
+                         "metadata": {"name": "demo-view", "labels": labels},
+                         "rules": [{"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["watch", "get"]}]})
+        find(self.new, "ClusterRole")["aggregationRule"] = {
+            "clusterRoleSelectors": [{"matchLabels": {"demo.example.org/aggregate": "true"}}]}
+        self.assertEqual(self.changes(), [
+            "permissions: ServiceAccount demo/demo cluster-wide: only new: deployments.apps [] [] [get watch]",
+            "permissions: users bound to view: only new: deployments.apps [] [] [get watch]",
+        ])
+
+
 class Normalize(unittest.TestCase):
     def test_drops_exactly_the_listed_fields(self):
         chart, recipe = load("chart.yaml"), load("recipe.yaml")

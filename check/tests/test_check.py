@@ -290,6 +290,15 @@ class GivenOutputs(unittest.TestCase):
         sides = {tuple(o["metadata"]["name"] for o in c.args[1]) for c in self.prove.call_args_list}
         self.assertEqual(sides, {("nextcloud", "nextcloud-config")})
 
+    def test_base_is_not_compiled(self):
+        """RCP-21, RCP-34: with the compiled output given, check runs no Kapitan for the base either."""
+        report = self.tmp / "report.txt"
+        status, _ = self.main("--compiled", str(self.out), "--rendered", str(self.rendered), "--report", str(report),
+                              "--base", str(RECIPES))
+        self.assertEqual(status, 0)
+        self.assertIn("base: not compared, the compiled output is given (RCP-34)", report.read_text().splitlines())
+        self.assertEqual(self.ran, [])
+
     def test_missing_compile_of_an_included_recipe_fails(self):
         shutil.rmtree(self.out / "compiled/valkey")
         status, err = self.main("--compiled", str(self.out), "--rendered", str(self.rendered))
@@ -381,6 +390,44 @@ class GivenCompile(unittest.TestCase):
                     self.assertEqual(cmd[cmd.index("--image") + 1], image)
                 else:
                     self.assertNotIn("--image", cmd)
+
+
+class BaseChanges(unittest.TestCase):
+    """RCP-21: check compiles the recipe of the base checkout and lists what changed against it."""
+
+    IMAGE = "docker.io/valkey/valkey:9.0.0@sha256:" + "0" * 64
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.fetch = mock.patch("check.fetch_generators", return_value=[]).start()
+        self.addCleanup(mock.patch.stopall)
+        self.new = [obj("Pod", "valkey", spec={"containers": [{"name": "valkey", "image": self.IMAGE}]})]
+
+    def changes(self, compiled_objs, base=RECIPES):
+        def compile_recipe(project, out):
+            write_all(out / "compiled/valkey/manifests.yml", *compiled_objs)
+
+        with mock.patch("check.compile_recipe", side_effect=compile_recipe):
+            return check.base_changes(RECIPES / "valkey", base, self.new, "valkey", self.tmp)
+
+    def test_same(self):
+        self.assertEqual(self.changes(self.new), ["same images, permissions, webhooks and host access"])
+        (call,) = self.fetch.call_args_list
+        self.assertEqual(call.args[0], RECIPES / "valkey")
+
+    def test_changed_image(self):
+        old = [obj("Pod", "valkey", spec={"containers": [{"name": "valkey", "image": self.IMAGE.replace("9.0.0", "8.1.0")}]})]
+        self.assertEqual(self.changes(old), [f"image: {self.IMAGE.replace('9.0.0', '8.1.0')} -> {self.IMAGE}"])
+
+    def test_new_recipe(self):
+        self.assertEqual(self.changes([], base=self.tmp / "empty"), ["no recipe valkey in the base"])
+        self.fetch.assert_not_called()
+
+    def test_base_that_does_not_compile(self):
+        with mock.patch("check.compile_recipe", side_effect=check.Failed("kapitan compile exited 1:\nCompile failed: x")):
+            lines = check.base_changes(RECIPES / "valkey", RECIPES, self.new, "valkey", self.tmp)
+        self.assertEqual(lines, ["not compared, the base does not compile: Compile failed: x"])
 
 
 class NextAttestation(unittest.TestCase):

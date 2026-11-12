@@ -544,13 +544,13 @@ def normalize_can_i(text):
     return sorted(set(lines))
 
 
-def diff_permissions(chart, recipe):
+def diff_permissions(chart, recipe, sides=("chart", "recipe")):
     """chart and recipe map a label such as 'Group/x in ns' to normalized lines."""
     out = []
     for key in sorted(set(chart) | set(recipe)):
         a, b = set(chart.get(key, [])), set(recipe.get(key, []))
-        out += [f"{key}: only chart: {line}" for line in sorted(a - b)]
-        out += [f"{key}: only recipe: {line}" for line in sorted(b - a)]
+        out += [f"{key}: only {sides[0]}: {line}" for line in sorted(a - b)]
+        out += [f"{key}: only {sides[1]}: {line}" for line in sorted(b - a)]
     return out
 
 
@@ -575,3 +575,93 @@ def untested_aggregation(objs, tested=("view", "edit", "admin")):
             if label.startswith(prefix) and value == "true" and label[len(prefix):] not in tested:
                 out.add(f"{label} ({o['metadata']['name']})")
     return sorted(out)
+
+
+# Changes against the base (RCP-21)
+
+# A run of characters an image reference consists of; linear to scan, unlike a full reference pattern.
+IMAGE_TOKEN = re.compile(r"[\w./:@-]+")
+
+
+def images(objs):
+    """Every image reference pinned by digest anywhere in objs: containers, image arguments, custom resources."""
+    return {t for t in IMAGE_TOKEN.findall(json.dumps(objs, default=str)) if DIGEST.search(t)}
+
+
+def _repository(ref):
+    return re.sub(r":[\w.-]+$", "", ref.partition("@")[0])
+
+
+def grants(objs, namespace):
+    """DEC-346: what each subject a binding names may do, from the RBAC objects alone, as
+    {"<subject> in <namespace>" or "<subject> cluster-wide": lines like normalize_can_i's}. A role objs do
+    not render is one line with its name. ClusterRoles that aggregate into view, edit and admin grant to
+    "users bound to <role>", as RCP-11's test users."""
+    cluster_roles = {o["metadata"]["name"]: o for o in objs if o.get("kind") == "ClusterRole"}
+    roles = {(o["metadata"].get("namespace", namespace), o["metadata"]["name"]): o for o in objs if o.get("kind") == "Role"}
+    granted = {}
+
+    def grant(key, rules):
+        verbs = granted.setdefault(key, {})
+        for rule in rules:
+            names = " ".join(sorted(rule.get("resourceNames") or []))
+            targets = [f"{f'{r}.{g}' if g else r} [] [{names}]"
+                       for g in rule.get("apiGroups") or [] for r in rule.get("resources") or []]
+            for t in targets + [f"[{u}] []" for u in rule.get("nonResourceURLs") or []]:
+                verbs.setdefault(t, set()).update(rule.get("verbs") or [])
+
+    def rules_of(role):
+        selectors = (role.get("aggregationRule") or {}).get("clusterRoleSelectors") or []
+        selected = [o for o in cluster_roles.values()
+                    if o is not role and any(matches(s, o["metadata"].get("labels")) for s in selectors)]
+        return [r for o in (role, *selected) for r in o.get("rules") or []]
+
+    for b in objs:
+        if b.get("kind") not in ("RoleBinding", "ClusterRoleBinding"):
+            continue
+        ns = b["metadata"].get("namespace", namespace) if b["kind"] == "RoleBinding" else None
+        ref = b.get("roleRef") or {}
+        role = roles.get((ns, ref.get("name"))) if ref.get("kind") == "Role" else cluster_roles.get(ref.get("name"))
+        for s in b.get("subjects") or []:
+            sa_ns = s.get("namespace", "") if s.get("kind") == "ServiceAccount" else ""
+            key = f"{s.get('kind')} {sa_ns + '/' if sa_ns else ''}{s.get('name')} " + (f"in {ns}" if ns else "cluster-wide")
+            if role:
+                grant(key, rules_of(role))
+            else:
+                granted.setdefault(key, {})[f"{ref.get('kind')} {ref.get('name')}, not rendered"] = set()
+    for role in ("view", "edit", "admin"):
+        grant(f"users bound to {role}", [r for o in aggregated(objs, role) for r in o.get("rules") or []])
+    return {key: [f"{t} [{' '.join(sorted(v))}]" if v else t for t, v in lines.items()] for key, lines in granted.items()}
+
+
+def host_access(objs):
+    """Webhooks, hostPath volumes, privileged containers and host namespaces in objs, one line each."""
+    out = set()
+    for o in objs:
+        i, spec = ident(o), o.get("spec") or {}
+        if o.get("kind") in WEBHOOK_KINDS:
+            out |= {f"webhook {i} {w.get('name')}" for w in o.get("webhooks") or []}
+        if o.get("kind") == "PersistentVolume" and spec.get("hostPath"):
+            out.add(f"hostPath volume {i}: {spec['hostPath'].get('path')}")
+        pods = [spec] if o.get("kind") == "Pod" else [t.get("spec") or {} for _, t in pod_templates(o)]
+        for pod in pods:
+            out |= {f"host namespace {i} {k}" for k in ("hostNetwork", "hostPID", "hostIPC") if pod.get(k)}
+            out |= {f"hostPath volume {i} {v.get('name')}: {v['hostPath'].get('path')}"
+                    for v in pod.get("volumes") or [] if v.get("hostPath")}
+            out |= {f"privileged container {i} {c.get('name')}"
+                    for c in (pod.get("initContainers") or []) + (pod.get("containers") or [])
+                    if (c.get("securityContext") or {}).get("privileged")}
+    return out
+
+
+def changes(old, new, namespace):
+    """RCP-21: the images that changed, the permissions each subject gains or loses and the host access
+    added between the objects of the old and the new recipe."""
+    old_images, new_images = images(old), images(new)
+    out = []
+    for repo in sorted({_repository(r) for r in old_images ^ new_images}):
+        a, b = (", ".join(sorted(r for r in s if _repository(r) == repo)) or "none" for s in (old_images, new_images))
+        out.append(f"image: {a} -> {b}")
+    out += [f"permissions: {line}"
+            for line in diff_permissions(grants(old, namespace), grants(new, namespace), ("old", "new"))]
+    return out + [f"added {line}" for line in sorted(host_access(new) - host_access(old))]
