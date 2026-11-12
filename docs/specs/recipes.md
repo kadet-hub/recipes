@@ -9241,6 +9241,137 @@ Not proven: the phone apps and their push through ntfy.sh, web push, the
 web app in a browser, e-mail, a route or Ingress in front of the Service,
 the rate limits behind a proxy, and PostgreSQL in place of SQLite.
 
+## gotify
+
+gotify is a server for push notifications. Applications push messages to
+it through a REST API with an application token, and its web UI, its
+Android app and other clients receive them over a WebSocket. The web UI
+and the API share one port. gotify/server is MIT and builds the image
+`docker.io/gotify/server`, which it also pushes as `ghcr.io/gotify/server`.
+Release v3.1.1 of 2026-09-15 was the newest on 2026-11-12. Its tag `3.1.1`
+is an index for amd64, arm64, 386, arm/v7 and riscv64,
+`sha256:44fc5bbd1c0618878e33073d38c2c13126b48f245c3fe12236b1da48eb203b86`,
+on both registries, which `latest` pointed to on 2026-11-12. Its label
+`org.opencontainers.image.revision` is
+`e6361caa512547052b1013dbf4544e6d7ff32604`, the commit of the tag
+`v3.1.1`. The newest of the three advisories of the GitHub advisory
+database for gotify/server, GHSA-3hcj-9m7p-wwm9, names 3.0.0 as fixed.
+Docker Hub listed 85 tags of `gotify/server` on 2026-11-12, fewer than the
+1000 past which Renovate gets no release timestamps, so the image needs no
+package rule.
+
+DEC-342: `gotify` is a designed recipe on `docker.io/gotify/server:3.1.1`
+(Designed recipes). The project ships no chart, no Kustomize base and no
+compose file that runs gotify. Its one compose example is a code block
+under "Docker" in `docs/install.md` of gotify/website, which no source
+type of DEC-9 takes. The two compose files of gotify/server, below
+`test/oidc/`, start only the identity providers Dex and Authelia for
+gotify's OIDC tests. The community list gotify/contrib names a compose
+repository of a third party, which the reason of DEC-11 for a third
+party's chart rules out as well. The recipe takes its settings from the
+compose example and from `gotify-server.env.example` of gotify/server at
+v3.1.1. That file lists every variable with its default, and the
+configuration page of gotify/website shows it.
+
+The StatefulSet `gotify` runs the image's command `serve` in one replica.
+The claim `data`, `ReadWriteOnce` with `1Gi`, is mounted at `/app/data`,
+the directory that the installation page mounts. gotify's defaults keep
+the SQLite database `data/gotify.db`, the uploaded images `data/images` and
+the plugins `data/plugins` there, relative to the image's working
+directory `/app` (`config/config.go`). gotify creates both directories at
+its start (`app.go`). gotify listens on its default port 80, which becomes
+port 80 of the Service `gotify`. The readiness probe gets `/health`, the
+endpoint of the `HEALTHCHECK` in `docker/Dockerfile`. It answers 200 while
+gotify reaches its database and 500 otherwise (`api/health.go`). The image
+is an OCI index, whose image configurations carry no `HEALTHCHECK`. The
+recipe renders no liveness probe, as for a compose `healthcheck`.
+
+The Service `gotify` gives the pod service link variables such as
+`GOTIFY_PORT` and `GOTIFY_SERVICE_PORT`. gotify reads none of them: its
+variables are the ones of `config/keys.go`, each also with the suffix
+`_FILE`.
+
+DEC-343: `gotify` runs as UID, GID and `fsGroup` 1234 under
+`security_profile: restricted`, and sets the pod's sysctl
+`net.ipv4.ip_unprivileged_port_start` to 0, so gotify binds port 80
+without a capability on any runtime, as `ntfy` does (DEC-336). The image
+has no `USER` and starts as root. The compose example names
+`user: "1234:1234"` in a comment, to run gotify as a dedicated user after a
+`chown` of the data directory, and `fsGroup` lets that user write to the
+claim. As UID 1234 with the pinned image, gotify created `gotify.db`,
+`images` and `plugins` on the claim and served on port 80.
+`GOTIFY_SERVER_PORT` above 1023 was considered. The container would leave
+the port of the image's `EXPOSE` and its `HEALTHCHECK`, and the Service
+would map port 80 to another container port.
+
+DEC-344: `gotify` requires `applications.gotify.admin_password` and sets it
+as `GOTIFY_DEFAULTUSER_PASS` through the Secret `gotify`, the one variable
+the compose example sets. At a start on a database without a user, gotify
+creates the admin `GOTIFY_DEFAULTUSER_NAME` with this password, and does
+nothing otherwise (`database/database.go`). Name and password default to
+`admin` (`config/config.go`), and the documentation's first login page
+asks to change that password. A changed parameter therefore never reaches
+the admin. The name stays gotify's default `admin`, as in the compose
+example. Registration stays off, gotify's default, so nobody signs up.
+Keeping the default password was considered. Anyone who reaches the
+Service would log in as admin until someone changed it. A required name
+was considered too. It would be a second parameter for a value that gotify
+and its example set.
+
+- RCP-418: `gotify` MUST run the image of its `Source` line as the
+  StatefulSet `gotify`, as UID, GID and `fsGroup` 1234 under
+  `security_profile: restricted` with the sysctl
+  `net.ipv4.ip_unprivileged_port_start` at 0 (DEC-343), with the claim
+  `data` at `/app/data`, port 80 of the Service `gotify` and the readiness
+  probe on `/health`.
+
+  - Test: `check lint` (RCP-23); RCP-420
+  - Since: this change
+
+- RCP-419: `gotify` MUST set `GOTIFY_DEFAULTUSER_PASS` from the Secret
+  `gotify`, whose value is `applications.gotify.admin_password`, and MUST
+  leave the parameter unset (DEC-344).
+
+  The compile stops with `Interpolation key ... not found` until the
+  target sets it, as a ref (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); RCP-420
+  - Since: this change
+
+- RCP-420: The `tests/smoke` of `gotify` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From
+  a pod of the gotify image and through the cluster IP of the Service
+  `gotify` on port 80, it MUST get `/health` and get 401 from `/message`
+  without credentials, with a wrong password and for a message with a
+  wrong application token. It MUST create an application as the admin of
+  `tests/target.yml`, push a message with the application's token and list
+  it as the admin. Once the pod `gotify-0` was deleted and its successor is
+  ready, it MUST list the message again as the admin.
+
+  The image carries `curl`, so the test needs no other image. The cluster
+  IP needs no name lookup, so no request with the test's password can
+  reach a host outside the cluster through a search domain of the node.
+  After the restart the message comes only from `gotify.db` on the claim
+  `data`. The admin's login does not show the claim, because gotify
+  creates the admin again on an empty database. With an `emptyDir` in
+  place of the claim, the smoke test failed on the message after the
+  restart.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: this change
+
+- AC-418 (RCP-418 to RCP-420): `check gotify --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test lists the message after the
+  restart. `tests/target.yml` without `applications.gotify.admin_password`
+  stops the compile with `Interpolation key` and that key.
+
+Not proven: the sysctl itself, which kind's containerd already sets to 0.
+The web UI in a browser, the Android app, the WebSocket stream, a route or
+Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
+plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
+itself.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10222,3 +10353,4 @@ feature's design (OQ-6).
 | mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
 | librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.14.0, level `deploys` (RCP-335 to RCP-339) |
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
+| gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
