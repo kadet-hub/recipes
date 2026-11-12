@@ -1,11 +1,11 @@
 # Converter
 
 ```text
-Status: Draft. check 0.21.0 implements CNV-1 to CNV-20.
+Status: As-built. check 0.21.0 implements CNV-1 to CNV-20.
 Code: check/convert.py, check/tests/test_convert.py,
       check/tests/fixtures/convert/, check/pyproject.toml, check/uv.lock,
       .github/workflows/ci.yml (job convert), docs/convert.md, README.md
-Verified against: main @ c9301aa with #139
+Verified against: main @ 7342f78 with #173
 ```
 
 Related: [recipes.md](recipes.md) RCP-9 to RCP-12 (comparison), RCP-22
@@ -207,7 +207,7 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
   - Since: #100; `serviceName` and claim labels: #139; `workingDir`,
     `shareProcessNamespace`, unnamed container ports, IP families and
-    empty values: this change
+    empty values: #173
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
