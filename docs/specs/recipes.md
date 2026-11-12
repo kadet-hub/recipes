@@ -9290,7 +9290,7 @@ rules themselves it links the requirements of this spec.
 
   - Test: manual: review of `CONTRIBUTING.md` against RCP-20, RCP-31,
     RCP-57, RCP-65 and RCP-406, and of the README's link
-  - Since: this change
+  - Since: #165
 
 ## Distribution
 
