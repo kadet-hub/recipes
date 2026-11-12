@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# RCP-416: the pod under Pod Security restricted, then from a pod of the
+# linkding image through the Service linkding on port 9090 the refusal of
+# requests without a login, the superuser's login, a bookmark created and
+# listed, and the bookmark in the same session after linkding-0 restarted.
+set -euo pipefail
+# The superuser of tests/target.yml.
+admin=smoke-admin
+password=smoke-password
+image=$(kubectl get statefulset linkding -o jsonpath='{.spec.template.spec.containers[?(@.name=="linkding")].image}')
+# The Service's cluster IP needs no name lookup, so no request can leave the
+# cluster through a search domain of the node.
+url=http://$(kubectl get service linkding -o jsonpath='{.spec.clusterIP}'):9090
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod starts.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image brings curl, so the test needs no other image.
+kubectl run linkding-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod linkding-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/linkding-smoke --for=condition=Ready --timeout=300s >/dev/null
+run() { kubectl exec linkding-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs linkding-0 --tail=40 >&2 || true; exit 1; }
+# curl in the session whose cookies the test pod keeps in /tmp/jar.
+web() { run curl -sS -b /tmp/jar -c /tmp/jar "$@"; }
+
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready. The last answer or curl error goes into the failure.
+reachable() {
+  local out
+  for _ in $(seq 30); do
+    out=$(run curl -sS "$url/health" 2>&1) && [[ $(jq -r .status <<<"$out") == healthy ]] && return
+    sleep 2
+  done
+  fail "/health through the Service linkding: ${out:-no answer}"
+}
+# A new session that logs in through the login form with the password $1.
+# Prints the status of the form's POST.
+login() {
+  local page token
+  run rm -f /tmp/jar
+  page=$(web "$url/login/")
+  token=$(sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' <<<"$page")
+  web -o /dev/null -w '%{http_code}' --data-urlencode "csrfmiddlewaretoken=$token" \
+    --data-urlencode "username=$admin" --data-urlencode "password=$1" "$url/login/"
+}
+# A request to the REST API in the session, with the CSRF token that Django
+# asks for on a POST. Prints the status, the body goes to /tmp/out.
+api() {
+  local csrf
+  csrf=$(run awk '$6 == "ld_csrftoken" {print $7}' /tmp/jar)
+  web -o /tmp/out -w '%{http_code}' -H "X-CSRFToken: $csrf" "$@"
+}
+# The URLs of the bookmarks tagged smoke, as the session lists them.
+listed() {
+  local status
+  status=$(api "$url/api/bookmarks/?q=%23smoke")
+  [[ $status == 200 ]] || { echo "status $status"; return; }
+  jq -r '.results[].url' <<<"$(run cat /tmp/out)"
+}
+
+reachable
+status=$(run curl -sS -o /dev/null -w '%{http_code}' "$url/api/bookmarks/")
+[[ $status == 401 ]] || fail "/api/bookmarks/ without credentials answered $status, not 401"
+login wrong-password >/dev/null
+status=$(api "$url/api/bookmarks/")
+[[ $status == 401 ]] || fail "/api/bookmarks/ after a login with a wrong password answered $status, not 401"
+
+status=$(login "$password")
+[[ $status == 302 ]] || fail "the login of $admin answered $status, not 302"
+# disable_scraping: linkding loads nothing from the bookmark's URL.
+status=$(api -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com/smoke", "title": "Smoke bookmark", "tag_names": ["smoke"]}' \
+  "$url/api/bookmarks/?disable_scraping")
+[[ $status == 201 ]] || fail "creating the bookmark answered $status, not 201: $(run cat /tmp/out)"
+out=$(listed)
+[[ $out == https://example.com/smoke ]] || fail "the bookmark is not listed: $out"
+
+kubectl delete pod linkding-0 --wait >/dev/null
+kubectl wait pod/linkding-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/linkding-0 --for=condition=Ready --timeout=300s >/dev/null
+reachable
+# The session and the bookmark come from db.sqlite3, and Django reads the
+# session only with the key of secretkey.txt, all on the claim data.
+out=$(listed)
+[[ $out == https://example.com/smoke ]] || fail "after linkding-0 restarted, the session from before did not list the bookmark: $out"
+# check reports the last line.
+echo "linkding answered the REST API with 401 without a login and after a wrong password, let the superuser log in and create a bookmark through the Service linkding, and after linkding-0 restarted listed it in the same session. The pod passes Pod Security restricted."
