@@ -20,7 +20,7 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #36, rabbitmq-cluster-operator and rabbitmq at deploys;
                   #38 and #42, keycloak at deploys;
                   #39, nextcloud and valkey at deploys;
-                  this change, cert-manager at migrates
+                  #176, cert-manager at migrates
 ```
 
 ## Problem
@@ -9543,7 +9543,7 @@ node's rules works only on kind and for one proxy mode.
   - Test: `check <name> --level migrates`, report lines `migrates: ...
     smoke`; `check/tests/test_check.py` (`Migrate`); CI `check` job of
     cert-manager
-  - Since: this change
+  - Since: #176
 
 - RCP-14a: After the steps, no object in the cluster may carry the label
   `app.kubernetes.io/managed-by: Helm`.
@@ -9555,7 +9555,7 @@ node's rules works only on kind and for one proxy mode.
     `migrates: no object labelled app.kubernetes.io/managed-by: Helm`;
     `check/tests/test_check.py` (`Migrate`); CI `check` job of
     cert-manager
-  - Since: this change
+  - Since: #176
 
 - RCP-14b: Before step 1, `check` MUST print the Deployments of step 2,
   the objects step 7 deletes and the objects it keeps.
@@ -9565,7 +9565,7 @@ node's rules works only on kind and for one proxy mode.
   - Test: `check/tests/test_check.py` (`MigrationPlan`, `Migrate`); CI
     `check` job, report lines `migrates: selector changed` and
     `migrates: leftover`
-  - Since: this change
+  - Since: #176
 
 - AC-414 (RCP-14 to RCP-14b): `check/tests/test_check.py` runs the steps in
   their order against a fake cluster, prints the Deployment with a changed
