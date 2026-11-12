@@ -313,7 +313,9 @@ def base_changes(recipe, base, objs, namespace, work, compiled=None):
         fetch_generators(old, project, sub)
         compile_recipe(project, sub / "out")
     except Failed as e:
-        return [f"not compared, the base does not compile: {str(e).strip().splitlines()[-1][:300]}"]
+        # As in compile_next: Kapitan's last line names the target, an earlier one the cause.
+        lines = [line for line in str(e).splitlines() if "Compile failed" in line or "Error" in line]
+        return [f"not compared, the base does not compile: {(lines or str(e).strip().splitlines())[-1].strip()[:300]}"]
     return compare.changes(objects_of(compiled_files(sub / "out", recipe.name)), objs, namespace) or [
         "same images, permissions, webhooks and host access"]
 

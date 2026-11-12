@@ -425,9 +425,12 @@ class BaseChanges(unittest.TestCase):
         self.fetch.assert_not_called()
 
     def test_base_that_does_not_compile(self):
-        with mock.patch("check.compile_recipe", side_effect=check.Failed("kapitan compile exited 1:\nCompile failed: x")):
+        """The cause, not Kapitan's last line, as Kapitan 0.36.3 reports a failed kadet input."""
+        failed = check.Failed("kapitan compile exited 1:\nError compiling valkey: Could not load Kadet module: kubernetes\n"
+                              "Compile error: failed to compile target: valkey\n")
+        with mock.patch("check.compile_recipe", side_effect=failed):
             lines = check.base_changes(RECIPES / "valkey", RECIPES, self.new, "valkey", self.tmp)
-        self.assertEqual(lines, ["not compared, the base does not compile: Compile failed: x"])
+        self.assertEqual(lines, ["not compared, the base does not compile: Error compiling valkey: Could not load Kadet module: kubernetes"])
 
 
 class NextAttestation(unittest.TestCase):

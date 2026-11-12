@@ -10083,7 +10083,7 @@ argument as a literal `${...}` and reads nothing.
 
   - Test: `check/tests/test_compare.py` (`Changes`),
     `check/tests/test_check.py` (`BaseChanges`, `GivenOutputs`); CI
-    `check` job, report lines `base:`
+    `check` job, report lines `base:` (AC-6)
   - Since: #174
 
 - RCP-21a: A pull request that moves a recipe to a new chart version
