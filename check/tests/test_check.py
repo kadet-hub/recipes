@@ -272,7 +272,7 @@ class Migrate(unittest.TestCase):
     RECIPE = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"name": "web"}}}},
               obj("Service", "web"), obj("Role", "web-leader")]
 
-    def migrate(self, failing_run=None, labelled=()):
+    def migrate(self, failing_run=None, error=check.Failed("smoke failed"), labelled=()):
         self.steps, self.report, calls = [], [], []
         replicasets = {"items": [{"metadata": {"name": "web-1", "ownerReferences": [{"kind": "Deployment", "name": "web"}]}},
                                  {"metadata": {"name": "other-1"}}]}
@@ -286,7 +286,7 @@ class Migrate(unittest.TestCase):
             calls.append(None)
             threading.Event().wait(0.001)
             if len(calls) == failing_run:
-                raise check.Failed("smoke failed")
+                raise error
             return "ok"
 
         cluster = mock.Mock(kubeconfig=Path("/nonexistent"))
@@ -326,7 +326,11 @@ class Migrate(unittest.TestCase):
 
     def test_failed_run_during_the_steps_fails(self):
         self.assertTrue(self.migrate(failing_run=2))
-        self.assertRegex(self.report[3], r"^migrates: smoke during the steps failed in 1 of \d+ runs, first: smoke failed$")
+        self.assertRegex(self.report[3], r"^migrates: smoke during the steps failed in 1 of \d+ runs, first: Failed: smoke failed$")
+
+    def test_timed_out_run_during_the_steps_fails(self):
+        self.assertTrue(self.migrate(failing_run=2, error=subprocess.TimeoutExpired(["tests/smoke"], 600)))
+        self.assertRegex(self.report[3], r"failed in 1 of \d+ runs, first: TimeoutExpired: Command '\['tests/smoke'\]' timed out")
 
     def test_object_labelled_by_helm_fails(self):
         self.assertTrue(self.migrate(labelled=["serviceaccount/web"]))

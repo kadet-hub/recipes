@@ -643,8 +643,8 @@ def migrate(cluster, tgz, chart, objs, recipe, namespace, namespaces, prereqs, s
             try:
                 smoke(cluster, recipe)
                 runs.append(None)
-            except Failed as e:
-                runs.append(str(e))
+            except Exception as e:  # also a run that timed out: the thread must not end without a verdict
+                runs.append(f"{type(e).__name__}: {e}")
             if stop.is_set():
                 return
 
