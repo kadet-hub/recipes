@@ -1,0 +1,12 @@
+classes:
+  - recipes.linkding
+parameters:
+  namespace: linkding
+  kapitan:
+    vars:
+      target: linkding
+  applications:
+    linkding:
+      # The login of tests/smoke.
+      superuser_name: smoke-admin
+      superuser_password: smoke-password

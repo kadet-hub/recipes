@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.linkding.superuser_name
+    description: Username of the superuser that linkding creates at its first start (LD_SUPERUSER_NAME).
+    secret: false
+  - path: applications.linkding.superuser_password
+    description: Password of that superuser, read only when linkding creates it (LD_SUPERUSER_PASSWORD).
+    secret: true

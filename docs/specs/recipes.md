@@ -10,7 +10,7 @@ Status: Draft. check 0.20.2 implements renders and deploys, for charts
         not implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
-Code: <name>/, check/, .github/, renovate.json, README.md
+Code: <name>/, check/, .github/, renovate.json, README.md, CONTRIBUTING.md
 Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #14, mysql at deploys; #17, mongodb at deploys;
                   #19, powerdns at deploys; #29, strimzi at deploys;
@@ -9241,6 +9241,179 @@ Not proven: the phone apps and their push through ntfy.sh, web push, the
 web app in a browser, e-mail, a route or Ingress in front of the Service,
 the rate limits behind a proxy, and PostgreSQL in place of SQLite.
 
+## linkding
+
+linkding is a bookmark manager. Its users save links with tags and notes
+in a web UI or through a REST API and search them. sissbruecker/linkding
+is MIT and builds the image `docker.io/sissbruecker/linkding`, which it
+also pushes as `ghcr.io/sissbruecker/linkding`. Release v1.47.0 of
+2026-09-13 was the newest on 2026-11-12. The image tag `1.47.0` is an
+index for amd64, arm64 and arm/v7,
+`sha256:e35cb50e0581178f245125ffaa909c565416c94c9f22ace305a7d234a4345522`,
+which `latest` pointed to on 2026-11-12. The image carries no
+`org.opencontainers.image.revision` label. The one security advisory of
+sissbruecker/linkding, GHSA-3pf9-5cjv-2w7q, names 1.44.2 as fixed. Docker
+Hub listed 195 tags of `sissbruecker/linkding` on 2026-11-12, fewer than
+the 1000 past which Renovate gets no release timestamps, so the image
+needs no package rule for them.
+
+The project publishes no chart. Its community page lists a Helm chart of
+pascaliske, a third party's, which DEC-11 rejects. `linkding` takes
+`docker-compose.yml` at the root of the repository at commit
+`24b5ad6cc9bde497b5d1b1e86aed5a2fb7d25c2f`, the tag `v1.47.0`, SHA-256
+`d8f0b8b359100e6721dbdf240cf8fb62afc37bd9c737eaa35fc18c0f58d2785f`. The
+file runs `sissbruecker/linkding:latest`. It last changed on 2024-08-28,
+so an image update passes `check` with the file's SHA-256 unless a
+release changes the file.
+
+The file's one service becomes the StatefulSet `linkding`. The bind mount
+`${LD_HOST_DATA_DIR:-./data}` resolves to `./data`, which the repository
+does not contain, and becomes the claim `data` at `/etc/linkding/data`
+(DEC-21). The published port `${LD_HOST_PORT:-9090}:9090` becomes port
+9090 of the Service `linkding`. The image's `HEALTHCHECK` runs `curl -f`
+on `/health` in shell form every 30 seconds with a timeout of 1 second and
+3 retries. It becomes the readiness probe `sh -c` with these values.
+`/health` answers 200 once linkding opens its database connection
+(`bookmarks/views/health.py`). `container_name` and `restart` render
+nothing.
+
+The `env_file` `.env` is not in the repository. The installation page has
+the user download `.env.sample` and rename it to `.env`, so the lines of
+`.env.sample` at the pinned commit become the container's environment,
+SHA-256 `12a0e13fc1b005ea484b96c666813d1a601de5ad85c9db82262b67950dcb10bf`,
+which the README names. `check` verifies only the compose file, so the
+review of an update compares `.env.sample` with that SHA-256. Most of its
+lines are empty. With SQLite and without an authentication proxy, linkding
+reads an empty value as its default (`bookmarks/settings/base.py`).
+`LD_DB_PASSWORD` is a credential, which Compose sources make a parameter.
+linkding reads it only for PostgreSQL, so the recipe leaves it out, as
+DEC-306 leaves out a credential that no service of the recipe uses.
+
+DEC-339: `linkding` runs as UID, GID and `fsGroup` 33 under
+`security_profile: restricted`. The compose file sets no `user` and the
+image has no `USER`, so it starts as root. Its `bootstrap.sh` then
+generates the secret key, migrates the database, creates the superuser,
+gives the data directory to `www-data` with `chown -R` and starts uwsgi,
+which `uwsgi.ini` switches to `www-data`, UID and GID 33 in the image. As
+UID 33 with the pinned image, every step ran, the `chown` of the mount
+point failed with `Operation not permitted`, and uwsgi served on port
+9090. Root was considered. Pod Security `restricted` refuses it, and
+linkding writes only to the claim and to `/tmp`. An arbitrary UID in the
+group root was considered too, which the Dockerfile prepares
+`/etc/linkding` for. The files on the claim would then not belong to
+`www-data`, as they do in a Docker installation after `bootstrap.sh`, and
+a data directory moved between the two would need a `chown`.
+
+DEC-340: `linkding` sets `LD_DISABLE_BACKGROUND_TASKS` to `True`, which
+`.env.sample` sets to `False`. `bootstrap.sh` starts linkding's task
+processor with `supervisord -c supervisord-tasks.conf`, and the section
+`[supervisord]` of that file sets `user=root`. As UID 33, supervisord
+exited with `Error: Can't drop privilege as nonroot user` before it
+started the processor, and `bootstrap.sh` went on to uwsgi. With `False`,
+linkding would queue tasks in `tasks.sqlite3` that nothing runs. With
+`True`, it queues none and `bootstrap.sh` skips supervisord. The tasks
+load favicons and preview images, create snapshots on the Internet
+Archive and refresh titles and descriptions (`bookmarks/services/tasks.py`).
+Favicons, preview images and the Internet Archive are off in a new user's
+profile (`UserProfile` in `bookmarks/models.py`). The REST API reads a
+page's title and description outside the tasks when it creates a bookmark
+without them (`BookmarkSerializer.create`). A second container with
+`python manage.py run_huey -f`, the command of supervisord's program
+`jobs`, was considered. Its tasks fetch from the internet, so neither CI
+nor `tests/smoke` could prove them. `bootstrap.sh` reads the same
+variable, so with `False` it would still start supervisord and log its
+error at every start.
+
+DEC-341: `linkding` requires `applications.linkding.superuser_name` and
+`applications.linkding.superuser_password` and sets them as
+`LD_SUPERUSER_NAME` and, through the Secret `linkding`,
+`LD_SUPERUSER_PASSWORD`. `.env.sample` leaves both empty, and linkding
+then creates no user. Its installation page has the user run
+`createsuperuser` through `docker exec` instead. linkding has no sign-up:
+`bookmarks/urls.py` routes `login/` and no registration, and the pinned
+image answered `/signup/` with 404. Without a user nobody logs in. At
+every start, `create_initial_superuser` creates the user with the
+password when no user of that name exists, and does nothing otherwise
+(`bookmarks/management/commands/create_initial_superuser.py`). A changed
+password parameter therefore never reaches the user, and a changed name
+adds a second superuser. Keeping the empty lines was considered. The
+recipe would start without an account until someone ran `createsuperuser`
+in the pod, and the account would not follow the inventory. A default name
+was considered too. No file of the project names one.
+
+- RCP-413: The `Source` line of `linkding` MUST name `docker-compose.yml`
+  of sissbruecker/linkding at the commit of the release tag `v<version>`
+  whose version the image's tag names, with the file's SHA-256, and
+  `linkding` MUST run `docker.io/sissbruecker/linkding` with that tag,
+  pinned to its index. The README MUST name the SHA-256 of `.env.sample`
+  at that commit.
+
+  Renovate moves tag and commit of the `Source` line and the image in one
+  pull request (RCP-16), and the SHA-256 by hand.
+
+  - Test: `check lint`; CI `check` job, report line `compose`;
+    `.env.sample`: manual: review
+  - Since: #164
+
+- RCP-414: `linkding` MUST run the StatefulSet `linkding` with UID, GID
+  and `fsGroup` 33 under `security_profile: restricted` (DEC-339), the
+  claim `data` at `/etc/linkding/data`, port 9090 of the Service
+  `linkding` and the readiness probe of the image's `HEALTHCHECK`.
+
+  - Test: `check lint`; RCP-416
+  - Since: #164
+
+- RCP-415: `linkding` MUST set each line of `.env.sample` but
+  `LD_DB_PASSWORD` as an environment variable, with
+  `LD_DISABLE_BACKGROUND_TASKS` at `True` (DEC-340). It MUST set
+  `LD_SUPERUSER_NAME` from `applications.linkding.superuser_name` and
+  `LD_SUPERUSER_PASSWORD` from the Secret `linkding`, whose value is
+  `applications.linkding.superuser_password`, and MUST leave both
+  parameters unset (DEC-341).
+
+  The compile stops with `Interpolation key ... not found` until the
+  target sets each parameter, the password as a ref (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); RCP-416
+  - Since: #164
+
+- RCP-416: The `tests/smoke` of `linkding` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace. From
+  a pod of the linkding image and through the cluster IP of the Service
+  `linkding` on port 9090, it MUST get `/health` and get 401 from
+  `/api/bookmarks/` without credentials and after a login with a wrong
+  password. It MUST log in through the login form as the superuser of
+  `tests/target.yml`, create a bookmark through the REST API with
+  `disable_scraping` and list it. Once the pod `linkding-0` was deleted and
+  its successor is ready, it MUST list the bookmark again in the session
+  from before the restart.
+
+  The image carries `curl`, so the test needs no other image. The cluster
+  IP needs no name lookup, so no request with the test's password can
+  reach a host outside the cluster through a search domain of the node.
+  `disable_scraping` keeps linkding from fetching the bookmark's URL.
+  After the restart, the session and the bookmark come from `db.sqlite3`.
+  Django accepts the session only with the key of `secretkey.txt`, which
+  `bootstrap.sh` generates once and `bookmarks/settings/prod.py` reads.
+  Both files are on the claim `data`. With an `emptyDir` in place of the
+  claim, the smoke test failed on the session after the restart.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #164
+
+- AC-413 (RCP-413 to RCP-416): `check linkding --level deploys` passes in
+  CI on each Kubernetes minor, and its smoke test lists the bookmark after
+  the restart. `tests/target.yml` without
+  `applications.linkding.superuser_name` or
+  `applications.linkding.superuser_password` stops the compile with
+  `Interpolation key` and that key.
+
+Not proven: PostgreSQL in place of SQLite, the web UI in a browser, the
+browser extension and API tokens, a route or Ingress in front of the
+Service with `LD_CSRF_TRUSTED_ORIGINS`, the background tasks, an
+authentication proxy and OIDC.
+
 ## gotify
 
 gotify is a server for push notifications. Applications push messages to
@@ -9407,6 +9580,21 @@ requester needs it, and labels the issue `recipe-request`. kadet-hub.org
 lists the open requests on `/wanted/`, most 👍 first (CAT-41 in
 kadet-hub/registry), so a second reader adds a 👍 instead of a duplicate.
 GitHub applies the label only when it exists in this repository.
+
+## Contributing
+
+`CONTRIBUTING.md` is where someone outside the project starts. It covers
+a recipe request, a new or changed recipe, a change to `check` or CI, and
+how a pull request is proven, reviewed, merged and released. For the
+rules themselves it links the requirements of this spec.
+
+- RCP-417: `CONTRIBUTING.md` MUST describe how to request a recipe, how to
+  add or change one and prove it with `check`, and how a pull request is
+  reviewed and merged. The README MUST link it.
+
+  - Test: manual: review of `CONTRIBUTING.md` against RCP-20, RCP-31,
+    RCP-57, RCP-65 and RCP-406, and of the README's link
+  - Since: #165
 
 ## Distribution
 
@@ -10269,6 +10457,7 @@ feature's design (OQ-6).
 | `README.md` | Using a recipe (RCP-15) |
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
+| `CONTRIBUTING.md` | Requests, recipe and `check` changes, review and merge (RCP-417) |
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
@@ -10353,4 +10542,5 @@ feature's design (OQ-6).
 | mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
 | librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.14.0, level `deploys` (RCP-335 to RCP-339) |
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
+| linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
 | gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
