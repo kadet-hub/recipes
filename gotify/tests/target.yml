@@ -1,0 +1,11 @@
+classes:
+  - recipes.gotify
+parameters:
+  namespace: gotify
+  kapitan:
+    vars:
+      target: gotify
+  applications:
+    gotify:
+      # The login of tests/smoke as the user admin.
+      admin_password: smoke-password
