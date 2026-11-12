@@ -1,8 +1,7 @@
 # Converter
 
 ```text
-Status: As-built. check 0.20.0 implements CNV-1 to CNV-20, CNV-5 without
-        the empty values that the generator leaves out (#138).
+Status: Draft. check 0.21.0 implements CNV-1 to CNV-20.
 Code: check/convert.py, check/tests/test_convert.py,
       check/tests/fixtures/convert/, check/pyproject.toml, check/uv.lock,
       .github/workflows/ci.yml (job convert), docs/convert.md, README.md
@@ -178,30 +177,37 @@ is anything `helm pull` takes: `oci://<repo>:<version>`,
 
   With the `kubernetes` generator 1.15.0 these are, among others, a
   StatefulSet's `podManagementPolicy`, an env `valueFrom` other than
-  `fieldRef`, `secretKeyRef` and `configMapKeyRef`, and
-  `revisionHistoryLimit`, `minReadySeconds` or `progressDeadlineSeconds`
-  of 0, which the generator writes only when truthy (DEC-188).
+  `fieldRef`, `secretKeyRef` and `configMapKeyRef`, a Service port
+  without a name, and `revisionHistoryLimit`, `minReadySeconds` or
+  `progressDeadlineSeconds` of 0, which the generator writes only when
+  truthy (DEC-188).
 
-  A StatefulSet's `serviceName` other than its own name is the
-  component's `statefulset_service_name`, which 1.15.0 added (K8S-17 in
-  kadet-hub/generators). A StatefulSet with claim templates gets
-  `volume_claim_name_label: false`, so the generator adds no `name` label
-  to them and they keep the chart's labels (K8S-18 there).
+  An empty value is not mappable where the generator writes the field only
+  when it is not empty. These are a container's `command`, `args` and
+  `lifecycle`, and the pod's `nodeSelector`, `tolerations`, `affinity`,
+  `priorityClassName`, `imagePullSecrets`, `dnsPolicy` and
+  `resourceClaims`. The report lists the value with its path, such as
+  `spec.template.spec.containers[sentinel].lifecycle: {}` for redis-ha's
+  sentinel container, and the converter does not write it. Where the API
+  server keeps the empty value, the proof shows it as a difference unless
+  RCP-12 accepts it, as it accepts a container's empty `lifecycle`.
 
-  The converter does not use the other keys that 1.15.0 added yet
-  (#138). A container's `workingDir`, the pod's `shareProcessNamespace`,
-  a port without a name and a Service's `ipFamilyPolicy` and `ipFamilies`
-  have keys in 1.15.0, and the report still lists them as not mappable.
-  The keys are K8S-19 to K8S-22 in kadet-hub/generators.
+  1.15.0 has keys for these chart fields (K8S-17 to K8S-22 in
+  kadet-hub/generators), and the converter writes them:
 
-  The report misses an empty value that the generator leaves out, because
-  the converter passes it on (#138). The proof shows it as a difference
-  unless RCP-12 accepts it. RCP-12 accepts a container's empty
-  `securityContext` and `lifecycle`, such as the `lifecycle: {}` of
-  redis-ha's sentinel container.
+  | Chart field | Inventory |
+  |---|---|
+  | A StatefulSet's `serviceName` other than its own name | The component's `statefulset_service_name` |
+  | A StatefulSet's `volumeClaimTemplates` | `volume_claim_name_label: false`, so the claims keep the chart's labels |
+  | A container's `workingDir` | `working_dir` |
+  | The pod's `shareProcessNamespace` | `share_process_namespace` |
+  | A container port without a name | The `ports` entry `port-<containerPort>` with `unnamed: true` |
+  | A Service's `ipFamilyPolicy` and `ipFamilies` | `ip_family_policy` and `ip_families` of its entry |
 
   - Test: `check/tests/test_convert.py` (`Mapping.test_not_mappable_fields`)
-  - Since: #100; `serviceName` and claim labels: #139
+  - Since: #100; `serviceName` and claim labels: #139; `workingDir`,
+    `shareProcessNamespace`, unnamed container ports, IP families and
+    empty values: this change
 
 - CNV-6: Where the generator writes a default that differs from the API
   default, the converter MUST write the chart's value, or the API default
