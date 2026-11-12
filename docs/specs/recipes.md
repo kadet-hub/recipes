@@ -9326,7 +9326,7 @@ and its example set.
   probe on `/health`.
 
   - Test: `check lint` (RCP-23); RCP-420
-  - Since: this change
+  - Since: #171
 
 - RCP-419: `gotify` MUST set `GOTIFY_DEFAULTUSER_PASS` from the Secret
   `gotify`, whose value is `applications.gotify.admin_password`, and MUST
@@ -9336,7 +9336,7 @@ and its example set.
   target sets it, as a ref (RCP-19, RCP-40).
 
   - Test: `check lint` (RCP-262); RCP-420
-  - Since: this change
+  - Since: #171
 
 - RCP-420: The `tests/smoke` of `gotify` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -9359,7 +9359,7 @@ and its example set.
   restart.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #171
 
 - AC-418 (RCP-418 to RCP-420): `check gotify --level deploys` passes in CI
   on each Kubernetes minor, and its smoke test lists the message after the
