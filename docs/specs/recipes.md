@@ -1,13 +1,14 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.20.2 implements renders and deploys, for charts
+Status: Draft. check 0.21.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
-        RCP-55), and renders from given outputs (RCP-34);
-        migrates (RCP-14), RCP-21 and RCP-52 before publication are
-        not implemented;
+        RCP-55), renders from given outputs (RCP-34) and the changes
+        against a pull request's base (RCP-21);
+        migrates (RCP-14) and RCP-52 before publication are not
+        implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
 Code: <name>/, check/, .github/, renovate.json, README.md, CONTRIBUTING.md
@@ -9956,7 +9957,7 @@ argument as a literal `${...}` and reads nothing.
   passed, unless it is a major update, lock file maintenance, a digest
   update of a GitHub Action, the `next` pin (RCP-29), the
   `kubernetes-versions.json` commit (RCP-70), or moves a `Source` line or a
-  `# renovate: Source` class line (RCP-16, RCP-21).
+  `# renovate: Source` class line (RCP-16, RCP-21a).
 
   Renovate merges without GitHub's auto-merge (`platformAutomerge: false`),
   so it waits for every check, and through a bypass of the `main` ruleset in
@@ -10048,13 +10049,72 @@ argument as a literal `${...}` and reads nothing.
   show, apart from the object diff, every image that changed, the `can-i`
   diff of each subject between the old and the new recipe, and any added
   webhook, hostPath volume, privileged container or host namespace.
-  Such pull requests MUST NOT merge automatically.
 
   `renders` compares the recipe with the chart. A compromised chart
   release passes it. This diff is what a reviewer can still catch.
 
-  - Test: `check` tests; Renovate configuration
-  - Since: not implemented; no automatic merge: #56 (RCP-30a)
+  On a pull request the `check` job passes the base, the first parent of
+  the merge commit, as a checkout with `--base`. `check` compiles the
+  base's recipe with the base's `tests/target.yml` and generator pins,
+  which it verifies as RCP-27 describes, and compares the two compiled
+  outputs without a cluster. The report lists each difference on a line
+  that starts with `base:` (DEC-345):
+
+  - `image: <old> -> <new>`, for each repository whose references
+    differ, `none` on the side without one;
+  - `permissions: <subject> in <namespace>: only old: <rule>` or
+    `only new: <rule>`, with `cluster-wide` in place of `in <namespace>`
+    for a ClusterRoleBinding (DEC-346);
+  - `added webhook`, `added hostPath volume`, `added privileged
+    container` and `added host namespace` (`hostNetwork`, `hostPID`,
+    `hostIPC`), each with its object.
+
+  An image is any reference pinned by digest anywhere in the objects:
+  containers, image arguments and custom resources. RCP-6 pins every
+  container image, so an unpinned image can only sit in a field such as
+  a custom resource's, and is not listed. A hostPath volume is one of a
+  pod or a PersistentVolume.
+
+  Without a difference the report says `base: same images, permissions,
+  webhooks and host access`. A recipe the base does not have, a base that
+  does not compile and a compiled output given with `--compiled`
+  (RCP-34) each get one line that says so. None of these lines decides
+  the check, a reviewer does (RCP-21a).
+
+  - Test: `check/tests/test_compare.py` (`Changes`),
+    `check/tests/test_check.py` (`BaseChanges`, `GivenOutputs`); CI
+    `check` job, report lines `base:`
+  - Since: tbd
+
+- RCP-21a: A pull request that moves a recipe to a new chart version
+  MUST NOT merge automatically.
+
+  - Test: manual: `renovate.json` `automerge` rules (RCP-30a)
+  - Since: #56 (RCP-30a)
+
+DEC-345: The changes against the base are lines of the `check` report,
+which the `check` job writes to its job summary with the rest of the
+report. A comment on the pull request was considered. CI runs pull
+requests with `permissions: {}` and no secrets (RCP-20), and a fork's
+token is read-only, so a comment would need a second workflow on
+`workflow_run` that posts with a write token what a fork's run produced.
+Every leg of RCP-70 prints the same lines, because they come from the
+compiled outputs alone. A local run with `--base` prints them too.
+
+DEC-346: `check` computes the permission diff from the RBAC objects of
+both compiled outputs, in the lines of `kubectl auth can-i --list` that
+RCP-11 diffs, without asking a cluster. A subject gets the rules of each
+Role or ClusterRole a binding gives it, and a ClusterRole with an
+`aggregationRule` also those of the ClusterRoles it selects. The rules of
+ClusterRoles that aggregate into `view`, `edit` and `admin` go to the
+subject `users bound to <role>`, as to the test users of RCP-11. A
+binding to a role the output does not render, such as `cluster-admin` or
+a role of a prerequisite, is one line with the role's name, so a new
+binding to it shows without the rules behind it. Asking `kubectl auth
+can-i` would need a third kind cluster per leg with the base applied. It
+would add the rules the cluster itself grants, such as those of the
+built-in roles and of discovery, which are the same for the old and the
+new recipe.
 
 - RCP-22: `check` MUST be released with its own version tag
   `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version
@@ -10147,7 +10207,11 @@ feature's design (OQ-6).
   and passes on cert-manager.
 - AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
   new recipe with an added image, an added ClusterRole verb and an added
-  hostPath volume makes `check` list all three.
+  hostPath volume makes `check` list all three. A webhook, a privileged
+  container and a host namespace that the new recipe adds are listed
+  too, and an unchanged pair lists nothing. In CI, on a pull request that
+  changes no recipe, the report of every recipe says `base: same images,
+  permissions, webhooks and host access`.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by commit SHA and compiles it with the two commands above, and once
   cert-manager is published, by digest through the registry's consumer
@@ -10330,10 +10394,10 @@ feature's design (OQ-6).
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
-| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
+| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243); changes against the base (RCP-21) |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-6, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
-| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70, RCP-271, RCP-406 |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-21, RCP-28, RCP-68, RCP-70, RCP-271, RCP-406 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
