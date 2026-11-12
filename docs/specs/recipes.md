@@ -9353,7 +9353,7 @@ was considered too. No file of the project names one.
 
   - Test: `check lint`; CI `check` job, report line `compose`;
     `.env.sample`: manual: review
-  - Since: this change
+  - Since: #164
 
 - RCP-414: `linkding` MUST run the StatefulSet `linkding` with UID, GID
   and `fsGroup` 33 under `security_profile: restricted` (DEC-339), the
@@ -9361,7 +9361,7 @@ was considered too. No file of the project names one.
   `linkding` and the readiness probe of the image's `HEALTHCHECK`.
 
   - Test: `check lint`; RCP-416
-  - Since: this change
+  - Since: #164
 
 - RCP-415: `linkding` MUST set each line of `.env.sample` but
   `LD_DB_PASSWORD` as an environment variable, with
@@ -9375,7 +9375,7 @@ was considered too. No file of the project names one.
   target sets each parameter, the password as a ref (RCP-19, RCP-40).
 
   - Test: `check lint` (RCP-262); RCP-416
-  - Since: this change
+  - Since: #164
 
 - RCP-416: The `tests/smoke` of `linkding` MUST require no Pod Security
   warning from a server-side dry run of the label
@@ -9400,7 +9400,7 @@ was considered too. No file of the project names one.
   claim, the smoke test failed on the session after the restart.
 
   - Test: CI `check` job, report line `smoke`
-  - Since: this change
+  - Since: #164
 
 - AC-413 (RCP-413 to RCP-416): `check linkding --level deploys` passes in
   CI on each Kubernetes minor, and its smoke test lists the bookmark after
