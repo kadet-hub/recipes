@@ -87,7 +87,8 @@ class Mapping(unittest.TestCase):
         self.assertNotIn("statefulset_service_name", mapped(sts).p["components"]["web"])
         sts["spec"]["serviceName"] = "other"
         sts["spec"]["template"]["spec"]["containers"][0].update(workingDir="/srv", lifecycle={}, command=[])
-        sts["spec"]["template"]["spec"]["containers"][0]["ports"].append({"containerPort": 9090})
+        sts["spec"]["template"]["spec"]["containers"][0]["ports"] += [
+            {"containerPort": 9090}, {"containerPort": 9090, "protocol": "UDP"}, {"containerPort": 8080}, {"name": "port-8080", "containerPort": 8081}]
         self.assertNotIn("volume_claim_name_label", mapped(sts).p["components"]["web"])
         sts["spec"]["volumeClaimTemplates"] = [{"metadata": {"name": "data"}, "spec": {"accessModes": ["ReadWriteOnce"]}}]
         svc = {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "web"},
@@ -99,6 +100,7 @@ class Mapping(unittest.TestCase):
         self.assertIs(web["volume_claim_name_label"], False)
         self.assertEqual((web["working_dir"], web["share_process_namespace"]), ("/srv", True))
         self.assertEqual(web["ports"]["port-9090"], {"container_port": 9090, "unnamed": True})
+        self.assertEqual(web["ports"]["port-9090-udp"], {"container_port": 9090, "protocol": "UDP", "unnamed": True})
         self.assertEqual(web["tolerations"], [{"operator": "Exists"}])
         self.assertFalse({"affinity", "lifecycle", "command"} & set(web))
         services = m.p["generators"]["kubernetes"]["services"]
@@ -107,6 +109,7 @@ class Mapping(unittest.TestCase):
             "spec.template.spec.affinity: {}",
             "spec.template.spec.containers[web].command: []",
             "spec.template.spec.containers[web].lifecycle: {}",
+            "spec.template.spec.containers[web].ports[port-8080] more than once",
         ])
         self.assertEqual(m.not_mappable["Service/web"], ["spec.ports[80] without name"])
 

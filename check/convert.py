@@ -203,12 +203,14 @@ class Mapper:
             port = dict(port)
             name = port.pop("name", None)
             entry = {"container_port": port.pop("containerPort")}
-            if name is None:  # the key still orders the ports (K8S-21)
-                name = f"port-{entry['container_port']}"
-                entry["unnamed"] = True
             protocol = port.pop("protocol", "TCP")
             if protocol != "TCP":
                 entry["protocol"] = protocol
+            if name is None:  # the key still orders the ports (K8S-21)
+                name = f"port-{entry['container_port']}" + ("" if protocol == "TCP" else f"-{protocol.lower()}")
+                entry["unnamed"] = True
+            if name in ports:  # the generator renders one port per key
+                self.gap(obj, f"{where}.ports[{name}] more than once")
             for k in port:
                 self.gap(obj, f"{where}.ports[{name}].{k}")
             ports[name] = entry
