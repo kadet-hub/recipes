@@ -1,0 +1,9 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.ntfy.base_url
+    description: URL that phones and browsers reach ntfy at, with its scheme and without a path (NTFY_BASE_URL).
+    secret: false
+  - path: applications.ntfy.auth_users
+    description: Users of the private instance as comma-separated <name>:<bcrypt hash>:<role> entries, the hash from ntfy user hash (NTFY_AUTH_USERS).
+    secret: true

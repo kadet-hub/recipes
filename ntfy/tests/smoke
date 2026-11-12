@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# RCP-412: the pod under Pod Security restricted, then from a pod of the ntfy
+# image through the Service ntfy on port 80 the access control of the private
+# instance, a message and a file published as the admin and read back, and
+# both again after ntfy-0 restarted.
+set -euo pipefail
+url=http://ntfy
+admin=smoke-admin:smoke-password
+# The base URL of tests/target.yml.
+base_url=http://ntfy.example.com
+image=$(kubectl get statefulset ntfy -o jsonpath='{.spec.template.spec.containers[?(@.name=="ntfy")].image}')
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod starts.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image brings the ntfy client and busybox wget, so the test needs no
+# other image.
+kubectl run ntfy-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod ntfy-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/ntfy-smoke --for=condition=Ready --timeout=300s >/dev/null
+run() { kubectl exec ntfy-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs ntfy-0 --tail=40 >&2 || true; exit 1; }
+
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready. The last answer or wget error goes into the failure.
+reachable() {
+  local out
+  for _ in $(seq 30); do
+    out=$(run wget -q -O - "$url/v1/health" 2>&1) && [[ $(jq -r .healthy <<<"$out") == true ]] && return
+    sleep 2
+  done
+  fail "/v1/health through the Service ntfy: ${out:-no answer}"
+}
+# The HTTP status of a message posted to the URL, as busybox wget reports it.
+status() {
+  local out
+  out=$(run wget -q -O /dev/null --post-data=smoke "$1" 2>&1) && { echo 200; return; }
+  sed -n 's|.*HTTP/1\.1 \([0-9]*\).*|\1|p' <<<"$out"
+}
+# The ids of the cached messages of the topic smoke, read as the admin.
+ids() { run wget -q -O - "http://$admin@ntfy/smoke/json?poll=1" | jq -r .id; }
+download() { run sh -c "wget -q -O - 'http://$admin@ntfy/file/$1' | sha256sum" | cut -d' ' -f1; }
+
+reachable
+[[ $(status "$url/smoke") == 403 ]] || fail "a message without credentials was not refused with 403"
+[[ $(status "http://smoke-admin:wrong@ntfy/smoke") == 401 ]] || fail "a message with a wrong password was not refused with 401"
+
+message=$(run ntfy publish -u "$admin" "$url/smoke" "Smoke message") || fail "the admin could not publish: $message"
+run sh -c 'head -c 4096 /dev/urandom >/tmp/smoke.bin'
+sum=$(run sha256sum /tmp/smoke.bin | cut -d' ' -f1)
+file=$(run ntfy publish -u "$admin" --file /tmp/smoke.bin "$url/smoke") || fail "the admin could not publish the file: $file"
+attachment=$(jq -r .attachment.url <<<"$file")
+[[ $attachment == "$base_url/file/"* ]] || fail "the attachment URL $attachment does not start with $base_url/file/"
+name=${attachment##*/}
+expected=$(printf '%s\n' "$(jq -r .id <<<"$message")" "$(jq -r .id <<<"$file")")
+[[ $(ids) == "$expected" ]] || fail "poll=1 did not return the message and the file"
+[[ $(download "$name") == "$sum" ]] || fail "/file/$name differs from the published file"
+
+kubectl delete pod ntfy-0 --wait >/dev/null
+kubectl wait pod/ntfy-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/ntfy-0 --for=condition=Ready --timeout=300s >/dev/null
+reachable
+# The messages come from cache.db and the file from attachments, both on the
+# claim data. ntfy provisions the admin again at every start.
+[[ $(ids) == "$expected" ]] || fail "the message and the file are gone after the restart"
+[[ $(download "$name") == "$sum" ]] || fail "/file/$name differs from the published file after the restart"
+# check reports the last line.
+echo "ntfy refused messages without credentials and with a wrong password, took a message and a file from the admin and served both through the Service ntfy, and after ntfy-0 restarted it still had both. The pod passes Pod Security restricted."
