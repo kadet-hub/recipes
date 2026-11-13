@@ -5871,9 +5871,9 @@ chart, which DEC-11 rules out.
 memcached 1.6.45, tagged on 2026-07-10, was the newest release of
 memcached/memcached on 2026-11-05. Docker Hub's tag `1.6.45`, also `1.6`,
 `1` and `latest`, is the index
-`sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
+`sha256:a395a1bcf5e0e2b0fa4a0142e12b4e24a2320ba4b7c6ffa8655a1a86e8f29dee`
 for amd64, arm/v5, arm/v7, arm64/v8, 386, ppc64le, riscv64 and s390x,
-built on 2026-10-28 from docker-library/memcached at
+built on 2026-11-05 from docker-library/memcached at
 `53ac0ecb0bf88b471a0110f8996ce791baf1a667` on Debian 13. The recipe runs
 this default variant. The variant `1.6.45-alpine` builds the same release
 on Alpine Linux, and the recipe has no reason to leave the default.
