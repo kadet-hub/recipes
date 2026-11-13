@@ -827,9 +827,9 @@ def main(argv=None):
                         help="helm template's output of the chart, or the release manifest (RCP-34)")
     args = parser.parse_args(argv)
     if args.args[0] == "select" and len(args.args) <= 2:
-        # The changed files of HEAD against <base>, at old and new path of a move; every recipe without it.
-        diff = ["git", "diff", "--name-only", "--no-renames", *args.args[1:], "HEAD"]
-        recipes, every = select(Path.cwd(), run(diff).splitlines() if len(args.args) == 2 else None)
+        # The changed files of HEAD against <base>, at old and new path of a move, unquoted; every recipe without it.
+        diff = ["git", "diff", "--name-only", "--no-renames", "-z", *args.args[1:], "HEAD"]
+        recipes, every = select(Path.cwd(), run(diff).split("\0")[:-1] if len(args.args) == 2 else None)
         print(f"recipes={json.dumps(recipes, separators=(',', ':'))}")
         print(f"all={'1' if every else ''}")
         return 0

@@ -281,7 +281,7 @@ class Select(unittest.TestCase):
         self.assertIn({"name": "leaf", "level": None}, recipes)
         self.assertEqual(check.select(self.root, ["leaf/init.yml"])[0], [{"name": "leaf", "level": None}])
 
-    def test_cli_counts_a_move_at_both_paths(self):
+    def test_cli_counts_a_move_at_both_paths_and_reads_names_literally(self):
         env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PATH": os.environ["PATH"],
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t",
                "GIT_COMMITTER_EMAIL": "t@example.org"}
@@ -294,6 +294,9 @@ class Select(unittest.TestCase):
         git("add", ".")
         git("commit", "-qm", "base")
         git("mv", "db/extra.yml", "leaf/extra.yml")
+        # git diff quotes a name with a non-ASCII byte unless -z.
+        (self.root / "leaf" / "tests" / "sm\u00f6ke").write_text("")
+        git("add", ".")
         git("commit", "-qm", "move")
         out = io.StringIO()
         with mock.patch.dict(os.environ, env), contextlib.chdir(self.root), contextlib.redirect_stdout(out):
