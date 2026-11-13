@@ -1,5 +1,6 @@
 classes:
   - recipes.nextcloud
+  - recipes.nextcloud.mail
 parameters:
   namespace: nextcloud
   kapitan:
@@ -15,6 +16,14 @@ parameters:
         name: gateway
         namespace: gateway
         section: http
+      # The smoke test sends no mail.
+      mail:
+        from_address: nextcloud
+        domain: example.com
+        smtp:
+          host: smtp.example.com
+          name: nextcloud
+          password: smoke-password
     valkey:
       password: smoke-password
     # One instance is enough for the proof.
