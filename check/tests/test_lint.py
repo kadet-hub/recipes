@@ -267,7 +267,7 @@ class Lint(unittest.TestCase):
             "broken.yml: components.cert-manager-extra.init_containers.wait.args is a list, write it as a mapping (RCP-43)",
         ])
         init = self.recipe / "init.yml"
-        init.write_text(init.read_text().replace("kubernetes:1.14.0@", "kubernetes:1.6.0@"))
+        init.write_text(re.sub(r"kubernetes:[0-9.]+@", "kubernetes:1.6.0@", init.read_text()))
         self.assertEqual(lint.lint_warnings(self.recipe), [])
 
     def test_args_mappings_do_not_warn(self):
