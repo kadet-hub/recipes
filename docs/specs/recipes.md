@@ -2062,7 +2062,7 @@ files. The rest waits for later recipes or options (OQ-12):
 | Admin account | Secret `nextcloud`, as the chart renders it | the password is a ref the target sets (RCP-19) |
 | Host and proxy | `phpClientHttpsFix`, `nextcloud.host`, `trustedDomains` | Exposure; `TRUSTED_PROXIES` is a setting |
 | Upload size | on the Gateway's side | Exposure |
-| SMTP | not rendered | the admin settings write the mail server into `config.php` on the claim; the chart's `nextcloud.mail` can become an option |
+| SMTP | option `mail` | the chart's `nextcloud.mail` (DEC-347) |
 | notify_push | not rendered | the chart has no support; the Client Push app needs its own daemon (nextcloud/notify_push) behind a path of the route |
 | Office | not rendered | Collabora publishes `oci://ghcr.io/collaboraonline/charts/collabora-online`; ONLYOFFICE-based servers such as Euro-Office also need RabbitMQ |
 | imaginary | not rendered | the chart's `imaginary.enabled` can become an option; previews work without it |
@@ -2076,6 +2076,47 @@ The target sets `applications.nextcloud.host`,
 `applications.nextcloud.admin.password` and `applications.valkey.password`
 (RCP-51). `applications.nextcloud.gateway.section`, the listener's
 `sectionName`, is optional.
+
+### The option `mail`
+
+The option `mail`, which a target includes as `recipes.nextcloud.mail`,
+renders what the chart renders with `nextcloud.mail.enabled`. The Secret
+`nextcloud` gets the keys `smtp-host`, `smtp-username` and
+`smtp-password`. The containers `nextcloud` and `nextcloud-cron` get
+`MAIL_FROM_ADDRESS`, `MAIL_DOMAIN`, `SMTP_SECURE`, `SMTP_PORT` and
+`SMTP_AUTHTYPE` as values and `SMTP_HOST`, `SMTP_NAME` and
+`SMTP_PASSWORD` from that Secret. The cron sidecar takes its env from
+`components.nextcloud.env`, so the option sets the variables once.
+
+DEC-347: `nextcloud` configures outgoing mail through the image's
+variables, in the option `mail`. The image's `config/smtp.config.php`
+sets the mail server from them on every request, once `SMTP_HOST`,
+`MAIL_FROM_ADDRESS` and `MAIL_DOMAIN` are set (`.config/smtp.config.php`
+of nextcloud/docker). Nextcloud reads `config.php` first and every
+`*.config.php` after it, and a later file overrides a key (`readData` in
+`lib/private/Config.php` of nextcloud/server `stable35`). With the
+option, the admin settings no longer change the mail server. The target
+sets `applications.nextcloud.mail.from_address`, `.domain`,
+`.smtp.host`, `.smtp.name` and, as a ref, `.smtp.password` (RCP-19). The
+chart's defaults for them, such as `domain.com` and `pass`, are
+placeholders. `.smtp.secure`, `.smtp.port` and `.smtp.authtype` default
+to the chart's `ssl`, 465 and `LOGIN`. Leaving the mail server to the
+admin settings, as the first version did, was considered. It would live
+only in `config.php` on the claim, where no target can declare it.
+
+- RCP-421: With the option `mail`, `nextcloud` MUST render the Secret
+  keys and the eight variables that the chart renders with
+  `nextcloud.mail.enabled`, from `applications.nextcloud.mail`. Without
+  the option, it MUST compile to the same files as before the option
+  existed.
+
+  `tests/target.yml` includes the option, and `tests/values.yaml` enables
+  `nextcloud.mail` with the same values. The smoke test sends no mail, so
+  the SMTP server of both is a placeholder.
+
+  - Test: `check nextcloud`; manual: compile of `tests/target.yml`
+    without the option, compared with its compile at #173
+  - Since: this change
 
 ### Backups
 
@@ -10490,6 +10531,7 @@ feature's design (OQ-6).
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | powerdns | `docker.io/powerdns/pdns-auth-51` 5.1.5, SQLite on the claim `data`, zone `applications.powerdns.zone` with the SOA primary `ns1.<zone>.` set by the init container `zone` (RCP-194, RCP-195), `kubernetes` generator 1.14.0, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
+| nextcloud option `mail` | `recipes.nextcloud.mail`, the chart's `nextcloud.mail` from `applications.nextcloud.mail` (RCP-421, DEC-347) |
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.14.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
 | postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
