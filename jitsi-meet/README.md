@@ -2,7 +2,7 @@
 
 Jitsi Meet, video meetings in the browser, as its four services web, prosody,
 jicofo and the video bridge jvb, rendered by the kadet-hub `kubernetes`
-generator 1.14.0 from `docker-compose.yml` of docker-jitsi-meet stable-11248-3.
+generator 1.16.0 from `docker-compose.yml` of docker-jitsi-meet stable-11248-3.
 
 <!-- renovate: tag=stable-11248-3 -->
 Source: `https://github.com/jitsi/docker-jitsi-meet/blob/fca3e3a578a1bdd527c20b9d86a31cfc362d5426/docker-compose.yml@sha256:e50de1a563bfeb005e7afd9b2defbeb298f21c8ea76ba0080724398191366a6e`

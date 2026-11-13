@@ -1,7 +1,7 @@
 # ollama
 
 Ollama 0.33.2 on the CPU, which runs language models behind an HTTP API on
-port 11434, rendered by the kadet-hub `kubernetes` generator 1.14.0 from the
+port 11434, rendered by the kadet-hub `kubernetes` generator 1.16.0 from the
 `ollama` chart 1.79.0 that Open WebUI's chart includes.
 
 Source: `https://otwld.github.io/ollama-helm/ollama:1.79.0@sha256:96d96ad0b422eccd40d8982b4fef834ef4f33a7fb81abfd3fc44ee0ac6e025f4`

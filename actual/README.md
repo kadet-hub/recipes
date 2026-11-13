@@ -1,7 +1,7 @@
 # actual
 
 Actual Budget's sync server, a personal finance app with its web UI, with
-its data on a claim, rendered by the kadet-hub `kubernetes` generator 1.14.0
+its data on a claim, rendered by the kadet-hub `kubernetes` generator 1.16.0
 from the Docker Compose file of Actual 26.11.0.
 
 <!-- renovate: tag=v26.11.0 -->

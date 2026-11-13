@@ -2,7 +2,7 @@
 
 Immich v3.3.5, the photo and video management server, with its machine
 learning service on the CPU and a library claim, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from Immich's Helm chart 0.13.4. The database
+`kubernetes` generator 1.16.0 from Immich's Helm chart 0.13.4. The database
 is the included recipe `postgresql` with pgvector, the queue `valkey`.
 
 Source: `oci://ghcr.io/immich-app/immich-charts/immich:0.13.4@sha256:9957cfe69ed64f4d4550f39b369c6cf3b2b040bb4d9a5abdced9a60c1153093f`

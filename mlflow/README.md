@@ -2,7 +2,7 @@
 
 MLflow 3.18.0, the tracking server with its model registry and basic auth,
 on the PostgreSQL of the included recipe `postgresql` with artifacts on a
-claim, rendered by the kadet-hub `kubernetes` generator 1.14.0 from
+claim, rendered by the kadet-hub `kubernetes` generator 1.16.0 from
 MLflow's Helm chart `mlflow` 3.18.0.
 
 Source: `oci://ghcr.io/mlflow/charts/mlflow:3.18.0@sha256:14838bbc4d897fd1675edef7930c5eb0135f0791d4479be2c3357dde5d5b259e`

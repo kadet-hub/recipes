@@ -2,7 +2,7 @@
 
 linkding 1.47.0, a bookmark manager with a web UI and a REST API, with its
 SQLite database on a claim and its first superuser from the inventory,
-rendered by the kadet-hub `kubernetes` generator 1.14.0 from its Docker
+rendered by the kadet-hub `kubernetes` generator 1.16.0 from its Docker
 Compose file.
 
 <!-- renovate: tag=v1.47.0 -->

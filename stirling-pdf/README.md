@@ -2,7 +2,7 @@
 
 Stirling-PDF 3.2.0, a web UI and HTTP API that merges, splits, converts
 and edits PDF files, with its settings and users on a claim, rendered by
-the kadet-hub `kubernetes` generator 1.14.0 from the project's Helm chart
+the kadet-hub `kubernetes` generator 1.16.0 from the project's Helm chart
 `stirling-pdf-chart` 4.0.0.
 
 Source: `https://docs.stirlingpdf.com/Stirling-PDF-chart/stirling-pdf-chart:4.0.0@sha256:fe3700310f5422606f5f983000afb39ddf6b54b66d034c6f041fefb8c0e788f9`

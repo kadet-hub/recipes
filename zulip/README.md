@@ -2,7 +2,7 @@
 
 Zulip 12.3, team chat organized by channel and topic, with its first
 organization and owner created from parameters, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from Zulip's Helm chart 2.3.0, on the
+`kubernetes` generator 1.16.0 from Zulip's Helm chart 2.3.0, on the
 included recipes `postgresql`, `rabbitmq`, `memcached` and `valkey`.
 
 Source: `oci://ghcr.io/zulip/helm-charts/zulip:2.3.0@sha256:e462aaa5d39e89661927ad9a744c57b938f8d75e09c5660712314111a2802593`

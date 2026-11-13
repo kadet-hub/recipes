@@ -2,7 +2,7 @@
 
 LiteLLM 1.108.0, a proxy that serves one OpenAI-compatible API in front of
 Ollama, vLLM and hosted model providers, with models from the inventory,
-rendered by the kadet-hub `kubernetes` generator 1.14.0 from LiteLLM's own
+rendered by the kadet-hub `kubernetes` generator 1.16.0 from LiteLLM's own
 Helm chart. The option `postgresql` adds virtual keys.
 
 Source: `oci://ghcr.io/berriai/litellm-helm:1.108.0@sha256:97d9ad3aa28be90cd5f5b9fd47cc72bd76a6054111337bacfd537ee2dd2de2dd`

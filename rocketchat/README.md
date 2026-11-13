@@ -2,7 +2,7 @@
 
 Rocket.Chat 8.9.1, team chat, as one process with its first admin from
 parameters and registration closed, rendered by the kadet-hub `kubernetes`
-generator 1.14.0 from Rocket.Chat's Helm chart 7.1.0, on the included
+generator 1.16.0 from Rocket.Chat's Helm chart 7.1.0, on the included
 recipe `mongodb` as a replica set on MongoDB 9.0.
 
 Source: `https://rocketchat.github.io/helm-charts/rocketchat:7.1.0@sha256:8340abfbb3395da7489d0e9d9940879107f103b677db2214effd0fa537190bc3`

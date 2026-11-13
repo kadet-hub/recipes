@@ -2,7 +2,7 @@
 
 Navidrome 0.64.2, a music server with a web UI and the Subsonic API, with
 its SQLite database and its music on claims, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from its Docker Compose file.
+`kubernetes` generator 1.16.0 from its Docker Compose file.
 
 <!-- renovate: tag=v0.64.2 -->
 Source: `https://github.com/navidrome/navidrome/blob/101145742f4762164202cb4858c9126258bdc463/contrib/docker-compose/docker-compose.yml@sha256:ef8a611ca3cf06af8879253809632b7005ff47cb892018006bb3e290022f8958`

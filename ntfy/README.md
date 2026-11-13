@@ -3,7 +3,7 @@
 ntfy 2.37.2, a server that sends push notifications to phones, browsers
 and scripts subscribed to a topic, as a private instance with its message
 cache, users and attachments on a claim, designed in kadet-hub on ntfy's
-image and rendered by the kadet-hub `kubernetes` generator 1.14.0.
+image and rendered by the kadet-hub `kubernetes` generator 1.16.0.
 
 Source: `docker.io/binwiederhier/ntfy:v2.37.2@sha256:1875ddcf815c8a3c981d6d78c67a93452d0abba79b1ab9520b1f5f5238902bd7`
 
