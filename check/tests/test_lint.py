@@ -94,6 +94,15 @@ class Lint(unittest.TestCase):
             ["ClusterRole/admin-extra: name neither starts with cert-manager nor is one the chart uses (RCP-3)"],
         )
 
+    def test_smoke_missing_above_renders(self):
+        (self.recipe / "tests/smoke").unlink()
+        self.assertIn("tests/smoke is missing for level deploys (RCP-1)", lint.lint_files(self.recipe))
+
+    def test_components_in_init(self):
+        init = self.recipe / "init.yml"
+        init.write_text(init.read_text() + "  components:\n    cert-manager-extra:\n      application: cert-manager\n")
+        self.assertIn("init.yml: components belong in their own files (RCP-1)", lint.lint_files(self.recipe))
+
     # AC-5
 
     def test_external_entry(self):
