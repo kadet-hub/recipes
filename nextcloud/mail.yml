@@ -1,0 +1,43 @@
+parameters:
+  applications:
+    nextcloud:
+      # The target sets mail.from_address, mail.domain, mail.smtp.host,
+      # mail.smtp.name and mail.smtp.password.
+      mail:
+        smtp:
+          secure: ssl
+          port: 465
+          authtype: LOGIN
+  # The chart's nextcloud.mail. The cron sidecar takes the same env.
+  components:
+    nextcloud:
+      application: nextcloud
+      env:
+        MAIL_FROM_ADDRESS: ${applications.nextcloud.mail.from_address}
+        MAIL_DOMAIN: ${applications.nextcloud.mail.domain}
+        SMTP_SECURE: ${applications.nextcloud.mail.smtp.secure}
+        SMTP_PORT: ${applications.nextcloud.mail.smtp.port}
+        SMTP_AUTHTYPE: ${applications.nextcloud.mail.smtp.authtype}
+        SMTP_HOST:
+          secretKeyRef:
+            name: nextcloud
+            key: smtp-host
+        SMTP_NAME:
+          secretKeyRef:
+            name: nextcloud
+            key: smtp-username
+        SMTP_PASSWORD:
+          secretKeyRef:
+            name: nextcloud
+            key: smtp-password
+  generators:
+    kubernetes:
+      secrets:
+        nextcloud:
+          string_data:
+            smtp-username:
+              value: ${applications.nextcloud.mail.smtp.name}
+            smtp-password:
+              value: ${applications.nextcloud.mail.smtp.password}
+            smtp-host:
+              value: ${applications.nextcloud.mail.smtp.host}

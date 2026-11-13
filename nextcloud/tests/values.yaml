@@ -3,6 +3,14 @@ nextcloud:
   trustedDomains:
     - nextcloud.example.com
   password: smoke-password
+  mail:
+    enabled: true
+    fromAddress: nextcloud
+    domain: example.com
+    smtp:
+      host: smtp.example.com
+      name: nextcloud
+      password: smoke-password
 internalDatabase:
   enabled: false
 externalDatabase:

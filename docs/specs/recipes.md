@@ -5,9 +5,10 @@ Status: Draft. check 0.23.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
-        RCP-55), renders from given outputs (RCP-34), and migrates for
-        charts (RCP-14 to RCP-14b); RCP-21 and RCP-52 before publication
-        are not implemented;
+        RCP-55), renders from given outputs (RCP-34), the changes
+        against a pull request's base (RCP-21) and migrates for charts
+        (RCP-14 to RCP-14b); RCP-52 before publication is not
+        implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
 Code: <name>/, check/, .github/, renovate.json, README.md, CONTRIBUTING.md
@@ -997,7 +998,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   runs as one without it. `kadet-convert` meets this difference
   (CNV-5 in [converter.md](converter.md)).
 
-  The `certmanager` generator 1.0.2 renders `privateKey.rotationPolicy:
+  The `certmanager` generator 1.1.0 renders `privateKey.rotationPolicy:
   Always` on every Certificate, and the RabbitMQ Cluster Operator's
   manifest sets no `privateKey`. cert-manager 1.18 made `Always` the
   default behind the feature gate `DefaultPrivateKeyRotationPolicyAlways`,
@@ -1981,7 +1982,7 @@ manual names it only for the Euro-Office document server.
 
 The chart runs `docker.io/library/nextcloud:35.0.2-apache`, the Docker
 official image built from nextcloud/docker, which the recipe pins as
-`35.0.2-apache@sha256:89af7ee7a96ff5e9668280566209268ae6b2d02327f6ef6d56f6d68228cf9431`.
+`35.0.2-apache@sha256:d88929dc8386420b8963f86cabb667fdaf733eef9dcf8fc98e226801a32c023c`.
 Apache starts as root and serves as `www-data`, UID 33, so the target's
 namespace needs the Pod Security level `baseline`. With an external
 database the chart renders no init container that waits for it. The
@@ -2063,7 +2064,7 @@ files. The rest waits for later recipes or options (OQ-12):
 | Admin account | Secret `nextcloud`, as the chart renders it | the password is a ref the target sets (RCP-19) |
 | Host and proxy | `phpClientHttpsFix`, `nextcloud.host`, `trustedDomains` | Exposure; `TRUSTED_PROXIES` is a setting |
 | Upload size | on the Gateway's side | Exposure |
-| SMTP | not rendered | the admin settings write the mail server into `config.php` on the claim; the chart's `nextcloud.mail` can become an option |
+| SMTP | option `mail` | the chart's `nextcloud.mail` (DEC-347) |
 | notify_push | not rendered | the chart has no support; the Client Push app needs its own daemon (nextcloud/notify_push) behind a path of the route |
 | Office | not rendered | Collabora publishes `oci://ghcr.io/collaboraonline/charts/collabora-online`; ONLYOFFICE-based servers such as Euro-Office also need RabbitMQ |
 | imaginary | not rendered | the chart's `imaginary.enabled` can become an option; previews work without it |
@@ -2077,6 +2078,47 @@ The target sets `applications.nextcloud.host`,
 `applications.nextcloud.admin.password` and `applications.valkey.password`
 (RCP-51). `applications.nextcloud.gateway.section`, the listener's
 `sectionName`, is optional.
+
+### The option `mail`
+
+The option `mail`, which a target includes as `recipes.nextcloud.mail`,
+renders what the chart renders with `nextcloud.mail.enabled`. The Secret
+`nextcloud` gets the keys `smtp-host`, `smtp-username` and
+`smtp-password`. The containers `nextcloud` and `nextcloud-cron` get
+`MAIL_FROM_ADDRESS`, `MAIL_DOMAIN`, `SMTP_SECURE`, `SMTP_PORT` and
+`SMTP_AUTHTYPE` as values and `SMTP_HOST`, `SMTP_NAME` and
+`SMTP_PASSWORD` from that Secret. The cron sidecar takes its env from
+`components.nextcloud.env`, so the option sets the variables once.
+
+DEC-347: `nextcloud` configures outgoing mail through the image's
+variables, in the option `mail`. The image's `config/smtp.config.php`
+sets the mail server from them on every request, once `SMTP_HOST`,
+`MAIL_FROM_ADDRESS` and `MAIL_DOMAIN` are set (`.config/smtp.config.php`
+of nextcloud/docker). Nextcloud reads `config.php` first and every
+`*.config.php` after it, and a later file overrides a key (`readData` in
+`lib/private/Config.php` of nextcloud/server `stable35`). With the
+option, the admin settings no longer change the mail server. The target
+sets `applications.nextcloud.mail.from_address`, `.domain`,
+`.smtp.host`, `.smtp.name` and, as a ref, `.smtp.password` (RCP-19). The
+chart's defaults for them, such as `domain.com` and `pass`, are
+placeholders. `.smtp.secure`, `.smtp.port` and `.smtp.authtype` default
+to the chart's `ssl`, 465 and `LOGIN`. Leaving the mail server to the
+admin settings, as the first version did, was considered. It would live
+only in `config.php` on the claim, where no target can declare it.
+
+- RCP-421: With the option `mail`, `nextcloud` MUST render the Secret
+  keys and the eight variables that the chart renders with
+  `nextcloud.mail.enabled`, from `applications.nextcloud.mail`. Without
+  the option, it MUST compile to the same files as before the option
+  existed.
+
+  `tests/target.yml` includes the option, and `tests/values.yaml` enables
+  `nextcloud.mail` with the same values. The smoke test sends no mail, so
+  the SMTP server of both is a placeholder.
+
+  - Test: `check nextcloud`; manual: compile of `tests/target.yml`
+    without the option, compared with its compile at #173
+  - Since: #177
 
 ### Backups
 
@@ -2770,7 +2812,7 @@ and that one `cert-manager` (Prerequisites).
 
 The recipe renders the manifest's objects with the `kubernetes` generator
 1.14.0, and its two Certificates and the Issuer with the `certmanager`
-generator 1.0.2. That generator sets `privateKey.rotationPolicy: Always`,
+generator 1.1.0. That generator sets `privateKey.rotationPolicy: Always`,
 which the manifest leaves to cert-manager (RCP-12). The recipe therefore
 needs cert-manager 1.18 or later with the feature gate
 `DefaultPrivateKeyRotationPolicyAlways` on, its default, and its README says
@@ -5258,7 +5300,7 @@ Ghost, with a ghost.org address, as its maintainer and builds it from
 TryGhost/docker-library-ghost, MIT. The packaging is therefore Ghost's
 own, as `mariadb`'s is MariaDB's (MariaDB). Docker Hub's tag
 `6.75.0-alpine`, also `6-alpine` on 2026-11-05, is the index
-`sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7`
+`sha256:3af1575bb8917c6c0057beff85db92a4ac650f726956fd9de96932fea01c397c`
 for amd64 and arm64, built from TryGhost/docker-library-ghost at
 `1742107e163584e436b1f155d3751400a58384f0`. It runs Ghost on Node 22 and
 Alpine 3.23.
@@ -5872,9 +5914,9 @@ chart, which DEC-11 rules out.
 memcached 1.6.45, tagged on 2026-07-10, was the newest release of
 memcached/memcached on 2026-11-05. Docker Hub's tag `1.6.45`, also `1.6`,
 `1` and `latest`, is the index
-`sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
+`sha256:a395a1bcf5e0e2b0fa4a0142e12b4e24a2320ba4b7c6ffa8655a1a86e8f29dee`
 for amd64, arm/v5, arm/v7, arm64/v8, 386, ppc64le, riscv64 and s390x,
-built on 2026-10-28 from docker-library/memcached at
+built on 2026-11-05 from docker-library/memcached at
 `53ac0ecb0bf88b471a0110f8996ce791baf1a667` on Debian 13. The recipe runs
 this default variant. The variant `1.6.45-alpine` builds the same release
 on Alpine Linux, and the recipe has no reason to leave the default.
@@ -10221,7 +10263,7 @@ argument as a literal `${...}` and reads nothing.
   passed, unless it is a major update, lock file maintenance, a digest
   update of a GitHub Action, the `next` pin (RCP-29), the
   `kubernetes-versions.json` commit (RCP-70), or moves a `Source` line or a
-  `# renovate: Source` class line (RCP-16, RCP-21).
+  `# renovate: Source` class line (RCP-16, RCP-21a).
 
   Renovate merges without GitHub's auto-merge (`platformAutomerge: false`),
   so it waits for every check, and through a bypass of the `main` ruleset in
@@ -10313,13 +10355,73 @@ argument as a literal `${...}` and reads nothing.
   show, apart from the object diff, every image that changed, the `can-i`
   diff of each subject between the old and the new recipe, and any added
   webhook, hostPath volume, privileged container or host namespace.
-  Such pull requests MUST NOT merge automatically.
 
   `renders` compares the recipe with the chart. A compromised chart
   release passes it. This diff is what a reviewer can still catch.
 
-  - Test: `check` tests; Renovate configuration
-  - Since: not implemented; no automatic merge: #56 (RCP-30a)
+  On a pull request the `check` job passes the base, the first parent of
+  the merge commit, as a checkout with `--base`. `check` compiles the
+  base's recipe with the base's `tests/target.yml` and generator pins,
+  which it verifies as RCP-27 describes, and compares the two compiled
+  outputs without a cluster. The report lists each difference on a line
+  that starts with `base:` (DEC-345):
+
+  - `image: <old> -> <new>`, for each repository whose references
+    differ, `none` on the side without one;
+  - `permissions: <subject> in <namespace>: only old: <rule>` or
+    `only new: <rule>`, with `cluster-wide` in place of `in <namespace>`
+    for a ClusterRoleBinding (DEC-346);
+  - `added webhook`, `added hostPath volume`, `added privileged
+    container` and `added host namespace` (`hostNetwork`, `hostPID`,
+    `hostIPC`), each with its object.
+
+  An image is any reference pinned by digest anywhere in the objects:
+  containers, image arguments and custom resources. RCP-6 pins every
+  container image, so an unpinned image can only sit in a field such as
+  a custom resource's, and is not listed. A hostPath volume is one of a
+  pod or a PersistentVolume.
+
+  Without a difference the report says `base: same images, permissions,
+  webhooks and host access`. A recipe the base does not have, a base that
+  lacks a recipe it includes, a base that does not compile and a compiled
+  output given with `--compiled`
+  (RCP-34) each get one line that says so. None of these lines decides
+  the check, a reviewer does (RCP-21a).
+
+  - Test: `check/tests/test_compare.py` (`Changes`),
+    `check/tests/test_check.py` (`BaseChanges`, `GivenOutputs`); CI
+    `check` job, report lines `base:` (AC-6)
+  - Since: #174
+
+- RCP-21a: A pull request that moves a recipe to a new chart version
+  MUST NOT merge automatically.
+
+  - Test: manual: `renovate.json` `automerge` rules (RCP-30a)
+  - Since: #56 (RCP-30a)
+
+DEC-345: The changes against the base are lines of the `check` report,
+which the `check` job writes to its job summary with the rest of the
+report. A comment on the pull request was considered. CI runs pull
+requests with `permissions: {}` and no secrets (RCP-20), and a fork's
+token is read-only, so a comment would need a second workflow on
+`workflow_run` that posts with a write token what a fork's run produced.
+Every leg of RCP-70 prints the same lines, because they come from the
+compiled outputs alone. A local run with `--base` prints them too.
+
+DEC-346: `check` computes the permission diff from the RBAC objects of
+both compiled outputs, in the lines of `kubectl auth can-i --list` that
+RCP-11 diffs, without asking a cluster. A subject gets the rules of each
+Role or ClusterRole a binding gives it, and a ClusterRole with an
+`aggregationRule` also those of the ClusterRoles it selects. The rules of
+ClusterRoles that aggregate into `view`, `edit` and `admin` go to the
+subject `users bound to <role>`, as to the test users of RCP-11. A
+binding to a role the output does not render, such as `cluster-admin` or
+a role of a prerequisite, is one line with the role's name, so a new
+binding to it shows without the rules behind it. Asking `kubectl auth
+can-i` would need a third kind cluster per leg with the base applied. It
+would add the rules the cluster itself grants, such as those of the
+built-in roles and of discovery, which are the same for the old and the
+new recipe.
 
 - RCP-22: `check` MUST be released with its own version tag
   `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version
@@ -10412,7 +10514,11 @@ feature's design (OQ-6).
   and passes on cert-manager.
 - AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
   new recipe with an added image, an added ClusterRole verb and an added
-  hostPath volume makes `check` list all three.
+  hostPath volume makes `check` list all three. A webhook, a privileged
+  container and a host namespace that the new recipe adds are listed
+  too, and an unchanged pair lists nothing. In CI, on a pull request that
+  changes no recipe, the report of every recipe says `base: same images,
+  permissions, webhooks and host access`.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by commit SHA and compiles it with the two commands above, and once
   cert-manager is published, by digest through the registry's consumer
@@ -10595,10 +10701,10 @@ feature's design (OQ-6).
 | `<name>/` | One recipe (RCP-1) |
 | `check/check.py` | CLI, sources, kind clusters, the steps of Migration (RCP-14), report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
-| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26, AC-414 without a cluster |
+| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243); changes against the base (RCP-21) |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-6, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26, AC-414 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
-| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70, RCP-271, RCP-406 |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-21, RCP-28, RCP-68, RCP-70, RCP-271, RCP-406 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
@@ -10625,13 +10731,14 @@ feature's design (OQ-6).
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
 | powerdns | `docker.io/powerdns/pdns-auth-51` 5.1.5, SQLite on the claim `data`, zone `applications.powerdns.zone` with the SOA primary `ns1.<zone>.` set by the init container `zone` (RCP-194, RCP-195), `kubernetes` generator 1.14.0, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
+| nextcloud option `mail` | `recipes.nextcloud.mail`, the chart's `nextcloud.mail` from `applications.nextcloud.mail` (RCP-421, DEC-347) |
 | postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.14.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
 | postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
 | postgresql option `earthdistance` | `recipes.postgresql.earthdistance`, `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in the same list, with `cube` (RCP-102) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
-| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.1.0, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
 | keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.14.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
@@ -10661,7 +10768,7 @@ feature's design (OQ-6).
 | langfuse | chart `langfuse` 2.2.3 of langfuse/langfuse-k8s (DEC-240), Langfuse 4.75.0 from GHCR (DEC-241), includes postgresql with TLS and valkey (DEC-242), options `clickhouse` with ClickHouse 26.8.36.3 (DEC-243) and `s3` with the subchart SeaweedFS on 4.52 (DEC-244, DEC-245), keys and first account required, sign-up off (DEC-247), `kubernetes` generator 1.14.0, level `deploys` (RCP-320 to RCP-325) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
 | jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
-| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.0.2, level `deploys` (RCP-340 to RCP-349) |
+| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.1.0, level `deploys` (RCP-340 to RCP-349) |
 | zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |

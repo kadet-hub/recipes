@@ -3,6 +3,7 @@
   check lint <name>
   check <name> --level renders|deploys|migrates
   check <name> --level renders --compiled <out> [--rendered <file>]   (RCP-34)
+  check <name> --level <level> --base <checkout of the base>          (RCP-21)
 
 Run from the repository root through uv: uv run --locked --project check check/check.py ...
 Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
@@ -301,6 +302,30 @@ def compile_next(project, out):
         lines = [line for line in str(e).splitlines() if "Compile failed" in line or "Error" in line]
         return (lines or str(e).splitlines())[-1].strip()
     return None
+
+
+def base_changes(recipe, base, objs, namespace, work, compiled=None):
+    """RCP-21: what changed in the compiled objs against the recipe in base, a checkout of the pull request's
+    base, compiled with its own target and generators. Reported, never decides."""
+    if compiled:
+        return ["not compared, the compiled output is given (RCP-34)"]
+    old = base / recipe.name
+    if not (old / "init.yml").is_file():
+        return [f"no recipe {recipe.name} in the base"]
+    if missing := [r.name for r in with_included(old) if not (r / "init.yml").is_file()]:
+        return [f"not compared, the base has no recipe {', '.join(missing)} that it includes"]
+    sub = work / "base"
+    sub.mkdir()
+    try:
+        project = build_project(old, sub)
+        fetch_generators(old, project, sub)
+        compile_recipe(project, sub / "out")
+    except Failed as e:
+        # As in compile_next: Kapitan's last line names the target, an earlier one the cause.
+        lines = [line for line in str(e).splitlines() if "Compile failed" in line or "Error" in line]
+        return [f"not compared, the base does not compile: {(lines or str(e).strip().splitlines())[-1].strip()[:300]}"]
+    return compare.changes(objects_of(compiled_files(sub / "out", recipe.name)), objs, namespace) or [
+        "same images, permissions, webhooks and host access"]
 
 
 def objects_of(files):
@@ -732,7 +757,7 @@ def cmd_lint(recipe, work, compiled=None, rendered=None):
     return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart}), notes
 
 
-def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_image=None):
+def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_image=None, base=None):
     report, failed = [], False
 
     def say(line=""):
@@ -782,6 +807,9 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_imag
     objs = objects_of(compiled_files(compiled or work / "out", recipe.name))
     if compiled:
         say(f"compiled: given in {compiled}, generators not verified by check")
+    if base:
+        for line in base_changes(recipe, base, objs, namespace, work, compiled):
+            say(f"base: {line}")
     prereqs = prerequisites(recipe, work, compiled)
     for name, prereq_objs, prereq_notes in prereqs:
         if prereq_objs is None:
@@ -900,6 +928,8 @@ def main(argv=None):
                         help="Kapitan output path with compiled/<recipe>/ of the recipe, its included recipes and prerequisites (RCP-34)")
     parser.add_argument("--rendered", type=Path, metavar="FILE",
                         help="helm template's output of the chart, or the release manifest (RCP-34)")
+    parser.add_argument("--base", type=Path, metavar="DIR",
+                        help="checkout of the pull request's base: report what changed against its recipe (RCP-21)")
     args = parser.parse_args(argv)
     if args.args[0] == "lint" and len(args.args) == 2:
         mode, name = "lint", args.args[1]
@@ -926,7 +956,8 @@ def main(argv=None):
                 print(f"lint: warning: {w}")
             print(f"lint: {recipe.name}: " + ("failed" if errors else "passed"))
             return 1 if errors else 0
-        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered, args.node_image)
+        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered, args.node_image,
+                                   args.base and args.base.resolve())
         if args.report:
             args.report.write_text("\n".join(report) + "\n")
         return 1 if failed else 0

@@ -28,6 +28,7 @@ target's namespace needs the Pod Security level `baseline`.
 ```yaml
 classes:
   - recipes.nextcloud
+  - recipes.nextcloud.mail   # outgoing mail, optional
 parameters:
   namespace: nextcloud
   kapitan:
@@ -41,6 +42,13 @@ parameters:
       gateway:
         name: <gateway>
         namespace: <gateway namespace>
+      mail:
+        from_address: <local part>
+        domain: <mail domain>
+        smtp:
+          host: <smtp host>
+          name: <smtp user>
+          password: <ref>
     valkey:
       password: <ref>
 ```
@@ -58,8 +66,17 @@ trusted domain. `applications.nextcloud.gateway.name` and
 attaches to, whose listener must admit routes from the target's namespace.
 `applications.nextcloud.admin.password`, the admin account's password, and
 `applications.valkey.password`, which the included recipe `valkey`
-requires, are refs with the backend of your choice. Without one of them the
-compile stops with `Interpolation key '<key>' not found`.
+requires, are refs with the backend of your choice.
+
+With the option `mail`, Nextcloud sends mail as
+`applications.nextcloud.mail.from_address` at
+`applications.nextcloud.mail.domain` through the SMTP server
+`applications.nextcloud.mail.smtp.host`. It logs in there as
+`applications.nextcloud.mail.smtp.name` with
+`applications.nextcloud.mail.smtp.password`, a ref.
+
+Without one of them the compile stops with
+`Interpolation key '<key>' not found`.
 
 ## Settings
 
@@ -72,6 +89,10 @@ compile stops with `Interpolation key '<key>' not found`.
 | `httpRoute.parentRefs` | `applications.nextcloud.gateway.name` and `.namespace`, and `.section` for the listener's `sectionName`, unset by default |
 | `persistence.size`, `persistence.storageClass` | `components.nextcloud.persistent_volume_claims.nextcloud-nextcloud.storage`, `.storage_class` |
 | `persistence.nextcloudData.size`, `persistence.nextcloudData.storageClass` | `components.nextcloud.persistent_volume_claims.nextcloud-nextcloud-data.storage`, `.storage_class` |
+| `nextcloud.mail.enabled` | the option `recipes.nextcloud.mail` |
+| `nextcloud.mail.fromAddress`, `nextcloud.mail.domain` | `applications.nextcloud.mail.from_address`, `.domain` |
+| `nextcloud.mail.smtp.host`, `.name`, `.password` | `applications.nextcloud.mail.smtp.host`, `.name`, `.password` |
+| `nextcloud.mail.smtp.secure`, `.port`, `.authtype` | `applications.nextcloud.mail.smtp.secure`, `.port`, `.authtype`, `ssl`, 465 and `LOGIN` by default |
 | `nextcloud.extraEnv` | `components.nextcloud.env`, which the cron sidecar gets too |
 | `resources` | `components.nextcloud.resources` |
 | `nodeSelector`, `tolerations`, `affinity` | `components.nextcloud.node_selector`, `components.nextcloud.tolerations`, `components.nextcloud.affinity` |
@@ -98,8 +119,22 @@ The chart's liveness probe restarts a container that is still installing,
 and the image installs only on its first start. The recipe therefore runs
 the chart's startup probe, which waits up to 330 seconds.
 
-SMTP, notify_push, an office server, imaginary, metrics and more than one
+notify_push, an office server, imaginary, metrics and more than one
 replica are not part of this version.
+
+## The option `mail`
+
+The option renders what the chart renders with `nextcloud.mail.enabled`.
+The Secret `nextcloud` gets the keys `smtp-host`, `smtp-username` and
+`smtp-password`. The containers `nextcloud` and `nextcloud-cron` get
+`MAIL_FROM_ADDRESS`, `MAIL_DOMAIN`, `SMTP_SECURE`, `SMTP_PORT` and
+`SMTP_AUTHTYPE`, and `SMTP_HOST`, `SMTP_NAME` and `SMTP_PASSWORD` from that
+Secret.
+
+The image's `smtp.config.php` reads these variables on every request,
+once `SMTP_HOST`, `MAIL_FROM_ADDRESS` and `MAIL_DOMAIN` are set. Nextcloud
+reads it after `config.php`, so it overrides the mail server that the
+admin settings write there. Change the mail server in the target instead.
 
 ## Backups
 
@@ -179,7 +214,9 @@ cache, drops the locks and logs users out.
 and `gateway-api` installed first. The objects of `postgresql` and `valkey`
 are left out of the comparison and applied with the recipe. The Deployment
 and the Service select on `name`, the chart on `app.kubernetes.io/name`,
-`instance` and `component`. `tests/target.yml` runs one PostgreSQL instance.
+`instance` and `component`. `tests/target.yml` runs one PostgreSQL instance
+and includes the option `mail` with an SMTP server that does not exist.
+The smoke test sends no mail.
 
 `tests/smoke` waits for the Cluster and reads `status.php` through the
 Gateway of `check`, with the route's host name, until it reports

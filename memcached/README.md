@@ -4,7 +4,7 @@ memcached as a single in-memory cache without authentication, designed in
 kadet-hub on the Docker Official Image `memcached` and rendered by the
 kadet-hub `kubernetes` generator 1.14.0.
 
-Source: `docker.io/library/memcached:1.6.45@sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
+Source: `docker.io/library/memcached:1.6.45@sha256:a395a1bcf5e0e2b0fa4a0142e12b4e24a2320ba4b7c6ffa8655a1a86e8f29dee`
 
 Level: `deploys`
 
