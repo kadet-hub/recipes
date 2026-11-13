@@ -2116,7 +2116,7 @@ only in `config.php` on the claim, where no target can declare it.
 
   - Test: `check nextcloud`; manual: compile of `tests/target.yml`
     without the option, compared with its compile at #173
-  - Since: this change
+  - Since: #177
 
 ### Backups
 
