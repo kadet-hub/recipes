@@ -9562,8 +9562,9 @@ cluster where helm installed the chart with `tests/values.yaml`.
    `kubectl apply --server-side --force-conflicts`, and wait for the
    rollout of its workloads.
 4. Apply the recipe's Services the same way.
-5. Apply every object of the recipe once more with only its kind, name and
-   namespace, as the field manager `helm`.
+5. Apply every object of the recipe and every object step 7 keeps once
+   more with only its kind, name and namespace, as the field manager
+   `helm`.
 6. Wait 10 seconds, then delete the ReplicaSets that the Deployments of
    step 2 left behind.
 7. Delete the objects the chart rendered under a name the recipe does not
@@ -9599,7 +9600,8 @@ prints such an object as kept. A release manifest is installed without
 helm, so a recipe from one has no level `migrates`.
 
 `check` runs `tests/smoke` in a loop from step 1 to the end of step 7, one
-run after the other. A smoke test of a recipe at `migrates` therefore
+run after the other. A failed step ends the proof at once, without waiting
+for the run in flight. A smoke test of a recipe at `migrates` therefore
 exercises the application again on every run. cert-manager's deletes its
 Certificate and Secret first, so each run is a new issuance.
 
