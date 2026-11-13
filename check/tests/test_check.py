@@ -15,6 +15,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -268,11 +269,11 @@ class Migrate(unittest.TestCase):
     """RCP-14: the steps of Migration in their order with tests/smoke before, during and after; RCP-14a."""
 
     CHART = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"app.kubernetes.io/name": "web"}}}},
-             obj("Service", "web"), obj("Role", "web:leader")]
+             obj("Service", "web"), obj("Role", "web:leader"), obj("PersistentVolumeClaim", "data")]
     RECIPE = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"name": "web"}}}},
               obj("Service", "web"), obj("Role", "web-leader")]
 
-    def migrate(self, failing_run=None, error=check.Failed("smoke failed"), labelled=()):
+    def migrate(self, failing_run=None, error=check.Failed("smoke failed"), labelled=(), smoke_wait=0.001, failing_step=None):
         self.steps, self.report, calls = [], [], []
         replicasets = {"items": [{"metadata": {"name": "web-1", "ownerReferences": [{"kind": "Deployment", "name": "web"}]}},
                                  {"metadata": {"name": "other-1"}}]}
@@ -280,11 +281,13 @@ class Migrate(unittest.TestCase):
         def kubectl(*args, input=None, **kw):
             names = [o["metadata"]["name"] for o in check.load_all(input)] if input else []
             self.steps.append(" ".join(args) + (f" {names}" if names else ""))
+            if args[:1] == (failing_step,):
+                raise check.Failed(f"kubectl {failing_step} failed")
             return json.dumps(replicasets) if args[:2] == ("get", "replicasets") else ""
 
         def smoke(cluster, recipe):
             calls.append(None)
-            threading.Event().wait(0.001)
+            threading.Event().wait(smoke_wait if len(calls) > 1 else 0.001)  # the run before step 1 is quick
             if len(calls) == failing_run:
                 raise error
             return "ok"
@@ -313,24 +316,31 @@ class Migrate(unittest.TestCase):
             "apply_for_real ['Deployment', 'Role'] ('--force-conflicts',)",
             "rollout",
             "apply ['Service'] ('--force-conflicts',)",
-            "apply --server-side --field-manager helm -f - ['web', 'web', 'web-leader']",
+            "apply --server-side --field-manager helm -f - ['web', 'web', 'web-leader', 'data']",
             "rollout",
             f"sleep {check.SERVICE_SWITCH_WAIT}",
             "delete replicaset web-1 -n nextcloud --cascade=foreground",
             "delete --ignore-not-found -f - ['web:leader']",
         ])
-        self.assertEqual(self.report[:3], ["migrates: selector changed: Deployment/web", "migrates: leftover: Role/web:leader",
+        self.assertEqual(self.report[:4], ["migrates: selector changed: Deployment/web", "migrates: leftover: Role/web:leader",
+                                           "migrates: leftover kept, it holds data: PersistentVolumeClaim/data",
                                            "migrates: chart installed with helm v4.3.1+gc0d08d0, smoke before: ok"])
-        self.assertRegex(self.report[3], r"^migrates: smoke during the steps: \d+ runs passed$")
-        self.assertEqual(self.report[4:], ["migrates: smoke after: ok", "migrates: no object labelled app.kubernetes.io/managed-by: Helm"])
+        self.assertRegex(self.report[4], r"^migrates: smoke during the steps: \d+ runs passed$")
+        self.assertEqual(self.report[5:], ["migrates: smoke after: ok", "migrates: no object labelled app.kubernetes.io/managed-by: Helm"])
 
     def test_failed_run_during_the_steps_fails(self):
         self.assertTrue(self.migrate(failing_run=2))
-        self.assertRegex(self.report[3], r"^migrates: smoke during the steps failed in 1 of \d+ runs, first: Failed: smoke failed$")
+        self.assertRegex(self.report[4], r"^migrates: smoke during the steps failed in 1 of \d+ runs, first: Failed: smoke failed$")
 
     def test_timed_out_run_during_the_steps_fails(self):
         self.assertTrue(self.migrate(failing_run=2, error=subprocess.TimeoutExpired(["tests/smoke"], 600)))
-        self.assertRegex(self.report[3], r"failed in 1 of \d+ runs, first: TimeoutExpired: Command '\['tests/smoke'\]' timed out")
+        self.assertRegex(self.report[4], r"failed in 1 of \d+ runs, first: TimeoutExpired: Command '\['tests/smoke'\]' timed out")
+
+    def test_failed_step_does_not_wait_for_smoke(self):
+        start = time.monotonic()
+        with self.assertRaisesRegex(check.Failed, "kubectl delete failed"):
+            self.migrate(smoke_wait=5, failing_step="delete")
+        self.assertLess(time.monotonic() - start, 4)
 
     def test_object_labelled_by_helm_fails(self):
         self.assertTrue(self.migrate(labelled=["serviceaccount/web"]))

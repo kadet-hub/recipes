@@ -648,7 +648,7 @@ def migrate(cluster, tgz, chart, objs, recipe, namespace, namespaces, prereqs, s
             if stop.is_set():
                 return
 
-    during = threading.Thread(target=repeat)
+    during = threading.Thread(target=repeat, daemon=True)
     during.start()
     try:
         cluster.kubectl("delete", "secret", "-n", namespace, "-l", f"owner=helm,name={recipe.name}")
@@ -664,7 +664,7 @@ def migrate(cluster, tgz, chart, objs, recipe, namespace, namespaces, prereqs, s
         wait_rollouts(cluster, rest)
         cluster.apply([o for o in objs if o["kind"] == "Service"], "--force-conflicts")
         # helm 4 owns its fields as the manager helm; an apply as helm without them removes those only it set.
-        cluster.kubectl("apply", "--server-side", "--field-manager", "helm", "-f", "-", input=dump_all(stubs(objs)))
+        cluster.kubectl("apply", "--server-side", "--field-manager", "helm", "-f", "-", input=dump_all(stubs(objs + kept)))
         wait_rollouts(cluster, rest)
         time.sleep(SERVICE_SWITCH_WAIT)
         for ns, name in orphans:
@@ -673,7 +673,7 @@ def migrate(cluster, tgz, chart, objs, recipe, namespace, namespaces, prereqs, s
             cluster.kubectl("delete", "--ignore-not-found", "-f", "-", input=dump_all(stubs(leftovers)))
     finally:
         stop.set()
-        during.join()
+    during.join()
 
     failures = [e for e in runs if e]
     failed = bool(failures)
