@@ -5257,7 +5257,7 @@ Ghost, with a ghost.org address, as its maintainer and builds it from
 TryGhost/docker-library-ghost, MIT. The packaging is therefore Ghost's
 own, as `mariadb`'s is MariaDB's (MariaDB). Docker Hub's tag
 `6.75.0-alpine`, also `6-alpine` on 2026-11-05, is the index
-`sha256:bea7100f19d83b23c234fd8ad94a90505552f7b0f5f307b079907c1fd03dbdf7`
+`sha256:3af1575bb8917c6c0057beff85db92a4ac650f726956fd9de96932fea01c397c`
 for amd64 and arm64, built from TryGhost/docker-library-ghost at
 `1742107e163584e436b1f155d3751400a58384f0`. It runs Ghost on Node 22 and
 Alpine 3.23.
