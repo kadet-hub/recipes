@@ -5,7 +5,7 @@ parameters:
   kapitan:
     dependencies:
       - type: oci
-        source: ghcr.io/kadet-hub/keycloak:1.1.0@sha256:7c7d3aa29b5cca627c868b166f3ed00979e04c99d01e71f2a33bd35d4393ecc4
+        source: ghcr.io/kadet-hub/keycloak:1.1.2@sha256:b6bf83ce3c7bea6d61214764a9de503a8f36daa84d7925a81a54465fecec7c25
         output_path: lib/keycloak
       - type: oci
         source: ghcr.io/kadet-hub/certmanager:1.0.2@sha256:ba7632e9e06a593fbe20e9fa6774139203d7df65992adff9db94779606888ad9
