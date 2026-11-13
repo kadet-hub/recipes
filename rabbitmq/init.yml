@@ -4,7 +4,7 @@ parameters:
   kapitan:
     dependencies:
       - type: oci
-        source: ghcr.io/kadet-hub/rabbitmq:1.1.0@sha256:06de7216aec4dd35f2722303e93e76075ca46565e2c3a5cd7753b19fc151b210
+        source: ghcr.io/kadet-hub/rabbitmq:1.1.2@sha256:0c639fb8b61e691b565ffc265395e2b0eefdc0e8e40ab6edb9945e0db303148c
         output_path: lib/rabbitmq
     compile:
       - input_type: kadet
