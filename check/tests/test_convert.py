@@ -80,24 +80,38 @@ class Mapping(unittest.TestCase):
         self.assertEqual(kubernetes["services"]["web"]["ports"]["http"]["app_protocol"], "")
 
     def test_not_mappable_fields(self):
-        """CNV-5; a StatefulSet's serviceName other than its name and its claim labels are mapped (generator 1.15.0)."""
-        sts = deployment(shareProcessNamespace=True)
+        """CNV-5: the keys of generator 1.15.0 are mapped, an empty value that it leaves out is not mappable."""
+        sts = deployment(shareProcessNamespace=True, affinity={}, tolerations=[{"operator": "Exists"}])
         sts["kind"] = "StatefulSet"
         sts["spec"]["serviceName"] = "web"
         self.assertNotIn("statefulset_service_name", mapped(sts).p["components"]["web"])
         sts["spec"]["serviceName"] = "other"
-        sts["spec"]["template"]["spec"]["containers"][0]["workingDir"] = "/srv"
-        sts["spec"]["template"]["spec"]["containers"][0]["ports"].append({"containerPort": 9090})
+        sts["spec"]["template"]["spec"]["containers"][0].update(workingDir="/srv", lifecycle={}, command=[])
+        sts["spec"]["template"]["spec"]["containers"][0]["ports"] += [
+            {"containerPort": 9090}, {"containerPort": 9090, "protocol": "UDP"}, {"containerPort": 8080}, {"name": "port-8080", "containerPort": 8081}]
         self.assertNotIn("volume_claim_name_label", mapped(sts).p["components"]["web"])
         sts["spec"]["volumeClaimTemplates"] = [{"metadata": {"name": "data"}, "spec": {"accessModes": ["ReadWriteOnce"]}}]
-        m = mapped(sts)
-        self.assertEqual(m.p["components"]["web"]["statefulset_service_name"], "other")
-        self.assertIs(m.p["components"]["web"]["volume_claim_name_label"], False)
+        svc = {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "web"},
+               "spec": {"selector": {"app": "web"}, "ipFamilyPolicy": "PreferDualStack", "ipFamilies": ["IPv4"],
+                        "ports": [{"port": 80}]}}
+        m = mapped(sts, svc)
+        web = m.p["components"]["web"]
+        self.assertEqual(web["statefulset_service_name"], "other")
+        self.assertIs(web["volume_claim_name_label"], False)
+        self.assertEqual((web["working_dir"], web["share_process_namespace"]), ("/srv", True))
+        self.assertEqual(web["ports"]["port-9090"], {"container_port": 9090, "unnamed": True})
+        self.assertEqual(web["ports"]["port-9090-udp"], {"container_port": 9090, "protocol": "UDP", "unnamed": True})
+        self.assertEqual(web["tolerations"], [{"operator": "Exists"}])
+        self.assertFalse({"affinity", "lifecycle", "command"} & set(web))
+        services = m.p["generators"]["kubernetes"]["services"]
+        self.assertEqual((services["web"]["ip_family_policy"], services["web"]["ip_families"]), ("PreferDualStack", ["IPv4"]))
         self.assertEqual(sorted(m.not_mappable["StatefulSet/ns/web"]), [
-            "spec.template.spec.containers[web].ports[9090] without name",
-            "spec.template.spec.containers[web].workingDir",
-            "spec.template.spec.shareProcessNamespace",
+            "spec.template.spec.affinity: {}",
+            "spec.template.spec.containers[web].command: []",
+            "spec.template.spec.containers[web].lifecycle: {}",
+            "spec.template.spec.containers[web].ports[port-8080] more than once",
         ])
+        self.assertEqual(m.not_mappable["Service/web"], ["spec.ports[80] without name"])
 
     def test_unmapped_kind(self):
         """CNV-4"""

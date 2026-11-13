@@ -1,0 +1,6 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.gotify.admin_password
+    description: Password of the admin user admin that gotify creates while its database has no user (GOTIFY_DEFAULTUSER_PASS).
+    secret: true

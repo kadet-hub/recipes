@@ -41,6 +41,9 @@ WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet")
 HELM_LABELS = {"app.kubernetes.io/managed-by", "heritage"}
 APP_PROTOCOLS = {"http": "http", "https": "https", "h2c": "kubernetes.io/h2c", "ws": "kubernetes.io/ws",
                  "wss": "kubernetes.io/wss"}
+# Container and pod fields whose key the generator writes only when not empty (CNV-5).
+WHEN_NOT_EMPTY = {"command", "args", "lifecycle", "nodeSelector", "tolerations", "affinity", "priorityClassName",
+                  "imagePullSecrets", "dnsPolicy", "resourceClaims"}
 
 
 def ident(o):
@@ -144,6 +147,13 @@ class Mapper:
     def mapped(self, obj, section):
         self.rows.append((ident(obj), section, True, ""))
 
+    def put(self, obj, entry, key, field, value, where):
+        """entry[key] = value, or not mappable where the generator would leave the empty value out (CNV-5)."""
+        if field in WHEN_NOT_EMPTY and value in ({}, [], ""):
+            self.gap(obj, f"{where}.{field}: {json.dumps(value)}")
+        else:
+            entry[key] = value
+
     def meta(self, obj, entry, labels=True, annotations=True):
         m = obj["metadata"]
         if m.get("namespace") and m["namespace"] != self.ns:
@@ -166,9 +176,9 @@ class Mapper:
             out["pull_policy"] = policy
         for field, key in (("command", "command"), ("args", "args"), ("resources", "resources"),
                            ("lifecycle", "lifecycle"), ("securityContext", "security_context"),
-                           ("tty", "tty"), ("stdin", "stdin")):
+                           ("tty", "tty"), ("stdin", "stdin"), ("workingDir", "working_dir")):
             if field in c:
-                out[key] = c.pop(field)
+                self.put(obj, out, key, field, c.pop(field), where)
         env = {}
         for e in c.pop("env", None) or []:
             source = e.get("valueFrom")
@@ -192,13 +202,15 @@ class Mapper:
         for port in c.pop("ports", None) or []:
             port = dict(port)
             name = port.pop("name", None)
-            if name is None:
-                name = f"port-{port['containerPort']}"
-                self.gap(obj, f"{where}.ports[{port['containerPort']}] without name")
             entry = {"container_port": port.pop("containerPort")}
             protocol = port.pop("protocol", "TCP")
             if protocol != "TCP":
                 entry["protocol"] = protocol
+            if name is None:  # the key still orders the ports (K8S-21)
+                name = f"port-{entry['container_port']}" + ("" if protocol == "TCP" else f"-{protocol.lower()}")
+                entry["unnamed"] = True
+            if name in ports:  # the generator renders one port per key
+                self.gap(obj, f"{where}.ports[{name}] more than once")
             for k in port:
                 self.gap(obj, f"{where}.ports[{name}].{k}")
             ports[name] = entry
@@ -290,9 +302,10 @@ class Mapper:
                            ("priorityClassName", "priority_class_name"), ("imagePullSecrets", "image_pull_secrets"),
                            ("dnsPolicy", "dns_policy"), ("terminationGracePeriodSeconds", "grace_period"),
                            ("hostNetwork", "host_network"), ("hostPID", "host_pid"), ("hostIPC", "host_ipc"),
-                           ("enableServiceLinks", "enable_service_links"), ("resourceClaims", "resource_claims")):
+                           ("enableServiceLinks", "enable_service_links"), ("resourceClaims", "resource_claims"),
+                           ("shareProcessNamespace", "share_process_namespace")):
             if field in spec:
-                comp[key] = spec.pop(field)
+                self.put(obj, comp, key, field, spec.pop(field), where)
         restart = spec.pop("restartPolicy", "Always")
         if restart != "Always":
             comp["restart_policy"] = restart
@@ -352,8 +365,10 @@ class Mapper:
             entry["headless"] = True
         if spec.pop("publishNotReadyAddresses", False):
             entry["publish_not_ready_address"] = True
-        if "sessionAffinity" in spec:
-            entry["session_affinity"] = spec.pop("sessionAffinity")
+        for field, key in (("sessionAffinity", "session_affinity"), ("ipFamilyPolicy", "ip_family_policy"),
+                           ("ipFamilies", "ip_families")):
+            if field in spec:
+                entry[key] = spec.pop(field)
         if spec.get("selector"):
             entry["selector"] = spec.pop("selector")
         ports = {}

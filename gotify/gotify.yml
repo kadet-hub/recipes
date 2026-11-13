@@ -1,0 +1,51 @@
+parameters:
+  components:
+    gotify:
+      application: gotify
+      type: statefulset
+      # renovate: Source
+      image: docker.io/gotify/server:3.1.1@sha256:44fc5bbd1c0618878e33073d38c2c13126b48f245c3fe12236b1da48eb203b86
+      security_profile: restricted
+      # The user of the compose example in gotify's installation page. The
+      # sysctl lets that user bind gotify's default port 80 (DEC-343).
+      workload_security_context:
+        runAsUser: 1234
+        runAsGroup: 1234
+        fsGroup: 1234
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      ports:
+        http:
+          container_port: 80
+          service_port: 80
+      service:
+        type: ClusterIP
+      # The password of the initial admin, as the compose example sets it
+      # (DEC-344).
+      env:
+        GOTIFY_DEFAULTUSER_PASS:
+          secretKeyRef:
+            key: GOTIFY_DEFAULTUSER_PASS
+      secrets:
+        admin:
+          string_data:
+            GOTIFY_DEFAULTUSER_PASS:
+              value: ${applications.gotify.admin_password}
+      # The endpoint of the Dockerfile's HEALTHCHECK.
+      healthcheck:
+        readiness:
+          type: http
+          port: http
+          path: /health
+      volume_mounts:
+        data:
+          mount_path: /app/data
+      volume_claims:
+        data:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
