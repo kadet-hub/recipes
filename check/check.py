@@ -475,7 +475,9 @@ def select(root, changed):
     if not every:
         others = reads(recipes)
         recipes = [r for r in recipes if reached(r.name, others[r.name], changed)]
-    return [{"name": r.name, "level": lint.readme_fields(r)[1]} for r in recipes], every
+    # A recipe without a README stays selected, so that its lint names what is missing (RCP-1).
+    return [{"name": r.name, "level": lint.readme_fields(r)[1] if (r / "README.md").is_file() else None}
+            for r in recipes], every
 
 
 def prerequisites(recipe, work, compiled=None):

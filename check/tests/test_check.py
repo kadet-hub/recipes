@@ -275,6 +275,12 @@ class Select(unittest.TestCase):
         self.assertTrue(every)
         self.assertEqual(recipes[2:], [{"name": "leaf", "level": "renders"}, {"name": "operator", "level": "renders"}])
 
+    def test_recipe_without_readme_is_selected_without_level(self):
+        (self.root / "leaf" / "README.md").unlink()
+        recipes, every = check.select(self.root, None)
+        self.assertIn({"name": "leaf", "level": None}, recipes)
+        self.assertEqual(check.select(self.root, ["leaf/init.yml"])[0], [{"name": "leaf", "level": None}])
+
     def test_cli_counts_a_move_at_both_paths(self):
         env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PATH": os.environ["PATH"],
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t",
