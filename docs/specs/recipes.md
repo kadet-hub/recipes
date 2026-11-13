@@ -10077,7 +10077,8 @@ argument as a literal `${...}` and reads nothing.
 
   Without a difference the report says `base: same images, permissions,
   webhooks and host access`. A recipe the base does not have, a base that
-  does not compile and a compiled output given with `--compiled`
+  lacks a recipe it includes, a base that does not compile and a compiled
+  output given with `--compiled`
   (RCP-34) each get one line that says so. None of these lines decides
   the check, a reviewer does (RCP-21a).
 

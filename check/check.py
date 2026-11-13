@@ -306,6 +306,8 @@ def base_changes(recipe, base, objs, namespace, work, compiled=None):
     old = base / recipe.name
     if not (old / "init.yml").is_file():
         return [f"no recipe {recipe.name} in the base"]
+    if missing := [r.name for r in with_included(old) if not (r / "init.yml").is_file()]:
+        return [f"not compared, the base has no recipe {', '.join(missing)} that it includes"]
     sub = work / "base"
     sub.mkdir()
     try:

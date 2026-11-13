@@ -424,6 +424,13 @@ class BaseChanges(unittest.TestCase):
         self.assertEqual(self.changes([], base=self.tmp / "empty"), ["no recipe valkey in the base"])
         self.fetch.assert_not_called()
 
+    def test_base_without_an_included_recipe(self):
+        """A pull request that adds a recipe and the recipe it includes: the base has only one of them."""
+        shutil.copytree(RECIPES / "authentik", self.tmp / "base/authentik")
+        lines = check.base_changes(RECIPES / "authentik", self.tmp / "base", self.new, "authentik", self.tmp)
+        self.assertEqual(lines, ["not compared, the base has no recipe postgresql that it includes"])
+        self.fetch.assert_not_called()
+
     def test_base_that_does_not_compile(self):
         """The cause, not Kapitan's last line, as Kapitan 0.36.3 reports a failed kadet input."""
         failed = check.Failed("kapitan compile exited 1:\nError compiling valkey: Could not load Kadet module: kubernetes\n"
