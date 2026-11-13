@@ -643,7 +643,9 @@ def host_access(objs):
             out |= {f"webhook {i} {w.get('name')}" for w in o.get("webhooks") or []}
         if o.get("kind") == "PersistentVolume" and spec.get("hostPath"):
             out.add(f"hostPath volume {i}: {spec['hostPath'].get('path')}")
-        pods = [spec] if o.get("kind") == "Pod" else [t.get("spec") or {} for _, t in pod_templates(o)]
+        # a custom resource's spec.template can be a string, such as a CloudNativePG Cluster's
+        pods = [spec] if o.get("kind") == "Pod" else [
+            t["spec"] for _, t in pod_templates(o) if isinstance(t, dict) and isinstance(t.get("spec"), dict)]
         for pod in pods:
             out |= {f"host namespace {i} {k}" for k in ("hostNetwork", "hostPID", "hostIPC") if pod.get(k)}
             out |= {f"hostPath volume {i} {v.get('name')}: {v['hostPath'].get('path')}"

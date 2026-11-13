@@ -306,6 +306,11 @@ class Changes(unittest.TestCase):
     def test_unchanged_lists_nothing(self):
         self.assertEqual(self.changes(), [])
 
+    def test_custom_resource_with_a_string_template(self):
+        self.new.append({"apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster", "metadata": {"name": "db"},
+                         "spec": {"template": "template1"}})
+        self.assertEqual(self.changes(), [])
+
     def test_image_cluster_role_verb_and_host_path(self):
         self.pod["containers"][0]["image"] = self.NEW_IMAGE
         find(self.new, "ClusterRole")["rules"][0]["verbs"].append("list")
