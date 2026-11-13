@@ -3,6 +3,7 @@
   check lint <name>
   check <name> --level renders|deploys
   check <name> --level renders --compiled <out> [--rendered <file>]   (RCP-34)
+  check select [<base>]   the recipes CI runs for the change since <base>, every recipe without it (RCP-13a)
 
 Run from the repository root through uv: uv run --locked --project check check/check.py ...
 Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
@@ -30,7 +31,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.21.0"
+VERSION = "0.24.0"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
@@ -436,6 +437,47 @@ def requirement_order(recipe):
     return order
 
 
+def reads(recipes):
+    """Per recipe, the other recipes its check compiles: those it includes and requires, in turn with theirs
+    (RCP-49, RCP-55). Each recipe's files are parsed once."""
+    included = {r.name: lint.included(r) for r in recipes}
+    required = {r.name: [n for n in lint.requires(r) or [] if n != lint.GATEWAY_API] if (r / "README.md").is_file() else []
+                for r in recipes}
+    out = {}
+    for name in included:
+        seen, todo = set(), [name]
+        while todo:
+            r = todo.pop()
+            for n in [r, *included.get(r, [])]:
+                if n not in seen:
+                    seen.add(n)
+                    todo += required.get(n, [])
+        out[name] = seen - {name}
+    return out
+
+
+def reached(name, others, changed):
+    """Whether a change of the paths reaches the check of recipe name: any file of its own, and of the
+    recipes it reads all but tests/, where only tests/target.yml counts (RCP-50 to RCP-50b)."""
+    for path in changed:
+        top, _, rest = path.partition("/")
+        if top == name or top in others and (rest == "tests/target.yml" or not rest.startswith("tests/")):
+            return True
+    return False
+
+
+def select(root, changed):
+    """The recipes a change of the paths runs, each with its level, and whether that is every recipe:
+    for changed None, or a path outside the recipes, docs/ and the root's files (RCP-13, RCP-13a)."""
+    recipes = sorted(d for d in root.iterdir() if (d / "init.yml").is_file())
+    tops = {p.partition("/")[0] for p in changed or () if "/" in p}
+    every = changed is None or bool(tops - {r.name for r in recipes} - {"docs"})
+    if not every:
+        others = reads(recipes)
+        recipes = [r for r in recipes if reached(r.name, others[r.name], changed)]
+    return [{"name": r.name, "level": lint.readme_fields(r)[1]} for r in recipes], every
+
+
 def prerequisites(recipe, work, compiled=None):
     """RCP-55: the recipes on the Requires lines of the recipe, its included recipes and, in turn,
     of those prerequisites, each once and after what it requires, compiled from its own tests/target.yml."""
@@ -782,6 +824,13 @@ def main(argv=None):
     parser.add_argument("--rendered", type=Path, metavar="FILE",
                         help="helm template's output of the chart, or the release manifest (RCP-34)")
     args = parser.parse_args(argv)
+    if args.args[0] == "select" and len(args.args) <= 2:
+        # The changed files of HEAD against <base>, at old and new path of a move; every recipe without it.
+        diff = ["git", "diff", "--name-only", "--no-renames", *args.args[1:], "HEAD"]
+        recipes, every = select(Path.cwd(), run(diff).splitlines() if len(args.args) == 2 else None)
+        print(f"recipes={json.dumps(recipes, separators=(',', ':'))}")
+        print(f"all={'1' if every else ''}")
+        return 0
     if args.args[0] == "lint" and len(args.args) == 2:
         mode, name = "lint", args.args[1]
     elif len(args.args) == 1:
