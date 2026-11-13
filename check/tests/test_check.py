@@ -290,6 +290,15 @@ class GivenOutputs(unittest.TestCase):
         sides = {tuple(o["metadata"]["name"] for o in c.args[1]) for c in self.prove.call_args_list}
         self.assertEqual(sides, {("nextcloud", "nextcloud-config")})
 
+    def test_base_is_not_compiled(self):
+        """RCP-21, RCP-34: with the compiled output given, check runs no Kapitan for the base either."""
+        report = self.tmp / "report.txt"
+        status, _ = self.main("--compiled", str(self.out), "--rendered", str(self.rendered), "--report", str(report),
+                              "--base", str(RECIPES))
+        self.assertEqual(status, 0)
+        self.assertIn("base: not compared, the compiled output is given (RCP-34)", report.read_text().splitlines())
+        self.assertEqual(self.ran, [])
+
     def test_missing_compile_of_an_included_recipe_fails(self):
         shutil.rmtree(self.out / "compiled/valkey")
         status, err = self.main("--compiled", str(self.out), "--rendered", str(self.rendered))
@@ -381,6 +390,54 @@ class GivenCompile(unittest.TestCase):
                     self.assertEqual(cmd[cmd.index("--image") + 1], image)
                 else:
                     self.assertNotIn("--image", cmd)
+
+
+class BaseChanges(unittest.TestCase):
+    """RCP-21: check compiles the recipe of the base checkout and lists what changed against it."""
+
+    IMAGE = "docker.io/valkey/valkey:9.0.0@sha256:" + "0" * 64
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.fetch = mock.patch("check.fetch_generators", return_value=[]).start()
+        self.addCleanup(mock.patch.stopall)
+        self.new = [obj("Pod", "valkey", spec={"containers": [{"name": "valkey", "image": self.IMAGE}]})]
+
+    def changes(self, compiled_objs, base=RECIPES):
+        def compile_recipe(project, out):
+            write_all(out / "compiled/valkey/manifests.yml", *compiled_objs)
+
+        with mock.patch("check.compile_recipe", side_effect=compile_recipe):
+            return check.base_changes(RECIPES / "valkey", base, self.new, "valkey", self.tmp)
+
+    def test_same(self):
+        self.assertEqual(self.changes(self.new), ["same images, permissions, webhooks and host access"])
+        (call,) = self.fetch.call_args_list
+        self.assertEqual(call.args[0], RECIPES / "valkey")
+
+    def test_changed_image(self):
+        old = [obj("Pod", "valkey", spec={"containers": [{"name": "valkey", "image": self.IMAGE.replace("9.0.0", "8.1.0")}]})]
+        self.assertEqual(self.changes(old), [f"image: {self.IMAGE.replace('9.0.0', '8.1.0')} -> {self.IMAGE}"])
+
+    def test_new_recipe(self):
+        self.assertEqual(self.changes([], base=self.tmp / "empty"), ["no recipe valkey in the base"])
+        self.fetch.assert_not_called()
+
+    def test_base_without_an_included_recipe(self):
+        """A pull request that adds a recipe and the recipe it includes: the base has only one of them."""
+        shutil.copytree(RECIPES / "authentik", self.tmp / "base/authentik")
+        lines = check.base_changes(RECIPES / "authentik", self.tmp / "base", self.new, "authentik", self.tmp)
+        self.assertEqual(lines, ["not compared, the base has no recipe postgresql that it includes"])
+        self.fetch.assert_not_called()
+
+    def test_base_that_does_not_compile(self):
+        """The cause, not Kapitan's last line, as Kapitan 0.36.3 reports a failed kadet input."""
+        failed = check.Failed("kapitan compile exited 1:\nError compiling valkey: Could not load Kadet module: kubernetes\n"
+                              "Compile error: failed to compile target: valkey\n")
+        with mock.patch("check.compile_recipe", side_effect=failed):
+            lines = check.base_changes(RECIPES / "valkey", RECIPES, self.new, "valkey", self.tmp)
+        self.assertEqual(lines, ["not compared, the base does not compile: Error compiling valkey: Could not load Kadet module: kubernetes"])
 
 
 class NextAttestation(unittest.TestCase):
