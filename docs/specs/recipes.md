@@ -1980,7 +1980,7 @@ manual names it only for the Euro-Office document server.
 
 The chart runs `docker.io/library/nextcloud:35.0.2-apache`, the Docker
 official image built from nextcloud/docker, which the recipe pins as
-`35.0.2-apache@sha256:89af7ee7a96ff5e9668280566209268ae6b2d02327f6ef6d56f6d68228cf9431`.
+`35.0.2-apache@sha256:d88929dc8386420b8963f86cabb667fdaf733eef9dcf8fc98e226801a32c023c`.
 Apache starts as root and serves as `www-data`, UID 33, so the target's
 namespace needs the Pod Security level `baseline`. With an external
 database the chart renders no init container that waits for it. The
