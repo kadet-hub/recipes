@@ -1710,8 +1710,22 @@ same bytes with both versions.
   recipe.
 
   `check` copies an included or required recipe without its `tests/` and
-  compiles it from its `tests/target.yml` (RCP-49, RCP-55). Its
-  `tests/values.yaml` and `tests/smoke` serve its own proof only.
+  compiles it from its `tests/target.yml` (RCP-49, RCP-55). Every other
+  read of `tests/` in `check/` is of the recipe under proof. The chart
+  render takes its `tests/values.yaml`, the `deploys` proof runs its
+  `tests/smoke`, and `check lint` lints its own `tests/`. A change to an
+  included or required recipe's classes, README or `tests/target.yml`
+  still runs every recipe that includes or requires it (RCP-50, RCP-50a).
+  On three minors, a change to `valkey/init.yml` runs valkey and its 10
+  includers, 49 jobs that do not skip. One to `valkey/tests/smoke` runs
+  valkey alone, 9 jobs.
+
+  The selection does not cover a file that one recipe reads from another
+  recipe's `tests/` by itself, such as a smoke test that calls a script of
+  another recipe. No recipe does that at #181. Inputs that change without
+  a commit are not covered either: the generator index `latest`, the chart
+  and image registries and the Kapitan `next` image. The weekly run of
+  RCP-13 covers those.
 
   - Test: `check/tests/test_check.py` (`Select`)
   - Since: #181
