@@ -9605,8 +9605,8 @@ cluster where helm installed the chart with `tests/values.yaml`.
    rollout of its workloads.
 4. Apply the recipe's Services the same way.
 5. Apply every object of the recipe and every object step 7 keeps once
-   more with only its kind, name and namespace, as the field manager
-   `helm`.
+   more with only its `apiVersion`, `kind`, name and namespace, as the
+   field manager `helm`.
 6. Wait 10 seconds, then delete the ReplicaSets that the Deployments of
    step 2 left behind.
 7. Delete the objects the chart rendered under a name the recipe does not
@@ -9647,7 +9647,7 @@ for the run in flight. A smoke test of a recipe at `migrates` therefore
 exercises the application again on every run. cert-manager's deletes its
 Certificate and Secret first, so each run is a new issuance.
 
-DEC-342: The steps apply the Services only after the rollout, release
+DEC-348: The steps apply the Services only after the rollout, release
 Helm's fields with an apply as `helm`, and delete the chart's pods 10
 seconds after the Services switched. The first proposal applied the recipe
 in one step, deleted the orphaned ReplicaSets once the recipe's pods were

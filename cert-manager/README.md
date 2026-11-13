@@ -114,8 +114,9 @@ labels after step 5, which is not tested.
    rollout of the three Deployments.
 4. Apply the Services `cert-manager`, `cert-manager-cainjector` and
    `cert-manager-webhook` the same way.
-5. Apply every object of the recipe once more with only its `apiVersion`,
-   `kind`, name and namespace, with
+5. Apply every object of the recipe and every object step 7 keeps, such
+   as the CRDs, once more with only its `apiVersion`, `kind`, name and
+   namespace, with
    `kubectl apply --server-side --field-manager helm`. This removes the
    fields only the chart set, such as `app.kubernetes.io/managed-by: Helm`.
 6. Wait 10 seconds, then delete the orphaned ReplicaSets of the three
