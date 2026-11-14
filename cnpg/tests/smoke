@@ -13,7 +13,7 @@ metadata:
   name: smoke
 spec:
   instances: 1
-  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:f7e00138159bb45d70b624ba25e446924cb3ed1bf366d13e936c3f81b914064e
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:44d17e8570dc25055376148a2918840def5bef0193969be3e79101afa25eafc2
   storage:
     size: 1Gi
 YAML

@@ -130,6 +130,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: 0.13.7
@@ -157,9 +158,16 @@ jobs:
           RECIPE: ${{ matrix.recipe.name }}
           LEVEL: ${{ matrix.recipe.level }}
           NODE_IMAGE: ${{ matrix.kubernetes.node_image }}
+          EVENT: ${{ github.event_name }}
         run: |
           status=0
-          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --node-image "$NODE_IMAGE" --report report.txt || status=$?
+          # The report lists what changed against the pull request's base, HEAD^1 of the merge commit (RCP-21).
+          base=()
+          if [[ $EVENT == pull_request ]]; then
+            git worktree add -q --detach "$RUNNER_TEMP/base" HEAD^1
+            base=(--base "$RUNNER_TEMP/base")
+          fi
+          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --node-image "$NODE_IMAGE" "${base[@]}" --report report.txt || status=$?
           { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
 

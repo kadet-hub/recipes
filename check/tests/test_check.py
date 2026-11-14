@@ -1,6 +1,7 @@
 """AC-19 and AC-21: check downloads a release manifest, and a chart from an HTTP repository served on localhost,
 and fails unless the SHA-256 is the one of the Source line (RCP-23).
 AC-15: null fields, the order of prerequisites, the owner of an object and the wait for Established CRDs, which need no cluster.
+AC-414: the steps of a migration, their order and verdict, without a cluster (RCP-14 to RCP-14b).
 RCP-34: check at renders on a given compiled output and chart render, without Kapitan, helm or a cluster."""
 
 import contextlib
@@ -15,6 +16,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -329,6 +331,108 @@ def obj(kind, name, api="v1", **fields):
     return {"apiVersion": api, "kind": kind, "metadata": {"name": name, "namespace": "nextcloud"}, **fields}
 
 
+class MigrationPlan(unittest.TestCase):
+    """RCP-14b: the chart's Deployments whose selector changes, and its objects under names the recipe does not use,
+    without those whose deletion takes data with them."""
+
+    def test_plan(self):
+        def deployment(name, labels):
+            return {**obj("Deployment", name), "spec": {"selector": {"matchLabels": labels}}}
+
+        role = obj("Role", "web:leader")
+        chart = [deployment("web", {"app.kubernetes.io/name": "web"}), deployment("worker", {"name": "worker"}),
+                 {**role, "metadata": {**role["metadata"], "namespace": "kube-system"}},
+                 {"kind": "ServiceAccount", "metadata": {"name": "web"}},
+                 {"kind": "CustomResourceDefinition", "metadata": {"name": "a.example.org"}}, obj("PersistentVolumeClaim", "data")]
+        recipe = [deployment("web", {"name": "web"}), deployment("worker", {"name": "worker"}), obj("ServiceAccount", "web")]
+        changed, leftovers, kept = check.migration_plan(chart, recipe, "nextcloud")
+        names = [[f"{o['kind']}/{o['metadata']['name']}" for o in objs] for objs in (changed, leftovers, kept)]
+        self.assertEqual(names, [["Deployment/web"], ["Role/web:leader"],
+                                 ["CustomResourceDefinition/a.example.org", "PersistentVolumeClaim/data"]])
+
+
+class Migrate(unittest.TestCase):
+    """RCP-14: the steps of Migration in their order with tests/smoke before, during and after; RCP-14a."""
+
+    CHART = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"app.kubernetes.io/name": "web"}}}},
+             obj("Service", "web"), obj("Role", "web:leader"), obj("PersistentVolumeClaim", "data")]
+    RECIPE = [{**obj("Deployment", "web"), "spec": {"selector": {"matchLabels": {"name": "web"}}}},
+              obj("Service", "web"), obj("Role", "web-leader")]
+
+    def migrate(self, failing_run=None, error=check.Failed("smoke failed"), labelled=(), smoke_wait=0.001, failing_step=None):
+        self.steps, self.report, calls = [], [], []
+        replicasets = {"items": [{"metadata": {"name": "web-1", "ownerReferences": [{"kind": "Deployment", "name": "web"}]}},
+                                 {"metadata": {"name": "other-1"}}]}
+
+        def kubectl(*args, input=None, **kw):
+            names = [o["metadata"]["name"] for o in check.load_all(input)] if input else []
+            self.steps.append(" ".join(args) + (f" {names}" if names else ""))
+            if args[:1] == (failing_step,):
+                raise check.Failed(f"kubectl {failing_step} failed")
+            return json.dumps(replicasets) if args[:2] == ("get", "replicasets") else ""
+
+        def smoke(cluster, recipe):
+            calls.append(None)
+            threading.Event().wait(smoke_wait if len(calls) > 1 else 0.001)  # the run before step 1 is quick
+            if len(calls) == failing_run:
+                raise error
+            return "ok"
+
+        cluster = mock.Mock(kubeconfig=Path("/nonexistent"))
+        cluster.kubectl.side_effect = kubectl
+        cluster.apply_for_real.side_effect = lambda objs, *f: self.steps.append(f"apply_for_real {[o['kind'] for o in objs]} {f}")
+        cluster.apply.side_effect = lambda objs, *f: self.steps.append(f"apply {[o['kind'] for o in objs]} {f}")
+        for target in ("check.prepare", "check.install"):
+            mock.patch(target).start()
+        mock.patch("check.run", return_value="v4.3.1+gc0d08d0").start()
+        mock.patch("check.smoke", side_effect=smoke).start()
+        mock.patch("check.wait_rollouts", side_effect=lambda c, objs: self.steps.append("rollout")).start()
+        mock.patch("time.sleep", side_effect=lambda s: self.steps.append(f"sleep {s}")).start()
+        mock.patch("check.helm_labelled", return_value=list(labelled)).start()
+        self.addCleanup(mock.patch.stopall)
+        return check.migrate(cluster, Path("web.tgz"), self.CHART, self.RECIPE, Path("/recipes/web"), "nextcloud",
+                             {"nextcloud"}, (), self.report.append)
+
+    def test_steps_in_order(self):
+        self.assertFalse(self.migrate())
+        self.assertEqual(self.steps, [
+            "delete secret -n nextcloud -l owner=helm,name=web",
+            "get replicasets -n nextcloud -o json",
+            "delete deployment web -n nextcloud --cascade=orphan",
+            "apply_for_real ['Deployment', 'Role'] ('--force-conflicts',)",
+            "rollout",
+            "apply ['Service'] ('--force-conflicts',)",
+            "apply --server-side --field-manager helm -f - ['web', 'web', 'web-leader', 'data']",
+            "rollout",
+            f"sleep {check.SERVICE_SWITCH_WAIT}",
+            "delete replicaset web-1 -n nextcloud --cascade=foreground",
+            "delete --ignore-not-found -f - ['web:leader']",
+        ])
+        self.assertEqual(self.report[:4], ["migrates: selector changed: Deployment/web", "migrates: leftover: Role/web:leader",
+                                           "migrates: leftover kept, it holds data: PersistentVolumeClaim/data",
+                                           "migrates: chart installed with helm v4.3.1+gc0d08d0, smoke before: ok"])
+        self.assertRegex(self.report[4], r"^migrates: smoke during the steps: \d+ runs passed$")
+        self.assertEqual(self.report[5:], ["migrates: smoke after: ok", "migrates: no object labelled app.kubernetes.io/managed-by: Helm"])
+
+    def test_failed_run_during_the_steps_fails(self):
+        self.assertTrue(self.migrate(failing_run=2))
+        self.assertRegex(self.report[4], r"^migrates: smoke during the steps failed in 1 of \d+ runs, first: Failed: smoke failed$")
+
+    def test_timed_out_run_during_the_steps_fails(self):
+        self.assertTrue(self.migrate(failing_run=2, error=subprocess.TimeoutExpired(["tests/smoke"], 600)))
+        self.assertRegex(self.report[4], r"failed in 1 of \d+ runs, first: TimeoutExpired: Command '\['tests/smoke'\]' timed out")
+
+    def test_failed_step_does_not_wait_for_smoke(self):
+        start = time.monotonic()
+        with self.assertRaisesRegex(check.Failed, "kubectl delete failed"):
+            self.migrate(smoke_wait=5, failing_step="delete")
+        self.assertLess(time.monotonic() - start, 4)
+
+    def test_object_labelled_by_helm_fails(self):
+        self.assertTrue(self.migrate(labelled=["serviceaccount/web"]))
+        self.assertEqual(self.report[-1], "migrates: labelled app.kubernetes.io/managed-by: Helm: serviceaccount/web")
+
+
 class GivenOutputs(unittest.TestCase):
     """RCP-34: nextcloud, which includes postgresql and valkey and requires cnpg (through postgresql) and
     gateway-api, at renders on outputs the caller compiled and rendered."""
@@ -375,6 +479,15 @@ class GivenOutputs(unittest.TestCase):
             self.assertIn(line, lines)
         sides = {tuple(o["metadata"]["name"] for o in c.args[1]) for c in self.prove.call_args_list}
         self.assertEqual(sides, {("nextcloud", "nextcloud-config")})
+
+    def test_base_is_not_compiled(self):
+        """RCP-21, RCP-34: with the compiled output given, check runs no Kapitan for the base either."""
+        report = self.tmp / "report.txt"
+        status, _ = self.main("--compiled", str(self.out), "--rendered", str(self.rendered), "--report", str(report),
+                              "--base", str(RECIPES))
+        self.assertEqual(status, 0)
+        self.assertIn("base: not compared, the compiled output is given (RCP-34)", report.read_text().splitlines())
+        self.assertEqual(self.ran, [])
 
     def test_missing_compile_of_an_included_recipe_fails(self):
         shutil.rmtree(self.out / "compiled/valkey")
@@ -467,6 +580,54 @@ class GivenCompile(unittest.TestCase):
                     self.assertEqual(cmd[cmd.index("--image") + 1], image)
                 else:
                     self.assertNotIn("--image", cmd)
+
+
+class BaseChanges(unittest.TestCase):
+    """RCP-21: check compiles the recipe of the base checkout and lists what changed against it."""
+
+    IMAGE = "docker.io/valkey/valkey:9.0.0@sha256:" + "0" * 64
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.fetch = mock.patch("check.fetch_generators", return_value=[]).start()
+        self.addCleanup(mock.patch.stopall)
+        self.new = [obj("Pod", "valkey", spec={"containers": [{"name": "valkey", "image": self.IMAGE}]})]
+
+    def changes(self, compiled_objs, base=RECIPES):
+        def compile_recipe(project, out):
+            write_all(out / "compiled/valkey/manifests.yml", *compiled_objs)
+
+        with mock.patch("check.compile_recipe", side_effect=compile_recipe):
+            return check.base_changes(RECIPES / "valkey", base, self.new, "valkey", self.tmp)
+
+    def test_same(self):
+        self.assertEqual(self.changes(self.new), ["same images, permissions, webhooks and host access"])
+        (call,) = self.fetch.call_args_list
+        self.assertEqual(call.args[0], RECIPES / "valkey")
+
+    def test_changed_image(self):
+        old = [obj("Pod", "valkey", spec={"containers": [{"name": "valkey", "image": self.IMAGE.replace("9.0.0", "8.1.0")}]})]
+        self.assertEqual(self.changes(old), [f"image: {self.IMAGE.replace('9.0.0', '8.1.0')} -> {self.IMAGE}"])
+
+    def test_new_recipe(self):
+        self.assertEqual(self.changes([], base=self.tmp / "empty"), ["no recipe valkey in the base"])
+        self.fetch.assert_not_called()
+
+    def test_base_without_an_included_recipe(self):
+        """A pull request that adds a recipe and the recipe it includes: the base has only one of them."""
+        shutil.copytree(RECIPES / "authentik", self.tmp / "base/authentik")
+        lines = check.base_changes(RECIPES / "authentik", self.tmp / "base", self.new, "authentik", self.tmp)
+        self.assertEqual(lines, ["not compared, the base has no recipe postgresql that it includes"])
+        self.fetch.assert_not_called()
+
+    def test_base_that_does_not_compile(self):
+        """The cause, not Kapitan's last line, as Kapitan 0.36.3 reports a failed kadet input."""
+        failed = check.Failed("kapitan compile exited 1:\nError compiling valkey: Could not load Kadet module: kubernetes\n"
+                              "Compile error: failed to compile target: valkey\n")
+        with mock.patch("check.compile_recipe", side_effect=failed):
+            lines = check.base_changes(RECIPES / "valkey", RECIPES, self.new, "valkey", self.tmp)
+        self.assertEqual(lines, ["not compared, the base does not compile: Error compiling valkey: Could not load Kadet module: kubernetes"])
 
 
 class NextAttestation(unittest.TestCase):

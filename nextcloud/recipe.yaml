@@ -16,3 +16,23 @@ required:
   - path: applications.valkey.password
     description: Password of the included recipe valkey.
     secret: true
+  - path: applications.nextcloud.mail.from_address
+    description: Local part of the address Nextcloud sends mail from.
+    secret: false
+    option: mail
+  - path: applications.nextcloud.mail.domain
+    description: Domain of the address Nextcloud sends mail from.
+    secret: false
+    option: mail
+  - path: applications.nextcloud.mail.smtp.host
+    description: Host name of the SMTP server.
+    secret: false
+    option: mail
+  - path: applications.nextcloud.mail.smtp.name
+    description: User name Nextcloud logs in to the SMTP server with.
+    secret: false
+    option: mail
+  - path: applications.nextcloud.mail.smtp.password
+    description: Password Nextcloud logs in to the SMTP server with.
+    secret: true
+    option: mail
