@@ -29,7 +29,7 @@ import compare
 
 # Moves with Renovate like the other pins of check (RCP-30); a new version may need new mappings.
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kubernetes
-GENERATOR = "ghcr.io/kadet-hub/kubernetes:1.15.0@sha256:dc02ea8530be005377503155a52a9432975755c251cd30c2eaadbda44d331afa"
+GENERATOR = "ghcr.io/kadet-hub/kubernetes:1.16.0@sha256:7c6a790b21c8c378022a894f16850665092684326598f6974de65a3a4c4e44b7"
 RELEASE_NAME = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 CLUSTER_SCOPED = {
     "Namespace", "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition", "PersistentVolume",

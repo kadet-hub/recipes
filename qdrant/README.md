@@ -2,7 +2,7 @@
 
 Qdrant 1.20.0, a vector database with a REST and a gRPC API, as one node
 with its data on a claim and an API key required on every request, rendered
-by the kadet-hub `kubernetes` generator 1.14.0 from Qdrant's own Helm chart.
+by the kadet-hub `kubernetes` generator 1.16.0 from Qdrant's own Helm chart.
 
 Source: `https://qdrant.github.io/qdrant-helm/qdrant:1.20.0@sha256:dbd9a79e4d00e9d4fc117aa0a568b53ccf07f13dd8d26ac858b76fa14eb36bac`
 

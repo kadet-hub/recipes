@@ -2,7 +2,7 @@
 
 Home Assistant Core, the home automation server, with its configuration
 and database on a claim, designed in kadet-hub on the project's image and
-rendered by the kadet-hub `kubernetes` generator 1.14.0.
+rendered by the kadet-hub `kubernetes` generator 1.16.0.
 
 Source: `ghcr.io/home-assistant/home-assistant:2026.11.0@sha256:c6c1ca9931036bf3a2c4cc088d8db25dfea3b33935a5ecc83c40349462e2f69e`
 

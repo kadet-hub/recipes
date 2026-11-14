@@ -2,7 +2,7 @@
 
 Semaphore UI 2.19.17, a web UI and API for Ansible, Terraform, OpenTofu and
 shell tasks, as one replica with its admin account, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from Semaphore's Helm chart 16.2.2. The database
+`kubernetes` generator 1.16.0 from Semaphore's Helm chart 16.2.2. The database
 is the included recipe `postgresql`.
 
 Source: `oci://ghcr.io/semaphoreui/charts/semaphore:16.2.2@sha256:7b0eb7ccdf20b5f7ecf6b93bd2565d2bfaef089b6e11c023fa2a9d47ac331c2e`

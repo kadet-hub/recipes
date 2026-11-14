@@ -1,7 +1,7 @@
 # umami
 
 Umami 3.4.1, web analytics without cookies, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from its Docker Compose file. The database is
+`kubernetes` generator 1.16.0 from its Docker Compose file. The database is
 the included recipe `postgresql`.
 
 <!-- renovate: tag=v3.4.1 -->

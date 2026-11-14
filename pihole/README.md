@@ -1,7 +1,7 @@
 # pihole
 
 Pi-hole, a DNS server that blocks ads and trackers for every device of a
-network, rendered by the kadet-hub `kubernetes` generator 1.14.0 from the
+network, rendered by the kadet-hub `kubernetes` generator 1.16.0 from the
 Docker Compose example in the README of docker-pi-hole 2026.10.1.
 
 <!-- renovate: tag=2026.10.1 -->

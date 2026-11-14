@@ -445,7 +445,7 @@ listed as below a switch that is off when an `enabled`, `create` or
 
 | Value | Setting |
 |---|---|
-| `kubernetes` generator | `ghcr.io/kadet-hub/kubernetes:1.15.0@sha256:dc02ea8530be005377503155a52a9432975755c251cd30c2eaadbda44d331afa` |
+| `kubernetes` generator | `ghcr.io/kadet-hub/kubernetes:1.16.0@sha256:7c6a790b21c8c378022a894f16850665092684326598f6974de65a3a4c4e44b7` |
 | podinfo | `oci://ghcr.io/stefanprodan/charts/podinfo@sha256:258d0da545724b4eea8de5d5e724cd9a75aab3de79a87ba8d82ec402745cea58`, version 6.17.0 |
 | Kind clusters | `<prefix>-<release>-chart`, `<prefix>-<release>-recipe`, prefix `convert` |
 | Output | `<out>/project/`, `<out>/report.md`, `<out>/value-map.json`, `<out>/render.yaml` |

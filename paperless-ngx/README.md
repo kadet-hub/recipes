@@ -1,7 +1,7 @@
 # paperless-ngx
 
 Paperless-ngx 3.4.1, a document management system with OCR, rendered by the
-kadet-hub `kubernetes` generator 1.14.0 from its Docker Compose file for
+kadet-hub `kubernetes` generator 1.16.0 from its Docker Compose file for
 PostgreSQL. The database is the included recipe `postgresql`, the task
 queue `valkey`. The option `ai` adds paperless-ai.
 

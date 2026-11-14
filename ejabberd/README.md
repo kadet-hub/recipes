@@ -2,7 +2,7 @@
 
 ejabberd, an XMPP server for direct and group chat, with an admin account
 from a required parameter and its Mnesia database on a claim, rendered by
-the kadet-hub `kubernetes` generator 1.14.0 from the compose example in the
+the kadet-hub `kubernetes` generator 1.16.0 from the compose example in the
 container documentation of ejabberd 26.09.
 
 <!-- renovate: tag=26.09 -->

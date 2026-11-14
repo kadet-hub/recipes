@@ -2,7 +2,7 @@
 
 PowerDNS Authoritative Server with one zone in SQLite and its HTTP API,
 designed in kadet-hub on PowerDNS's image and rendered by the kadet-hub
-`kubernetes` generator 1.14.0.
+`kubernetes` generator 1.16.0.
 
 Source: `docker.io/powerdns/pdns-auth-51:5.1.5@sha256:77ff4efdbb9ec30e9309c8a1cbed6121a67fa3be25c848bbbfa756fc75bf9a27`
 

@@ -2,7 +2,7 @@
 
 Apache Kafka 4.3.1 as a KRaft cluster of three nodes that are controllers
 and brokers, with mutual TLS and ACLs, designed in kadet-hub on Strimzi's
-operator and rendered by the kadet-hub `strimzi` generator 1.1.0.
+operator and rendered by the kadet-hub `strimzi` generator 1.1.2.
 
 Source: `quay.io/strimzi/kafka:1.3.0-kafka-4.3.1@sha256:1f189b1f0f32684302d8b018b1d21b411e2469a9c465fbdc18fa3599cb5bbdad`
 

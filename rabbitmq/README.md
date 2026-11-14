@@ -2,7 +2,7 @@
 
 RabbitMQ 4.3.6 as a cluster of three nodes with persistent storage,
 designed in kadet-hub on the RabbitMQ Cluster Operator and rendered by the
-kadet-hub `rabbitmq` generator 1.1.0.
+kadet-hub `rabbitmq` generator 1.1.2.
 
 Source: `docker.io/library/rabbitmq:4.3.6-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58`
 
