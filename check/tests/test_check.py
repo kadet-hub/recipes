@@ -223,7 +223,7 @@ class RequirementOrder(unittest.TestCase):
 
 
 class Select(unittest.TestCase):
-    """AC-419: the recipes a change runs (RCP-13, RCP-13a, RCP-50 to RCP-50b, DEC-348)."""
+    """AC-419: the recipes a change runs (RCP-13, RCP-13a, RCP-50 to RCP-50b, DEC-349)."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -268,6 +268,10 @@ class Select(unittest.TestCase):
                      ".github/workflows/ci.yml", "gone/init.yml"):
             with self.subTest(path):
                 self.assertEqual(self.names("leaf/init.yml", path), (every, True))
+
+    def test_malformed_requires_line_reads_every_recipe(self):
+        (self.root / "leaf" / "README.md").write_text("# leaf\n\nLevel: `renders`\nRequires: operator\n")
+        self.assertEqual(self.names("operator/init.yml"), (["app", "db", "leaf", "operator"], False))
 
     def test_docs_and_root_files_run_none(self):
         self.assertEqual(self.names("docs/specs/recipes.md", "README.md", "renovate.json"), ([], False))

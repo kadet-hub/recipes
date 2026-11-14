@@ -1732,7 +1732,7 @@ same bytes with both versions.
   - Test: `check/tests/test_check.py` (`Select`)
   - Since: #181
 
-DEC-348: `select` runs the recipes whose proof reads a changed file:
+DEC-349: `select` runs the recipes whose proof reads a changed file:
 the changed recipe, the recipes that include it and those that require it
 (RCP-50 to RCP-50b). It leaves out the recipes that a changed recipe
 includes or requires, because their proofs read nothing of it.
@@ -1741,6 +1741,10 @@ recipe (RCP-48), but a mismatch fails the lint of both recipes, and one of
 them is the changed one. Running the included recipes of a changed parent
 as well was considered. That adds a `lint` job and one `check` job per
 minor for each included recipe, none of which could change its result.
+
+A recipe whose `Requires:` line `check lint` rejects counts as requiring
+every other recipe, so a malformed line makes `select` run more recipes,
+never fewer.
 
 - RCP-51: The section "Required parameters" of a parent MUST name the
   parameters its included recipes require as well.

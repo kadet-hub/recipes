@@ -472,8 +472,10 @@ def reads(recipes):
     """Per recipe, the other recipes its check compiles: those it includes and requires, in turn with theirs
     (RCP-49, RCP-55). Each recipe's files are parsed once."""
     included = {r.name: lint.included(r) for r in recipes}
-    required = {r.name: [n for n in lint.requires(r) or [] if n != lint.GATEWAY_API] if (r / "README.md").is_file() else []
-                for r in recipes}
+    # A malformed Requires: line (None) reads every recipe, so a lapse in it never runs fewer recipes.
+    names = [r.name for r in recipes]
+    entries = {r.name: lint.requires(r) if (r / "README.md").is_file() else [] for r in recipes}
+    required = {k: [n for n in (names if v is None else v) if n != lint.GATEWAY_API] for k, v in entries.items()}
     out = {}
     for name in included:
         seen, todo = set(), [name]
