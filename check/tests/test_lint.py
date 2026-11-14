@@ -96,7 +96,7 @@ class Lint(unittest.TestCase):
 
     def test_smoke_missing_above_renders(self):
         (self.recipe / "tests/smoke").unlink()
-        self.assertIn("tests/smoke is missing for level deploys (RCP-1)", lint.lint_files(self.recipe))
+        self.assertIn("tests/smoke is missing for level migrates (RCP-1)", lint.lint_files(self.recipe))
 
     def test_components_in_init(self):
         init = self.recipe / "init.yml"

@@ -10,6 +10,7 @@ import hashlib
 import http.server
 import io
 import json
+import os
 import shutil
 import subprocess
 import tarfile
@@ -219,6 +220,95 @@ class RequirementOrder(unittest.TestCase):
 
     def test_none(self):
         self.assertEqual(check.requirement_order(self.parent), [])
+
+
+class Select(unittest.TestCase):
+    """AC-419: the recipes a change runs (RCP-13, RCP-13a, RCP-50 to RCP-50b, DEC-349)."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+        # app includes db, which requires operator; leaf has neither.
+        self.recipe("operator", "renders")
+        self.recipe("db", "deploys", requires="operator")
+        self.recipe("app", "deploys", includes="db")
+        self.recipe("leaf", "renders")
+        (self.root / "docs").mkdir()
+
+    def recipe(self, name, level, includes=None, requires=None):
+        (self.root / name / "tests").mkdir(parents=True)
+        (self.root / name / "init.yml").write_text((f"classes:\n  - recipes.{includes}\n" if includes else "") + "parameters: {}\n")
+        (self.root / name / "README.md").write_text(
+            f"# {name}\n\nLevel: `{level}`\n" + (f"Requires: `{requires}`\n" if requires else ""))
+
+    def names(self, *changed):
+        recipes, every = check.select(self.root, list(changed))
+        return [r["name"] for r in recipes], every
+
+    def test_changed_recipe_runs_with_its_includers(self):
+        self.assertEqual(self.names("db/init.yml"), (["app", "db"], False))
+
+    def test_prerequisite_runs_its_requirers_and_their_includers(self):
+        self.assertEqual(self.names("operator/init.yml"), (["app", "db", "operator"], False))
+
+    def test_parent_does_not_run_what_it_includes_or_requires(self):
+        self.assertEqual(self.names("app/init.yml"), (["app"], False))
+        self.assertEqual(self.names("db/README.md"), (["app", "db"], False))
+
+    def test_tests_of_a_recipe_run_it_alone(self):
+        self.assertEqual(self.names("operator/tests/smoke", "operator/tests/values.yaml"), (["operator"], False))
+
+    def test_target_of_a_recipe_runs_its_includers_and_requirers(self):
+        self.assertEqual(self.names("operator/tests/target.yml"), (["app", "db", "operator"], False))
+
+    def test_shared_inputs_run_every_recipe(self):
+        every = ["app", "db", "leaf", "operator"]
+        # .github/workflows/ci.yml pins the kubernetes-versions.json commit (RCP-70); gone/ is a deleted recipe.
+        for path in ("check/check.py", "check/tests/test_check.py", ".github/actions/tools/action.yml",
+                     ".github/workflows/ci.yml", "gone/init.yml"):
+            with self.subTest(path):
+                self.assertEqual(self.names("leaf/init.yml", path), (every, True))
+
+    def test_malformed_requires_line_reads_every_recipe(self):
+        (self.root / "leaf" / "README.md").write_text("# leaf\n\nLevel: `renders`\nRequires: operator\n")
+        self.assertEqual(self.names("operator/init.yml"), (["app", "db", "leaf", "operator"], False))
+
+    def test_docs_and_root_files_run_none(self):
+        self.assertEqual(self.names("docs/specs/recipes.md", "README.md", "renovate.json"), ([], False))
+
+    def test_without_a_change_every_recipe_at_its_level(self):
+        recipes, every = check.select(self.root, None)
+        self.assertTrue(every)
+        self.assertEqual(recipes[2:], [{"name": "leaf", "level": "renders"}, {"name": "operator", "level": "renders"}])
+
+    def test_recipe_without_readme_is_selected_without_level(self):
+        (self.root / "leaf" / "README.md").unlink()
+        recipes, every = check.select(self.root, None)
+        self.assertIn({"name": "leaf", "level": None}, recipes)
+        self.assertEqual(check.select(self.root, ["leaf/init.yml"])[0], [{"name": "leaf", "level": None}])
+
+    def test_cli_counts_a_move_at_both_paths_and_reads_names_literally(self):
+        env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "PATH": os.environ["PATH"],
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@example.org"}
+
+        def git(*args):
+            subprocess.run(["git", *args], cwd=self.root, env=env, check=True, capture_output=True)
+
+        (self.root / "db" / "extra.yml").write_text("parameters: {}\n")
+        git("init", "-q")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("mv", "db/extra.yml", "leaf/extra.yml")
+        # git diff quotes a name with a non-ASCII byte unless -z.
+        (self.root / "leaf" / "tests" / "sm\u00f6ke").write_text("")
+        git("add", ".")
+        git("commit", "-qm", "move")
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.chdir(self.root), contextlib.redirect_stdout(out):
+            self.assertEqual(check.main(["select", "HEAD^1"]), 0)
+        self.assertEqual(out.getvalue(), 'recipes=[{"name":"app","level":"deploys"},{"name":"db","level":"deploys"},'
+                                         '{"name":"leaf","level":"renders"}]\nall=\n')
 
 
 class Partition(unittest.TestCase):

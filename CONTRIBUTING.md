@@ -62,7 +62,7 @@ Commits, as in the history: `feat: ntfy recipe`, `fix(zulip): ...`,
 
 The first workflow run of a new contributor waits until a maintainer
 approves it. CI then lints and checks every recipe the pull request
-changes, and every recipe that includes a changed one, at the level its
+changes, and every recipe that includes or requires a changed one, at the level its
 README states, on the three Kubernetes minors of RCP-70. The `deploys`
 proof runs the fork's manifests on the runner, so on a fork it waits for a
 maintainer's approval once more (RCP-20). The job `ci` sums up all other

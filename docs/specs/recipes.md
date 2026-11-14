@@ -1,14 +1,14 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.23.0 implements renders and deploys, for charts
+Status: Draft. check 0.24.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
         RCP-55), renders from given outputs (RCP-34), the changes
-        against a pull request's base (RCP-21) and migrates for charts
-        (RCP-14 to RCP-14b); RCP-52 before publication is not
-        implemented;
+        against a pull request's base (RCP-21), migrates for charts
+        (RCP-14 to RCP-14b) and the recipes a change reaches (RCP-13a);
+        RCP-52 before publication is not implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
 Code: <name>/, check/, .github/, renovate.json, README.md, CONTRIBUTING.md
@@ -1052,11 +1052,24 @@ as Secrets are compared by key (RCP-9).
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
-  every recipe once a week. A change below `check/` or `.github/` changes
-  every recipe.
+  every recipe once a week.
 
-  - Test: CI `select` job
+  - Test: CI `select` job; `check/tests/test_check.py` (`Select`)
   - Since: #2
+
+- RCP-13a: A pull request that changes a file outside the recipes'
+  directories, `docs/` and the files at the repository root MUST run every
+  recipe. A manual run MUST run every recipe as well.
+
+  `check/`, `.github/` and the `kubernetes-versions.json` commit in the
+  `select` job reach every proof. A directory that is no recipe at the
+  pull request's head, such as a recipe the pull request deletes, runs
+  every recipe too, because `check select` cannot tell which recipes read
+  it. `check select <base>` lists the changed files with `git diff
+  --no-renames`, so a moved file counts at its old and at its new path.
+
+  - Test: `check/tests/test_check.py` (`Select`); CI `select` job
+  - Since: #2; outside the recipes and `docs/`: #181
 
 - RCP-70: CI MUST run `check` for every recipe of RCP-13 once per
   Kubernetes minor in `kubernetes-versions.json` of
@@ -1137,8 +1150,8 @@ free for this public repository.
 
 - RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
   needs every other job of the run and fails when one of them failed or
-  was cancelled. A skipped job passes, since a pull request that changes no
-  recipe skips `lint` and `check`.
+  was cancelled. A pull request that changes no recipe skips `lint` and
+  `check`, and `ci` passes then.
 
   The `lint` and `check` jobs are a matrix whose names carry the recipe, so
   no fixed job name could be a required check without `ci`. The `main`
@@ -1147,6 +1160,33 @@ free for this public repository.
 
   - Test: CI `ci` job; manual: `gh api repos/kadet-hub/recipes/rulesets`
   - Since: #47
+
+- RCP-65a: `ci` MUST fail when `select` chose a recipe and `lint` or
+  `check` did not succeed. It MUST also fail when `select` chose every
+  recipe and `convert` did not succeed.
+
+  A skipped job there means the run left out a proof it needed, for
+  example after an edit of an `if:`. `version` runs on pull requests only,
+  so its skip passes.
+
+  - Test: CI `ci` job; manual: workflow review
+  - Since: #181
+
+- RCP-422: A push to a pull request MUST cancel the `ci` run of its
+  previous head.
+
+  Renovate rebases its branches when `main` moves, and every push started a
+  run next to the one still queued or running. From 2026-11-12 18:58 to
+  2026-11-13 07:12 UTC, 15 pull request runs went on after a newer push to
+  the same branch, with 1276 jobs that did not skip between them, 1178 of
+  them in five runs of every recipe. These are lower bounds: the job list
+  of 8 other runs failed to load. The workflow's `concurrency` group is the
+  pull request's number. A manual or weekly run gets a group of its own and
+  cancels nothing.
+
+  - Test: manual: a second push to a pull request cancels the run of the
+    first head
+  - Since: #181
 
 ## Compose sources
 
@@ -1651,8 +1691,60 @@ same bytes with both versions.
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
 
-  - Test: CI `select` job
+  - Test: CI `select` job; `check/tests/test_check.py` (`Select`)
   - Since: #15; implemented: #31
+
+- RCP-50a: CI MUST also run `check` for every recipe that requires a
+  recipe a pull request changes, at the requiring recipe's level. A
+  prerequisite of an included recipe or of another prerequisite counts
+  too.
+
+  `check` compiles every prerequisite from its own directory and installs
+  it before the proof (RCP-55). A change to `cnpg` can therefore break the
+  proof of `postgresql` and of every recipe that includes `postgresql`.
+  Until #181 a pull request that changed only `cnpg/` ran `cnpg` alone.
+
+  - Test: `check/tests/test_check.py` (`Select`); CI `select` job
+  - Since: #181
+
+- RCP-50b: A change below `<recipe>/tests/` other than to
+  `tests/target.yml` MUST NOT run the recipes that include or require that
+  recipe.
+
+  `check` copies an included or required recipe without its `tests/` and
+  compiles it from its `tests/target.yml` (RCP-49, RCP-55). Every other
+  read of `tests/` in `check/` is of the recipe under proof. The chart
+  render takes its `tests/values.yaml`, the `deploys` proof runs its
+  `tests/smoke`, and `check lint` lints its own `tests/`. A change to an
+  included or required recipe's classes, README or `tests/target.yml`
+  still runs every recipe that includes or requires it (RCP-50, RCP-50a).
+  On three minors, a change to `valkey/init.yml` runs valkey and its 10
+  includers, 49 jobs that do not skip. One to `valkey/tests/smoke` runs
+  valkey alone, 9 jobs.
+
+  The selection does not cover a file that one recipe reads from another
+  recipe's `tests/` by itself, such as a smoke test that calls a script of
+  another recipe. No recipe does that at #181. Inputs that change without
+  a commit are not covered either: the generator index `latest`, the chart
+  and image registries and the Kapitan `next` image. The weekly run of
+  RCP-13 covers those.
+
+  - Test: `check/tests/test_check.py` (`Select`)
+  - Since: #181
+
+DEC-349: `select` runs the recipes whose proof reads a changed file:
+the changed recipe, the recipes that include it and those that require it
+(RCP-50 to RCP-50b). It leaves out the recipes that a changed recipe
+includes or requires, because their proofs read nothing of it.
+`check lint` compares a recipe's generator pins with those of every other
+recipe (RCP-48), but a mismatch fails the lint of both recipes, and one of
+them is the changed one. Running the included recipes of a changed parent
+as well was considered. That adds a `lint` job and one `check` job per
+minor for each included recipe, none of which could change its result.
+
+A recipe whose `Requires:` line `check lint` rejects counts as requiring
+every other recipe, so a malformed line makes `select` run more recipes,
+never fewer.
 
 - RCP-51: The section "Required parameters" of a parent MUST name the
   parameters its included recipes require as well.
@@ -10654,6 +10746,18 @@ feature's design (OQ-6).
   `applications.authentik.secret_key`, `bootstrap_password` or
   `bootstrap_token` stops the compile with `Interpolation key` and that
   key.
+- AC-419 (RCP-13, RCP-13a, RCP-50 to RCP-50b): `check/tests/test_check.py`
+  (`Select`) selects a changed recipe with the recipes that include or
+  require it, also through an included recipe, and not the recipes it
+  includes. A change to a recipe's `tests/smoke` selects that recipe
+  alone, one to its `tests/target.yml` its includers too. `check/`,
+  `.github/actions/tools/`, `.github/workflows/ci.yml` and a directory
+  that is no recipe select every recipe. `docs/` and the root's files
+  select none.
+- AC-420 (RCP-65a, RCP-422): on a pull request that changes one recipe
+  that no other recipe includes or requires, `ci` runs `lint` once and
+  `check` once per minor for that recipe and passes. A second push to a
+  pull request cancels the run of the first head.
 
 ## Open questions
 
@@ -10712,6 +10816,7 @@ feature's design (OQ-6).
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
 | `<name>/recipe.yaml`, `check/lint.py`, `check/check.py` | Required parameters and backends (RCP-260 to RCP-263) |
+| `check/check.py` (`check select`), `.github/workflows/ci.yml` (`select`, `ci`, `concurrency`) | The recipes a pull request runs and the gate on them (RCP-13a, RCP-50 to RCP-50b, RCP-65a, RCP-422) |
 
 | Value | Setting |
 |---|---|
