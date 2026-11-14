@@ -33,7 +33,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
