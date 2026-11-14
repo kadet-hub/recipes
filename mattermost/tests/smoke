@@ -85,7 +85,8 @@ read_back() {
 read_back "after the post"
 
 # The Job run again creates no account and leaves the admin's password.
-users() { api "$token" "$url/api/v4/users/stats" | jq -er .total_users_count; }
+# The account names, not users/stats: that count is cached and includes bots Mattermost adds by itself.
+users() { api "$token" "$url/api/v4/users?per_page=200" | jq -c '[.[] | select(.is_bot | not) | .username] | sort'; }
 count=$(users)
 job=$(kubectl get job mattermost-admin -o json | jq 'del(.metadata.uid, .metadata.resourceVersion,
   .metadata.creationTimestamp, .metadata.managedFields, .status, .spec.selector,
@@ -94,7 +95,7 @@ kubectl delete job mattermost-admin --wait=true >/dev/null
 kubectl create -f - <<<"$job" >/dev/null
 kubectl wait job/mattermost-admin --for=condition=Complete --timeout=120s >/dev/null || fail "the Job run again failed: $(kubectl logs job/mattermost-admin)"
 grep -q 'created none' <<<"$(kubectl logs job/mattermost-admin)" || fail "the Job run again did not leave the accounts: $(kubectl logs job/mattermost-admin)"
-[[ $(users) == "$count" ]] || fail "the Job run again changed the number of accounts from $count"
+[[ $(users) == "$count" ]] || fail "the Job run again changed the accounts from $count to $(users)"
 token=$(login "$admin")
 [[ $token ]] || fail "the admin cannot log in after the Job ran again"
 old=$(kubectl get pod -l name=mattermost-mattermost-team-edition -o name)

@@ -5,6 +5,9 @@
 set -euo pipefail
 kubectl wait --for=jsonpath='{.webhooks[0].clientConfig.caBundle}' --timeout=120s \
   mutatingwebhookconfigurations,validatingwebhookconfigurations --all
+# A new issuance on every run, also when check repeats the test during a
+# migration (RCP-14).
+kubectl -n default delete certificate/smoke secret/smoke-tls --ignore-not-found
 kubectl apply -f - <<'YAML'
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer

@@ -7,7 +7,7 @@ Derived from the cert-manager Helm chart v1.21.2:
 
 Source: `oci://quay.io/jetstack/charts/cert-manager:v1.21.2@sha256:634dce9c13b56677a2c05e2ab76c312d0be2664022d5dd05815da67e1fd5f610`
 
-Level: `deploys`
+Level: `migrates`
 
 ## Include
 
@@ -79,7 +79,7 @@ binding.
 
 ## Proof
 
-`check cert-manager --level deploys` with `tests/values.yaml`
+`check cert-manager --level migrates` with `tests/values.yaml`
 (`crds.enabled: true`) and `tests/target.yml`, on kind for each Kubernetes
 minor CI tests. The objects outside RBAC differ only in these classes:
 
@@ -99,13 +99,32 @@ Certificate.
 
 ## Replacing a Helm release
 
-Not tested.
+`check cert-manager --level migrates` runs these steps on kind against a
+release that helm 4.3.1 installed from the chart with `tests/values.yaml`,
+while `tests/smoke` runs in a loop. helm 4 installs with server-side apply,
+which step 5 relies on. A release that Helm 3 installed keeps the chart's
+labels after step 5, which is not tested.
 
-1. Delete the Deployments `cert-manager`, `cert-manager-cainjector` and
+1. Delete the release's Helm secrets `sh.helm.release.v1.cert-manager.*`.
+2. Delete the Deployments `cert-manager`, `cert-manager-cainjector` and
    `cert-manager-webhook` with `--cascade=orphan`, because their selectors
    change.
-2. Delete the release's Helm secrets `sh.helm.release.v1.cert-manager.*`.
-3. Apply the recipe with `kubectl apply --server-side --force-conflicts`.
-4. Once the recipe's pods are ready, delete the orphaned ReplicaSets, the
-   webhook configurations `cert-manager-webhook` and the RBAC objects listed
-   under Renamed RBAC objects by their chart names.
+3. Apply the recipe without its three Services with
+   `kubectl apply --server-side --force-conflicts`, and wait for the
+   rollout of the three Deployments.
+4. Apply the Services `cert-manager`, `cert-manager-cainjector` and
+   `cert-manager-webhook` the same way.
+5. Apply every object of the recipe and every object step 7 keeps, such
+   as the CRDs, once more with only its `apiVersion`, `kind`, name and
+   namespace, with
+   `kubectl apply --server-side --field-manager helm`. This removes the
+   fields only the chart set, such as `app.kubernetes.io/managed-by: Helm`.
+6. Wait 10 seconds, then delete the orphaned ReplicaSets of the three
+   Deployments.
+7. Delete the webhook configurations `cert-manager-webhook` and the RBAC
+   objects listed under Renamed RBAC objects by their chart names.
+
+Step 3 creates the webhook configurations
+`cert-manager-cert-manager-webhook` without `caBundle`. cainjector set it
+within 9 to 26 ms on kind, and a request for a cert-manager resource in that
+window fails.

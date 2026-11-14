@@ -1,8 +1,10 @@
 """check: lint a recipe, or prove it against the chart or release manifest it replaces, or deploy it (compose, design).
 
   check lint <name>
-  check <name> --level renders|deploys
+  check <name> --level renders|deploys|migrates
   check <name> --level renders --compiled <out> [--rendered <file>]   (RCP-34)
+  check <name> --level <level> --base <checkout of the base>          (RCP-21)
+  check select [<base>]   the recipes CI runs for the change since <base>, every recipe without it (RCP-13a)
 
 Run from the repository root through uv: uv run --locked --project check check/check.py ...
 Needs helm, kubectl, kind, docker, oras and gh on PATH (installed pinned by CI).
@@ -20,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -30,7 +33,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.21.0"
+VERSION = "0.24.1"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
@@ -55,6 +58,11 @@ GATEWAY = {
     },
 }
 GATEWAY_CRDS = ("gateways.gateway.networking.k8s.io", "httproutes.gateway.networking.k8s.io")
+# Leftovers of a migration that check does not delete: their deletion takes data with them (RCP-14b).
+KEPT_KINDS = ("CustomResourceDefinition", "Namespace", "PersistentVolumeClaim")
+# shortcut: kube-proxy reports no sync, so step 6 of Migration waits a fixed time; kind needed up to 1.4 s.
+# Raise it when a migration fails right after the Services switch.
+SERVICE_SWITCH_WAIT = 10
 
 
 class Failed(Exception):
@@ -297,6 +305,30 @@ def compile_next(project, out):
     return None
 
 
+def base_changes(recipe, base, objs, namespace, work, compiled=None):
+    """RCP-21: what changed in the compiled objs against the recipe in base, a checkout of the pull request's
+    base, compiled with its own target and generators. Reported, never decides."""
+    if compiled:
+        return ["not compared, the compiled output is given (RCP-34)"]
+    old = base / recipe.name
+    if not (old / "init.yml").is_file():
+        return [f"no recipe {recipe.name} in the base"]
+    if missing := [r.name for r in with_included(old) if not (r / "init.yml").is_file()]:
+        return [f"not compared, the base has no recipe {', '.join(missing)} that it includes"]
+    sub = work / "base"
+    sub.mkdir()
+    try:
+        project = build_project(old, sub)
+        fetch_generators(old, project, sub)
+        compile_recipe(project, sub / "out")
+    except Failed as e:
+        # As in compile_next: Kapitan's last line names the target, an earlier one the cause.
+        lines = [line for line in str(e).splitlines() if "Compile failed" in line or "Error" in line]
+        return [f"not compared, the base does not compile: {(lines or str(e).strip().splitlines())[-1].strip()[:300]}"]
+    return compare.changes(objects_of(compiled_files(sub / "out", recipe.name)), objs, namespace) or [
+        "same images, permissions, webhooks and host access"]
+
+
 def objects_of(files):
     objs = []
     for path, data in files.items():
@@ -354,17 +386,17 @@ class Cluster:
                 raise Failed(f"{self.name}: {', '.join(names)} not Established after {timeout}s")
             time.sleep(1)
 
-    def apply_for_real(self, objs, timeout=60):
+    def apply_for_real(self, objs, *flags, timeout=60):
         """CRDs first; an apply the API server rejects, such as a webhook not serving yet, again for a minute (RCP-55)."""
         crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
         if crds:
-            self.apply(crds)
+            self.apply(crds, *flags)
             self.established([f"crd/{o['metadata']['name']}" for o in crds])
         rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
         deadline = time.monotonic() + timeout
         while True:
             try:
-                return self.apply(rest)
+                return self.apply(rest, *flags)
             except Failed:
                 if time.monotonic() > deadline:
                     raise
@@ -434,6 +466,51 @@ def requirement_order(recipe):
     for r in with_included(recipe):
         visit(r)
     return order
+
+
+def reads(recipes):
+    """Per recipe, the other recipes its check compiles: those it includes and requires, in turn with theirs
+    (RCP-49, RCP-55). Each recipe's files are parsed once."""
+    included = {r.name: lint.included(r) for r in recipes}
+    # A malformed Requires: line (None) reads every recipe, so a lapse in it never runs fewer recipes.
+    names = [r.name for r in recipes]
+    entries = {r.name: lint.requires(r) if (r / "README.md").is_file() else [] for r in recipes}
+    required = {k: [n for n in (names if v is None else v) if n != lint.GATEWAY_API] for k, v in entries.items()}
+    out = {}
+    for name in included:
+        seen, todo = set(), [name]
+        while todo:
+            r = todo.pop()
+            for n in [r, *included.get(r, [])]:
+                if n not in seen:
+                    seen.add(n)
+                    todo += required.get(n, [])
+        out[name] = seen - {name}
+    return out
+
+
+def reached(name, others, changed):
+    """Whether a change of the paths reaches the check of recipe name: any file of its own, and of the
+    recipes it reads all but tests/, where only tests/target.yml counts (RCP-50 to RCP-50b)."""
+    for path in changed:
+        top, _, rest = path.partition("/")
+        if top == name or top in others and (rest == "tests/target.yml" or not rest.startswith("tests/")):
+            return True
+    return False
+
+
+def select(root, changed):
+    """The recipes a change of the paths runs, each with its level, and whether that is every recipe:
+    for changed None, or a path outside the recipes, docs/ and the root's files (RCP-13, RCP-13a)."""
+    recipes = sorted(d for d in root.iterdir() if (d / "init.yml").is_file())
+    tops = {p.partition("/")[0] for p in changed or () if "/" in p}
+    every = changed is None or bool(tops - {r.name for r in recipes} - {"docs"})
+    if not every:
+        others = reads(recipes)
+        recipes = [r for r in recipes if reached(r.name, others[r.name], changed)]
+    # A recipe without a README stays selected, so that its lint names what is missing (RCP-1).
+    return [{"name": r.name, "level": lint.readme_fields(r)[1] if (r / "README.md").is_file() else None}
+            for r in recipes], every
 
 
 def prerequisites(recipe, work, compiled=None):
@@ -574,8 +651,115 @@ def deploy(cluster, objs, recipe, prereqs=()):
     install(cluster, prereqs, full=True)
     cluster.apply_for_real(objs)
     wait_rollouts(cluster, objs)
+    return smoke(cluster, recipe)
+
+
+def smoke(cluster, recipe):
     env = {**os.environ, "KUBECONFIG": str(cluster.kubeconfig)}
     return run([str((recipe / "tests/smoke").resolve())], cwd=recipe, env=env, timeout=600)
+
+
+def last_line(out):
+    return (out.strip().splitlines() or ["passed"])[-1]
+
+
+def migration_plan(chart, objs, namespace):
+    """RCP-14b: the chart's Deployments whose selector the recipe changes, and the chart's objects under a name
+    the recipe does not use, split into those to delete and those to keep. An object without a namespace is keyed
+    by the release's, on both sides alike."""
+    def key(o):
+        return o["kind"], o["metadata"].get("namespace") or namespace, o["metadata"]["name"]
+
+    ours = {key(o): o for o in objs}
+    changed = [o for o in chart if o["kind"] == "Deployment" and key(o) in ours
+               and ours[key(o)]["spec"]["selector"] != o["spec"]["selector"]]
+    leftovers = [o for o in chart if key(o) not in ours]
+    return changed, [o for o in leftovers if o["kind"] not in KEPT_KINDS], [o for o in leftovers if o["kind"] in KEPT_KINDS]
+
+
+def stubs(objs):
+    """Each object with only what identifies it."""
+    return [{"apiVersion": o["apiVersion"], "kind": o["kind"],
+             "metadata": {k: v for k, v in o["metadata"].items() if k in ("name", "namespace")}} for o in objs]
+
+
+def helm_labelled(cluster):
+    """RCP-14a: every object of every resource type the API server lists that carries Helm's label."""
+    kinds = cluster.kubectl("api-resources", "--verbs=list", "-o", "name").split()
+    return cluster.kubectl("get", ",".join(kinds), "-A", "-l", "app.kubernetes.io/managed-by=Helm", "-o", "name").split()
+
+
+def migrate(cluster, tgz, chart, objs, recipe, namespace, namespaces, prereqs, say):
+    """RCP-14: helm installs the chart, then the steps of Migration replace the release by the recipe while
+    tests/smoke runs before, in a loop during, and after them. Returns whether the proof failed."""
+    changed, leftovers, kept = migration_plan(chart, objs, namespace)
+    for o in changed:
+        say(f"migrates: selector changed: Deployment/{o['metadata']['name']}")
+    for o in leftovers:
+        say(f"migrates: leftover: {o['kind']}/{o['metadata']['name']}")
+    for o in kept:
+        say(f"migrates: leftover kept, it holds data: {o['kind']}/{o['metadata']['name']}")
+    prepare(cluster, namespaces, namespace)
+    install(cluster, prereqs, full=True)
+    run(["helm", "install", recipe.name, str(tgz), "-n", namespace, "-f", str(recipe / "tests/values.yaml"),
+         "--wait", "--timeout", "900s", "--kubeconfig", str(cluster.kubeconfig)], timeout=960)
+    helm = run(["helm", "version", "--short"]).strip()
+    say(f"migrates: chart installed with helm {helm}, smoke before: {last_line(smoke(cluster, recipe))}")
+
+    stop, runs = threading.Event(), []
+
+    def repeat():
+        # One run after the other until the steps end, at least one.
+        while True:
+            try:
+                smoke(cluster, recipe)
+                runs.append(None)
+            except Exception as e:  # also a run that timed out: the thread must not end without a verdict
+                runs.append(f"{type(e).__name__}: {e}")
+            if stop.is_set():
+                return
+
+    during = threading.Thread(target=repeat, daemon=True)
+    during.start()
+    try:
+        cluster.kubectl("delete", "secret", "-n", namespace, "-l", f"owner=helm,name={recipe.name}")
+        orphans = []
+        for o in changed:
+            ns, name = o["metadata"].get("namespace") or namespace, o["metadata"]["name"]
+            replicasets = json.loads(cluster.kubectl("get", "replicasets", "-n", ns, "-o", "json"))["items"]
+            orphans += [(ns, rs["metadata"]["name"]) for rs in replicasets
+                        if any(r["kind"] == "Deployment" and r["name"] == name for r in rs["metadata"].get("ownerReferences") or [])]
+            cluster.kubectl("delete", "deployment", name, "-n", ns, "--cascade=orphan")
+        rest = [o for o in objs if o["kind"] != "Service"]
+        cluster.apply_for_real(rest, "--force-conflicts")
+        wait_rollouts(cluster, rest)
+        cluster.apply([o for o in objs if o["kind"] == "Service"], "--force-conflicts")
+        # helm 4 owns its fields as the manager helm; an apply as helm without them removes those only it set.
+        cluster.kubectl("apply", "--server-side", "--field-manager", "helm", "-f", "-", input=dump_all(stubs(objs + kept)))
+        wait_rollouts(cluster, rest)
+        time.sleep(SERVICE_SWITCH_WAIT)
+        for ns, name in orphans:
+            cluster.kubectl("delete", "replicaset", name, "-n", ns, "--cascade=foreground")
+        if leftovers:
+            cluster.kubectl("delete", "--ignore-not-found", "-f", "-", input=dump_all(stubs(leftovers)))
+    finally:
+        stop.set()
+    during.join()
+
+    failures = [e for e in runs if e]
+    failed = bool(failures)
+    if failures:
+        say(f"migrates: smoke during the steps failed in {len(failures)} of {len(runs)} runs, first: {failures[0]}")
+    else:
+        say(f"migrates: smoke during the steps: {len(runs)} runs passed")
+    say(f"migrates: smoke after: {last_line(smoke(cluster, recipe))}")
+    labelled = helm_labelled(cluster)
+    for name in labelled:
+        failed = True
+        say(f"migrates: labelled app.kubernetes.io/managed-by: Helm: {name}")
+    if not labelled:
+        say("migrates: no object labelled app.kubernetes.io/managed-by: Helm")
+    return failed
 
 
 # Commands
@@ -619,7 +803,7 @@ def cmd_lint(recipe, work, compiled=None, rendered=None):
     return errors + lint.lint_output(recipe.name, own, {o["metadata"]["name"] for o in chart}), notes
 
 
-def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_image=None):
+def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_image=None, base=None):
     report, failed = [], False
 
     def say(line=""):
@@ -650,6 +834,9 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_imag
             return report, True
         say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
     elif kind == "manifest":
+        if level == "migrates":
+            say("migrates: a release manifest is not installed with helm and has no level migrates (RCP-14)")
+            return report, True
         say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, "
             + (f"given in {rendered}, not verified by check" if rendered else f"{source[3]} verified"))
         chart = load_all((rendered or work / "manifest.yaml").read_text())
@@ -666,6 +853,9 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_imag
     objs = objects_of(compiled_files(compiled or work / "out", recipe.name))
     if compiled:
         say(f"compiled: given in {compiled}, generators not verified by check")
+    if base:
+        for line in base_changes(recipe, base, objs, namespace, work, compiled):
+            say(f"base: {line}")
     prereqs = prerequisites(recipe, work, compiled)
     for name, prereq_objs, prereq_notes in prereqs:
         if prereq_objs is None:
@@ -760,9 +950,12 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
         if level in ("deploys", "migrates") and not failed:
             say("smoke: " + (deploy(clusters["recipe"], every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
             say("deploys: passed")
-        if level == "migrates":
-            failed = True
-            say("migrates: not implemented in this version of check")
+        if level == "migrates" and not failed:
+            clusters["migrates"] = Cluster(f"check-{recipe.name}-migrates-{os.getpid()}"[:50], work, node_image)
+            tgz = next((work / "chart").glob("*.tgz"))
+            failed = migrate(clusters["migrates"], tgz, chart, every, recipe, namespace, namespaces, prereqs, say)
+            if not failed:
+                say("migrates: passed")
     finally:
         if not keep:
             for c in clusters.values():
@@ -781,7 +974,16 @@ def main(argv=None):
                         help="Kapitan output path with compiled/<recipe>/ of the recipe, its included recipes and prerequisites (RCP-34)")
     parser.add_argument("--rendered", type=Path, metavar="FILE",
                         help="helm template's output of the chart, or the release manifest (RCP-34)")
+    parser.add_argument("--base", type=Path, metavar="DIR",
+                        help="checkout of the pull request's base: report what changed against its recipe (RCP-21)")
     args = parser.parse_args(argv)
+    if args.args[0] == "select" and len(args.args) <= 2:
+        # The changed files of HEAD against <base>, at old and new path of a move, unquoted; every recipe without it.
+        diff = ["git", "diff", "--name-only", "--no-renames", "-z", *args.args[1:], "HEAD"]
+        recipes, every = select(Path.cwd(), run(diff).split("\0")[:-1] if len(args.args) == 2 else None)
+        print(f"recipes={json.dumps(recipes, separators=(',', ':'))}")
+        print(f"all={'1' if every else ''}")
+        return 0
     if args.args[0] == "lint" and len(args.args) == 2:
         mode, name = "lint", args.args[1]
     elif len(args.args) == 1:
@@ -807,7 +1009,8 @@ def main(argv=None):
                 print(f"lint: warning: {w}")
             print(f"lint: {recipe.name}: " + ("failed" if errors else "passed"))
             return 1 if errors else 0
-        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered, args.node_image)
+        report, failed = cmd_check(recipe, args.level, work, args.keep, args.compiled, args.rendered, args.node_image,
+                                   args.base and args.base.resolve())
         if args.report:
             args.report.write_text("\n".join(report) + "\n")
         return 1 if failed else 0

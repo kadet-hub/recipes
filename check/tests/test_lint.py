@@ -94,6 +94,15 @@ class Lint(unittest.TestCase):
             ["ClusterRole/admin-extra: name neither starts with cert-manager nor is one the chart uses (RCP-3)"],
         )
 
+    def test_smoke_missing_above_renders(self):
+        (self.recipe / "tests/smoke").unlink()
+        self.assertIn("tests/smoke is missing for level migrates (RCP-1)", lint.lint_files(self.recipe))
+
+    def test_components_in_init(self):
+        init = self.recipe / "init.yml"
+        init.write_text(init.read_text() + "  components:\n    cert-manager-extra:\n      application: cert-manager\n")
+        self.assertIn("init.yml: components belong in their own files (RCP-1)", lint.lint_files(self.recipe))
+
     # AC-5
 
     def test_external_entry(self):
@@ -180,7 +189,7 @@ class Lint(unittest.TestCase):
 
     def test_readme_fields(self):
         readme = self.recipe / "README.md"
-        readme.write_text(readme.read_text().replace("Level: `deploys`", "Level: deploys"))
+        readme.write_text(re.sub(r"^Level: `(\w+)`$", r"Level: \1", readme.read_text(), flags=re.M))
         self.assertIn("README.md has no line Level:", "\n".join(lint.lint_files(self.recipe)))
 
     # AC-21
@@ -478,7 +487,7 @@ class LintIncludesAndRequires(unittest.TestCase):
 
     def requires(self, recipe, line):
         readme = recipe / "README.md"
-        readme.write_text(readme.read_text().replace("Level: `deploys`", f"Level: `deploys`\n\n{line}"))
+        readme.write_text(re.sub(r"^Level: `\w+`$", lambda m: f"{m.group(0)}\n\n{line}", readme.read_text(), flags=re.M))
 
     def test_parent_with_same_pins_passes(self):
         errors = self.errors()
