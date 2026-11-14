@@ -1,7 +1,7 @@
 """check: lint a recipe, or prove it against the chart or release manifest it replaces, or deploy it (compose, design).
 
   check lint <name>
-  check <name> --level renders|deploys
+  check <name> --level renders|deploys|migrates
   check <name> --level renders --compiled <out> [--rendered <file>]   (RCP-34)
   check <name> --level <level> --base <checkout of the base>          (RCP-21)
 
@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -31,7 +32,7 @@ import yaml
 import compare
 import lint
 
-VERSION = "0.22.0"
+VERSION = "0.23.0"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
@@ -56,6 +57,11 @@ GATEWAY = {
     },
 }
 GATEWAY_CRDS = ("gateways.gateway.networking.k8s.io", "httproutes.gateway.networking.k8s.io")
+# Leftovers of a migration that check does not delete: their deletion takes data with them (RCP-14b).
+KEPT_KINDS = ("CustomResourceDefinition", "Namespace", "PersistentVolumeClaim")
+# shortcut: kube-proxy reports no sync, so step 6 of Migration waits a fixed time; kind needed up to 1.4 s.
+# Raise it when a migration fails right after the Services switch.
+SERVICE_SWITCH_WAIT = 10
 
 
 class Failed(Exception):
@@ -379,17 +385,17 @@ class Cluster:
                 raise Failed(f"{self.name}: {', '.join(names)} not Established after {timeout}s")
             time.sleep(1)
 
-    def apply_for_real(self, objs, timeout=60):
+    def apply_for_real(self, objs, *flags, timeout=60):
         """CRDs first; an apply the API server rejects, such as a webhook not serving yet, again for a minute (RCP-55)."""
         crds = [o for o in objs if o["kind"] == "CustomResourceDefinition"]
         if crds:
-            self.apply(crds)
+            self.apply(crds, *flags)
             self.established([f"crd/{o['metadata']['name']}" for o in crds])
         rest = [o for o in objs if o["kind"] != "CustomResourceDefinition"]
         deadline = time.monotonic() + timeout
         while True:
             try:
-                return self.apply(rest)
+                return self.apply(rest, *flags)
             except Failed:
                 if time.monotonic() > deadline:
                     raise
@@ -599,8 +605,115 @@ def deploy(cluster, objs, recipe, prereqs=()):
     install(cluster, prereqs, full=True)
     cluster.apply_for_real(objs)
     wait_rollouts(cluster, objs)
+    return smoke(cluster, recipe)
+
+
+def smoke(cluster, recipe):
     env = {**os.environ, "KUBECONFIG": str(cluster.kubeconfig)}
     return run([str((recipe / "tests/smoke").resolve())], cwd=recipe, env=env, timeout=600)
+
+
+def last_line(out):
+    return (out.strip().splitlines() or ["passed"])[-1]
+
+
+def migration_plan(chart, objs, namespace):
+    """RCP-14b: the chart's Deployments whose selector the recipe changes, and the chart's objects under a name
+    the recipe does not use, split into those to delete and those to keep. An object without a namespace is keyed
+    by the release's, on both sides alike."""
+    def key(o):
+        return o["kind"], o["metadata"].get("namespace") or namespace, o["metadata"]["name"]
+
+    ours = {key(o): o for o in objs}
+    changed = [o for o in chart if o["kind"] == "Deployment" and key(o) in ours
+               and ours[key(o)]["spec"]["selector"] != o["spec"]["selector"]]
+    leftovers = [o for o in chart if key(o) not in ours]
+    return changed, [o for o in leftovers if o["kind"] not in KEPT_KINDS], [o for o in leftovers if o["kind"] in KEPT_KINDS]
+
+
+def stubs(objs):
+    """Each object with only what identifies it."""
+    return [{"apiVersion": o["apiVersion"], "kind": o["kind"],
+             "metadata": {k: v for k, v in o["metadata"].items() if k in ("name", "namespace")}} for o in objs]
+
+
+def helm_labelled(cluster):
+    """RCP-14a: every object of every resource type the API server lists that carries Helm's label."""
+    kinds = cluster.kubectl("api-resources", "--verbs=list", "-o", "name").split()
+    return cluster.kubectl("get", ",".join(kinds), "-A", "-l", "app.kubernetes.io/managed-by=Helm", "-o", "name").split()
+
+
+def migrate(cluster, tgz, chart, objs, recipe, namespace, namespaces, prereqs, say):
+    """RCP-14: helm installs the chart, then the steps of Migration replace the release by the recipe while
+    tests/smoke runs before, in a loop during, and after them. Returns whether the proof failed."""
+    changed, leftovers, kept = migration_plan(chart, objs, namespace)
+    for o in changed:
+        say(f"migrates: selector changed: Deployment/{o['metadata']['name']}")
+    for o in leftovers:
+        say(f"migrates: leftover: {o['kind']}/{o['metadata']['name']}")
+    for o in kept:
+        say(f"migrates: leftover kept, it holds data: {o['kind']}/{o['metadata']['name']}")
+    prepare(cluster, namespaces, namespace)
+    install(cluster, prereqs, full=True)
+    run(["helm", "install", recipe.name, str(tgz), "-n", namespace, "-f", str(recipe / "tests/values.yaml"),
+         "--wait", "--timeout", "900s", "--kubeconfig", str(cluster.kubeconfig)], timeout=960)
+    helm = run(["helm", "version", "--short"]).strip()
+    say(f"migrates: chart installed with helm {helm}, smoke before: {last_line(smoke(cluster, recipe))}")
+
+    stop, runs = threading.Event(), []
+
+    def repeat():
+        # One run after the other until the steps end, at least one.
+        while True:
+            try:
+                smoke(cluster, recipe)
+                runs.append(None)
+            except Exception as e:  # also a run that timed out: the thread must not end without a verdict
+                runs.append(f"{type(e).__name__}: {e}")
+            if stop.is_set():
+                return
+
+    during = threading.Thread(target=repeat, daemon=True)
+    during.start()
+    try:
+        cluster.kubectl("delete", "secret", "-n", namespace, "-l", f"owner=helm,name={recipe.name}")
+        orphans = []
+        for o in changed:
+            ns, name = o["metadata"].get("namespace") or namespace, o["metadata"]["name"]
+            replicasets = json.loads(cluster.kubectl("get", "replicasets", "-n", ns, "-o", "json"))["items"]
+            orphans += [(ns, rs["metadata"]["name"]) for rs in replicasets
+                        if any(r["kind"] == "Deployment" and r["name"] == name for r in rs["metadata"].get("ownerReferences") or [])]
+            cluster.kubectl("delete", "deployment", name, "-n", ns, "--cascade=orphan")
+        rest = [o for o in objs if o["kind"] != "Service"]
+        cluster.apply_for_real(rest, "--force-conflicts")
+        wait_rollouts(cluster, rest)
+        cluster.apply([o for o in objs if o["kind"] == "Service"], "--force-conflicts")
+        # helm 4 owns its fields as the manager helm; an apply as helm without them removes those only it set.
+        cluster.kubectl("apply", "--server-side", "--field-manager", "helm", "-f", "-", input=dump_all(stubs(objs + kept)))
+        wait_rollouts(cluster, rest)
+        time.sleep(SERVICE_SWITCH_WAIT)
+        for ns, name in orphans:
+            cluster.kubectl("delete", "replicaset", name, "-n", ns, "--cascade=foreground")
+        if leftovers:
+            cluster.kubectl("delete", "--ignore-not-found", "-f", "-", input=dump_all(stubs(leftovers)))
+    finally:
+        stop.set()
+    during.join()
+
+    failures = [e for e in runs if e]
+    failed = bool(failures)
+    if failures:
+        say(f"migrates: smoke during the steps failed in {len(failures)} of {len(runs)} runs, first: {failures[0]}")
+    else:
+        say(f"migrates: smoke during the steps: {len(runs)} runs passed")
+    say(f"migrates: smoke after: {last_line(smoke(cluster, recipe))}")
+    labelled = helm_labelled(cluster)
+    for name in labelled:
+        failed = True
+        say(f"migrates: labelled app.kubernetes.io/managed-by: Helm: {name}")
+    if not labelled:
+        say("migrates: no object labelled app.kubernetes.io/managed-by: Helm")
+    return failed
 
 
 # Commands
@@ -675,6 +788,9 @@ def cmd_check(recipe, level, work, keep, compiled=None, rendered=None, node_imag
             return report, True
         say(f"image: {source[0]}:{source[1]}@{source[2]}, run by the recipe")
     elif kind == "manifest":
+        if level == "migrates":
+            say("migrates: a release manifest is not installed with helm and has no level migrates (RCP-14)")
+            return report, True
         say(f"manifest: https://github.com/{source[0]}/releases/download/{source[1]}/{source[2]}, "
             + (f"given in {rendered}, not verified by check" if rendered else f"{source[3]} verified"))
         chart = load_all((rendered or work / "manifest.yaml").read_text())
@@ -788,9 +904,12 @@ def proof(recipe, level, work, keep, say, kind, source, namespace, objs, prereqs
         if level in ("deploys", "migrates") and not failed:
             say("smoke: " + (deploy(clusters["recipe"], every, recipe, prereqs).strip().splitlines() or ["passed"])[-1])
             say("deploys: passed")
-        if level == "migrates":
-            failed = True
-            say("migrates: not implemented in this version of check")
+        if level == "migrates" and not failed:
+            clusters["migrates"] = Cluster(f"check-{recipe.name}-migrates-{os.getpid()}"[:50], work, node_image)
+            tgz = next((work / "chart").glob("*.tgz"))
+            failed = migrate(clusters["migrates"], tgz, chart, every, recipe, namespace, namespaces, prereqs, say)
+            if not failed:
+                say("migrates: passed")
     finally:
         if not keep:
             for c in clusters.values():

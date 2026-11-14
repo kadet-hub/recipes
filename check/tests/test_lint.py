@@ -180,7 +180,7 @@ class Lint(unittest.TestCase):
 
     def test_readme_fields(self):
         readme = self.recipe / "README.md"
-        readme.write_text(readme.read_text().replace("Level: `deploys`", "Level: deploys"))
+        readme.write_text(re.sub(r"^Level: `(\w+)`$", r"Level: \1", readme.read_text(), flags=re.M))
         self.assertIn("README.md has no line Level:", "\n".join(lint.lint_files(self.recipe)))
 
     # AC-21
@@ -478,7 +478,7 @@ class LintIncludesAndRequires(unittest.TestCase):
 
     def requires(self, recipe, line):
         readme = recipe / "README.md"
-        readme.write_text(readme.read_text().replace("Level: `deploys`", f"Level: `deploys`\n\n{line}"))
+        readme.write_text(re.sub(r"^Level: `\w+`$", lambda m: f"{m.group(0)}\n\n{line}", readme.read_text(), flags=re.M))
 
     def test_parent_with_same_pins_passes(self):
         errors = self.errors()

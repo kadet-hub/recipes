@@ -155,9 +155,13 @@ uv run --locked --project check check/check.py <name> --level deploys
 ```
 
 `renders` and `deploys` need Docker, kind and kubectl. Skip `deploys` for a
-recipe at level `renders`. A recipe whose `Requires:` line names
-`gateway-api` needs cloud-provider-kind, which touches every kind cluster on
-the host, so prove that part in CI.
+recipe at level `renders`. For a recipe at level `migrates`, run
+`--level migrates` instead of `--level deploys`. It runs the `deploys`
+proof first and then installs the chart with helm 4 on a third kind
+cluster, so it needs helm as well.
+A recipe whose `Requires:` line names `gateway-api` needs
+cloud-provider-kind, which touches every kind cluster on the host, so prove
+that part in CI.
 
 The rules `check lint` and the registry gate apply are in
 [docs/specs/recipes.md](docs/specs/recipes.md): the README lines and the
