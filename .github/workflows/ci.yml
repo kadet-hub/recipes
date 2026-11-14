@@ -8,6 +8,11 @@ on:
 
 permissions: {}
 
+# A push to a pull request cancels the run of its previous head; other runs get a group of their own (RCP-422).
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 # Pins Renovate moves (RCP-30).
 env:
   # renovate: datasource=github-release-attachments depName=rhysd/actionlint
@@ -41,8 +46,8 @@ jobs:
           tar -xzf actionlint.tgz actionlint
           ./actionlint -color
 
-  # The recipes this run checks, each at the level its README states
-  # (RCP-13, RCP-28).
+  # The recipes this run checks, each at the level its README states, with the
+  # recipes that include or require a changed one (RCP-13, RCP-13a, RCP-28, RCP-50 to RCP-50b).
   select:
     runs-on: ubuntu-24.04
     permissions:
@@ -57,26 +62,19 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.7
+          enable-cache: false
       - id: select
         env:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # On pull_request, HEAD is the merge commit and HEAD^1 the base.
-          changed=$(if [[ $EVENT == pull_request ]]; then git diff --name-only HEAD^1 HEAD; fi)
-          all=
-          if [[ $EVENT != pull_request ]] || grep -qE '^(check|\.github)/' <<<"$changed"; then all=1; fi
-          for init in */init.yml; do
-            name=${init%/init.yml}
-            # A recipe is also checked when a recipe it includes changes (RCP-50).
-            included=$(grep -hoE '^ *- recipes\.[a-z0-9-]+' "$name"/*.yml | sed 's/.*recipes\.//' | grep -vx "$name" | sort -u | paste -sd'|' || true)
-            if [[ $all ]] || grep -q "^$name/" <<<"$changed" || { [[ $included ]] && grep -qE "^($included)/" <<<"$changed"; }; then
-              level=$(sed -n 's/^Level: .\(.*\).$/\1/p' "$name/README.md")
-              jq -nc --arg name "$name" --arg level "$level" '{name: $name, level: $level}'
-            fi
-          done | jq -sc . | sed 's/^/recipes=/' >>"$GITHUB_OUTPUT"
-          echo "all=$all" >>"$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
+          # On pull_request, HEAD is the merge commit and HEAD^1 the base; every recipe otherwise.
+          base=()
+          if [[ $EVENT == pull_request ]]; then base=(HEAD^1); fi
+          uv run --locked --project check check/check.py select "${base[@]}" | tee -a "$GITHUB_OUTPUT"
       # The Kubernetes minors check runs on, with their node images and kind (RCP-70).
       - id: kubernetes
         env:
@@ -132,6 +130,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: 0.13.7
@@ -159,9 +158,16 @@ jobs:
           RECIPE: ${{ matrix.recipe.name }}
           LEVEL: ${{ matrix.recipe.level }}
           NODE_IMAGE: ${{ matrix.kubernetes.node_image }}
+          EVENT: ${{ github.event_name }}
         run: |
           status=0
-          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --node-image "$NODE_IMAGE" --report report.txt || status=$?
+          # The report lists what changed against the pull request's base, HEAD^1 of the merge commit (RCP-21).
+          base=()
+          if [[ $EVENT == pull_request ]]; then
+            git worktree add -q --detach "$RUNNER_TEMP/base" HEAD^1
+            base=(--base "$RUNNER_TEMP/base")
+          fi
+          uv run --locked --project check check/check.py "$RECIPE" --level "$LEVEL" --node-image "$NODE_IMAGE" "${base[@]}" --report report.txt || status=$?
           { echo '```text'; cat report.txt 2>/dev/null || echo "no report, exit $status"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -252,7 +258,7 @@ jobs:
             exit 1
           fi
 
-  # The one required check of the main ruleset (RCP-65).
+  # The one required check of the main ruleset (RCP-65, RCP-65a).
   ci:
     needs: [test, select, lint, check, convert, deps, version]
     if: always()
@@ -261,6 +267,20 @@ jobs:
     steps:
       - env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          RECIPES: ${{ needs.select.outputs.recipes }}
+          ALL: ${{ needs.select.outputs.all }}
+          LINT: ${{ needs.lint.result }}
+          CHECK: ${{ needs.check.result }}
+          CONVERT: ${{ needs.convert.result }}
         run: |
           echo "$RESULTS"
-          ! grep -qwE 'failure|cancelled' <<<"$RESULTS"
+          if grep -qwE 'failure|cancelled' <<<"$RESULTS"; then exit 1; fi
+          # A skip passes only where select chose nothing for the job.
+          if [[ $RECIPES != '[]' && ( $LINT != success || $CHECK != success ) ]]; then
+            echo "::error::select chose recipes, lint is $LINT and check is $CHECK"
+            exit 1
+          fi
+          if [[ $ALL == 1 && $CONVERT != success ]]; then
+            echo "::error::select chose every recipe, convert is $CONVERT"
+            exit 1
+          fi

@@ -7,7 +7,7 @@ parameters:
         source: ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080
         output_path: lib/kubernetes
       - type: oci
-        source: ghcr.io/kadet-hub/certmanager:1.0.2@sha256:ba7632e9e06a593fbe20e9fa6774139203d7df65992adff9db94779606888ad9
+        source: ghcr.io/kadet-hub/certmanager:1.1.0@sha256:a1aac8168deabcca1fd857bd1f404cce138e65542718ad8441e45baccad1522f
         output_path: lib/certmanager
     compile:
       - input_type: kadet

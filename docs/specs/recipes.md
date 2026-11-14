@@ -1,13 +1,14 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.21.0 implements renders and deploys, for charts
+Status: Draft. check 0.24.0 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
-        RCP-55), and renders from given outputs (RCP-34);
-        migrates (RCP-14), RCP-21 and RCP-52 before publication are
-        not implemented;
+        RCP-55), renders from given outputs (RCP-34), the changes
+        against a pull request's base (RCP-21), migrates for charts
+        (RCP-14 to RCP-14b) and the recipes a change reaches (RCP-13a);
+        RCP-52 before publication is not implemented;
         RCP-15 only up to publication; RCP-30 not yet for the
         kubernetes-versions.json commit of RCP-70.
 Code: <name>/, check/, .github/, renovate.json, README.md, CONTRIBUTING.md
@@ -19,7 +20,8 @@ Verified against: #3, cert-manager at deploys; #10, valkey at deploys;
                   #34, kafka at deploys; #35, postgresql at deploys;
                   #36, rabbitmq-cluster-operator and rabbitmq at deploys;
                   #38 and #42, keycloak at deploys;
-                  #39, nextcloud and valkey at deploys
+                  #39, nextcloud and valkey at deploys;
+                  #176, cert-manager at migrates
 ```
 
 ## Problem
@@ -996,7 +998,7 @@ For a compose source and a designed recipe, `renders`, also as part of
   runs as one without it. `kadet-convert` meets this difference
   (CNV-5 in [converter.md](converter.md)).
 
-  The `certmanager` generator 1.0.2 renders `privateKey.rotationPolicy:
+  The `certmanager` generator 1.1.0 renders `privateKey.rotationPolicy:
   Always` on every Certificate, and the RabbitMQ Cluster Operator's
   manifest sets no `privateKey`. cert-manager 1.18 made `Always` the
   default behind the feature gate `DefaultPrivateKeyRotationPolicyAlways`,
@@ -1050,11 +1052,24 @@ as Secrets are compared by key (RCP-9).
 
 - RCP-13: A recipe's README MUST state its proof level, and CI MUST run
   `check` at that level for every recipe a pull request changes and for
-  every recipe once a week. A change below `check/` or `.github/` changes
-  every recipe.
+  every recipe once a week.
 
-  - Test: CI `select` job
+  - Test: CI `select` job; `check/tests/test_check.py` (`Select`)
   - Since: #2
+
+- RCP-13a: A pull request that changes a file outside the recipes'
+  directories, `docs/` and the files at the repository root MUST run every
+  recipe. A manual run MUST run every recipe as well.
+
+  `check/`, `.github/` and the `kubernetes-versions.json` commit in the
+  `select` job reach every proof. A directory that is no recipe at the
+  pull request's head, such as a recipe the pull request deletes, runs
+  every recipe too, because `check select` cannot tell which recipes read
+  it. `check select <base>` lists the changed files with `git diff
+  --no-renames`, so a moved file counts at its old and at its new path.
+
+  - Test: `check/tests/test_check.py` (`Select`); CI `select` job
+  - Since: #2; outside the recipes and `docs/`: #181
 
 - RCP-70: CI MUST run `check` for every recipe of RCP-13 once per
   Kubernetes minor in `kubernetes-versions.json` of
@@ -1135,8 +1150,8 @@ free for this public repository.
 
 - RCP-65: A pull request MUST NOT merge unless the CI job `ci` passed. `ci`
   needs every other job of the run and fails when one of them failed or
-  was cancelled. A skipped job passes, since a pull request that changes no
-  recipe skips `lint` and `check`.
+  was cancelled. A pull request that changes no recipe skips `lint` and
+  `check`, and `ci` passes then.
 
   The `lint` and `check` jobs are a matrix whose names carry the recipe, so
   no fixed job name could be a required check without `ci`. The `main`
@@ -1145,6 +1160,33 @@ free for this public repository.
 
   - Test: CI `ci` job; manual: `gh api repos/kadet-hub/recipes/rulesets`
   - Since: #47
+
+- RCP-65a: `ci` MUST fail when `select` chose a recipe and `lint` or
+  `check` did not succeed. It MUST also fail when `select` chose every
+  recipe and `convert` did not succeed.
+
+  A skipped job there means the run left out a proof it needed, for
+  example after an edit of an `if:`. `version` runs on pull requests only,
+  so its skip passes.
+
+  - Test: CI `ci` job; manual: workflow review
+  - Since: #181
+
+- RCP-422: A push to a pull request MUST cancel the `ci` run of its
+  previous head.
+
+  Renovate rebases its branches when `main` moves, and every push started a
+  run next to the one still queued or running. From 2026-11-12 18:58 to
+  2026-11-13 07:12 UTC, 15 pull request runs went on after a newer push to
+  the same branch, with 1276 jobs that did not skip between them, 1178 of
+  them in five runs of every recipe. These are lower bounds: the job list
+  of 8 other runs failed to load. The workflow's `concurrency` group is the
+  pull request's number. A manual or weekly run gets a group of its own and
+  cancels nothing.
+
+  - Test: manual: a second push to a pull request cancels the run of the
+    first head
+  - Since: #181
 
 ## Compose sources
 
@@ -1649,8 +1691,60 @@ same bytes with both versions.
 - RCP-50: CI MUST also run `check` for every recipe that includes a recipe
   a pull request changes, at the including recipe's level.
 
-  - Test: CI `select` job
+  - Test: CI `select` job; `check/tests/test_check.py` (`Select`)
   - Since: #15; implemented: #31
+
+- RCP-50a: CI MUST also run `check` for every recipe that requires a
+  recipe a pull request changes, at the requiring recipe's level. A
+  prerequisite of an included recipe or of another prerequisite counts
+  too.
+
+  `check` compiles every prerequisite from its own directory and installs
+  it before the proof (RCP-55). A change to `cnpg` can therefore break the
+  proof of `postgresql` and of every recipe that includes `postgresql`.
+  Until #181 a pull request that changed only `cnpg/` ran `cnpg` alone.
+
+  - Test: `check/tests/test_check.py` (`Select`); CI `select` job
+  - Since: #181
+
+- RCP-50b: A change below `<recipe>/tests/` other than to
+  `tests/target.yml` MUST NOT run the recipes that include or require that
+  recipe.
+
+  `check` copies an included or required recipe without its `tests/` and
+  compiles it from its `tests/target.yml` (RCP-49, RCP-55). Every other
+  read of `tests/` in `check/` is of the recipe under proof. The chart
+  render takes its `tests/values.yaml`, the `deploys` proof runs its
+  `tests/smoke`, and `check lint` lints its own `tests/`. A change to an
+  included or required recipe's classes, README or `tests/target.yml`
+  still runs every recipe that includes or requires it (RCP-50, RCP-50a).
+  On three minors, a change to `valkey/init.yml` runs valkey and its 10
+  includers, 49 jobs that do not skip. One to `valkey/tests/smoke` runs
+  valkey alone, 9 jobs.
+
+  The selection does not cover a file that one recipe reads from another
+  recipe's `tests/` by itself, such as a smoke test that calls a script of
+  another recipe. No recipe does that at #181. Inputs that change without
+  a commit are not covered either: the generator index `latest`, the chart
+  and image registries and the Kapitan `next` image. The weekly run of
+  RCP-13 covers those.
+
+  - Test: `check/tests/test_check.py` (`Select`)
+  - Since: #181
+
+DEC-349: `select` runs the recipes whose proof reads a changed file:
+the changed recipe, the recipes that include it and those that require it
+(RCP-50 to RCP-50b). It leaves out the recipes that a changed recipe
+includes or requires, because their proofs read nothing of it.
+`check lint` compares a recipe's generator pins with those of every other
+recipe (RCP-48), but a mismatch fails the lint of both recipes, and one of
+them is the changed one. Running the included recipes of a changed parent
+as well was considered. That adds a `lint` job and one `check` job per
+minor for each included recipe, none of which could change its result.
+
+A recipe whose `Requires:` line `check lint` rejects counts as requiring
+every other recipe, so a malformed line makes `select` run more recipes,
+never fewer.
 
 - RCP-51: The section "Required parameters" of a parent MUST name the
   parameters its included recipes require as well.
@@ -2810,7 +2904,7 @@ and that one `cert-manager` (Prerequisites).
 
 The recipe renders the manifest's objects with the `kubernetes` generator
 1.14.0, and its two Certificates and the Issuer with the `certmanager`
-generator 1.0.2. That generator sets `privateKey.rotationPolicy: Always`,
+generator 1.1.0. That generator sets `privateKey.rotationPolicy: Always`,
 which the manifest leaves to cert-manager (RCP-12). The recipe therefore
 needs cert-manager 1.18 or later with the feature gate
 `DefaultPrivateKeyRotationPolicyAlways` on, its default, and its README says
@@ -9591,26 +9685,159 @@ itself.
 Replacing a running Helm release cannot be a plain `kubectl apply`:
 `Deployment.spec.selector` is immutable, objects the recipe names
 differently stay behind, and Helm still owns the objects. The recipe's
-README documents these steps and the `migrates` level runs them on kind.
+README documents these steps, and the `migrates` level runs them on a kind
+cluster where helm installed the chart with `tests/values.yaml`.
 
 1. Delete the release's Helm secrets (`sh.helm.release.v1.<release>.*`), so
    Helm forgets the release without deleting its objects.
-2. Apply the recipe with `kubectl apply --server-side --force-conflicts`.
-3. For each Deployment whose selector changed, delete it with
-   `--cascade=orphan` before step 2, so its pods keep serving until the
-   recipe's pods are ready, then delete the orphaned ReplicaSets.
-4. Delete the objects the chart rendered under a name the recipe does not
+2. Delete each Deployment whose selector changed with `--cascade=orphan`,
+   so its pods keep serving.
+3. Apply the recipe without its Services with
+   `kubectl apply --server-side --force-conflicts`, and wait for the
+   rollout of its workloads.
+4. Apply the recipe's Services the same way.
+5. Apply every object of the recipe and every object step 7 keeps once
+   more with only its `apiVersion`, `kind`, name and namespace, as the
+   field manager `helm`.
+6. Wait 10 seconds, then delete the ReplicaSets that the Deployments of
+   step 2 left behind.
+7. Delete the objects the chart rendered under a name the recipe does not
    use, from the list `check` prints.
 
-- RCP-14: A recipe at level `migrates` MUST pass `tests/smoke` before, during
-  and after the steps above, and after them no object may carry the label
+A Service selects the recipe's pods from the moment it is applied, and the
+chart's pods leave it then. Step 4 therefore comes after the recipe's pods
+are ready. `spec.selector` of a Service is an atomic map for server-side
+apply, so `--force-conflicts` replaces it whole.
+
+helm 4.3.1 installs with server-side apply as the field manager `helm`. The
+applies of steps 3 and 4 take over the fields the recipe sets. The fields
+only the chart sets, such as its labels and its `meta.helm.sh/`
+annotations, stay with `helm`. In step 5 `helm` applies the objects without
+them, which removes them. On an object the release does not own, the step
+changes nothing.
+
+Helm 3.17.0 installs with the operation `Update` under the same manager
+name. After step 5, a ServiceAccount it installed kept every chart label. A
+release that Helm 3 installed is therefore not covered by these steps.
+
+The wait of step 6 is for kube-proxy. The Service's EndpointSlices drop the
+chart's pods at once, but a node sends new connections to them until
+kube-proxy has rewritten its rules. Those connections are refused once the
+pods are gone. On kind, kube-proxy runs in `iptables` mode with
+`minSyncPeriod: 1s`, and its rules dropped the chart's webhook pod 1.2 to
+1.4 seconds after step 4 began. A cluster with more nodes can take longer,
+which `check` does not measure.
+
+Step 7 deletes no CustomResourceDefinition, Namespace or
+PersistentVolumeClaim, because their deletion takes data with it. `check`
+prints such an object as kept. A release manifest is installed without
+helm, so a recipe from one has no level `migrates`.
+
+`check` runs `tests/smoke` in a loop from step 1 to the end of step 7, one
+run after the other. A failed step ends the proof at once, without waiting
+for the run in flight. A smoke test of a recipe at `migrates` therefore
+exercises the application again on every run. cert-manager's deletes its
+Certificate and Secret first, so each run is a new issuance.
+
+DEC-348: The steps apply the Services only after the rollout, release
+Helm's fields with an apply as `helm`, and delete the chart's pods 10
+seconds after the Services switched. The first proposal applied the recipe
+in one step, deleted the orphaned ReplicaSets once the recipe's pods were
+ready, and released nothing.
+
+Both were measured on one-node kind v0.33.0 clusters with cert-manager
+v1.21.2, installed with helm 4.3.1 and `tests/values.yaml`. Three probes
+ran from 5 seconds before step 1 until 30 seconds after step 7. The
+control-plane node, where kube-apiserver runs, opened a new TLS connection
+to the ClusterIP of `cert-manager-webhook` about every 0.3 seconds. About
+every 0.7 seconds, a server-side dry run created a Certificate and a
+CertificateRequest, which both webhooks admit. `tests/smoke` ran in a loop
+as above.
+
+| Steps | Kubernetes | New connections refused | Dry runs failed | Smoke runs failed | Objects labelled `managed-by: Helm` after |
+|---|---|---|---|---|---|
+| First proposal | 1.37.0 | 16 of 130, from 1.5 to 6.4 s after the apply | 0 of 57 | 0 of 30 | 37 |
+| First proposal | 1.35.8 | 18 of 134, from 1.6 to 7.1 s after the apply | 0 of 62 | 0 of 22 | 37 |
+| Steps above, without the wait | 1.37.0 | 1 of 154, 1.0 s after step 4 began | 1 of 71 | 1 of 29 | 0 |
+| Steps above, without the wait | 1.37.0 | 1 of 156, 1.4 s after step 4 began | 0 of 72 | 0 of 40 | 0 |
+| Steps above | 1.37.0 | 0 of 185 | 0 of 86 | 0 of 34 | 0 |
+| Steps above | 1.37.0 | 0 of 188 | 0 of 86 | 0 of 51 | 0 |
+| Steps above | 1.35.8 | 0 of 186 | 0 of 87 | 0 of 64 | 0 |
+
+With the first proposal, the recipe's webhook pod became ready about 5
+seconds after the apply, as the `initialDelaySeconds: 5` of its readiness
+probe allows. New connections were refused in that time. The dry runs and
+the smoke test still passed, because kube-apiserver kept using its open
+connection to the chart's webhook pod, which the orphaned ReplicaSet kept
+running. A request that kube-apiserver had sent on a new connection in that
+time would have been refused like the node's. The 37 objects were the 6
+CRDs, 11 ClusterRoles, 8 ClusterRoleBindings, 3 ServiceAccounts and 3
+Services, and the 3 Endpoints and 3 EndpointSlices to which Kubernetes
+copies a Service's labels.
+
+Without the wait, the chart's pods went while the node still sent new
+connections to them. In the first of those two runs, a dry run and a smoke
+run failed as well. The dry run failed with `InternalError` from
+kube-apiserver, and the log cut its message off.
+
+With the steps above, cert-manager's webhook stayed available, which
+answers the question the first proposal left open. One window remains that
+no probe hit. The recipe's webhook configurations are new objects
+(Derived name, RCP-12), and step 3 creates them without `caBundle`.
+cainjector set it 9 to 26 ms later, as a watch on them saw. kube-apiserver
+calls the chart's and the recipe's configurations, and without `caBundle`
+it cannot verify the webhook's certificate. A request for a cert-manager
+resource in that window fails, because the webhooks' `failurePolicy` is
+`Fail`.
+
+`tests/smoke` in a loop passed the first proposal as well. A refused new
+connection reaches it only when kube-apiserver has no open one. The
+measurement above therefore shows that step 4 and the wait close the gap,
+and `check/tests/test_check.py` keeps their order (AC-414). Removing
+`app.kubernetes.io/managed-by` with `kubectl label` was considered for
+step 5. It would also work for a release that Helm 3 installed, but it
+leaves every other field only the chart set, such as `helm.sh/chart`, and
+RCP-14a would still pass. Waiting for kube-proxy on a signal was
+considered. kube-proxy reports no sync through the API, and reading a
+node's rules works only on kind and for one proxy mode.
+
+- RCP-14: A recipe at level `migrates` MUST pass `tests/smoke` before,
+  during and after the steps above.
+
+  During means that every run of the loop passes. `check` runs at least
+  one.
+
+  - Test: `check <name> --level migrates`, report lines `migrates: ...
+    smoke`; `check/tests/test_check.py` (`Migrate`); CI `check` job of
+    cert-manager
+  - Since: #176
+
+- RCP-14a: After the steps, no object in the cluster may carry the label
   `app.kubernetes.io/managed-by: Helm`.
 
-  The steps are a proposal. Whether step 3 keeps cert-manager's webhook
-  available throughout is not measured yet.
+  `check` lists every resource type the API server can list, in every
+  namespace.
 
-  - Test: `check <name> --level migrates`
-  - Since: not implemented
+  - Test: `check <name> --level migrates`, report line
+    `migrates: no object labelled app.kubernetes.io/managed-by: Helm`;
+    `check/tests/test_check.py` (`Migrate`); CI `check` job of
+    cert-manager
+  - Since: #176
+
+- RCP-14b: Before step 1, `check` MUST print the Deployments of step 2,
+  the objects step 7 deletes and the objects it keeps.
+
+  The README's steps for users refer to this list.
+
+  - Test: `check/tests/test_check.py` (`MigrationPlan`, `Migrate`); CI
+    `check` job, report lines `migrates: selector changed` and
+    `migrates: leftover`
+  - Since: #176
+
+- AC-414 (RCP-14 to RCP-14b): `check/tests/test_check.py` runs the steps in
+  their order against a fake cluster, prints the Deployment with a changed
+  selector and the leftover, keeps a CRD and a claim, and fails on a failed
+  smoke run during the steps and on an object labelled by Helm.
 
 ## Recipe requests
 
@@ -10128,7 +10355,7 @@ argument as a literal `${...}` and reads nothing.
   passed, unless it is a major update, lock file maintenance, a digest
   update of a GitHub Action, the `next` pin (RCP-29), the
   `kubernetes-versions.json` commit (RCP-70), or moves a `Source` line or a
-  `# renovate: Source` class line (RCP-16, RCP-21).
+  `# renovate: Source` class line (RCP-16, RCP-21a).
 
   Renovate merges without GitHub's auto-merge (`platformAutomerge: false`),
   so it waits for every check, and through a bypass of the `main` ruleset in
@@ -10220,13 +10447,73 @@ argument as a literal `${...}` and reads nothing.
   show, apart from the object diff, every image that changed, the `can-i`
   diff of each subject between the old and the new recipe, and any added
   webhook, hostPath volume, privileged container or host namespace.
-  Such pull requests MUST NOT merge automatically.
 
   `renders` compares the recipe with the chart. A compromised chart
   release passes it. This diff is what a reviewer can still catch.
 
-  - Test: `check` tests; Renovate configuration
-  - Since: not implemented; no automatic merge: #56 (RCP-30a)
+  On a pull request the `check` job passes the base, the first parent of
+  the merge commit, as a checkout with `--base`. `check` compiles the
+  base's recipe with the base's `tests/target.yml` and generator pins,
+  which it verifies as RCP-27 describes, and compares the two compiled
+  outputs without a cluster. The report lists each difference on a line
+  that starts with `base:` (DEC-345):
+
+  - `image: <old> -> <new>`, for each repository whose references
+    differ, `none` on the side without one;
+  - `permissions: <subject> in <namespace>: only old: <rule>` or
+    `only new: <rule>`, with `cluster-wide` in place of `in <namespace>`
+    for a ClusterRoleBinding (DEC-346);
+  - `added webhook`, `added hostPath volume`, `added privileged
+    container` and `added host namespace` (`hostNetwork`, `hostPID`,
+    `hostIPC`), each with its object.
+
+  An image is any reference pinned by digest anywhere in the objects:
+  containers, image arguments and custom resources. RCP-6 pins every
+  container image, so an unpinned image can only sit in a field such as
+  a custom resource's, and is not listed. A hostPath volume is one of a
+  pod or a PersistentVolume.
+
+  Without a difference the report says `base: same images, permissions,
+  webhooks and host access`. A recipe the base does not have, a base that
+  lacks a recipe it includes, a base that does not compile and a compiled
+  output given with `--compiled`
+  (RCP-34) each get one line that says so. None of these lines decides
+  the check, a reviewer does (RCP-21a).
+
+  - Test: `check/tests/test_compare.py` (`Changes`),
+    `check/tests/test_check.py` (`BaseChanges`, `GivenOutputs`); CI
+    `check` job, report lines `base:` (AC-6)
+  - Since: #174
+
+- RCP-21a: A pull request that moves a recipe to a new chart version
+  MUST NOT merge automatically.
+
+  - Test: manual: `renovate.json` `automerge` rules (RCP-30a)
+  - Since: #56 (RCP-30a)
+
+DEC-345: The changes against the base are lines of the `check` report,
+which the `check` job writes to its job summary with the rest of the
+report. A comment on the pull request was considered. CI runs pull
+requests with `permissions: {}` and no secrets (RCP-20), and a fork's
+token is read-only, so a comment would need a second workflow on
+`workflow_run` that posts with a write token what a fork's run produced.
+Every leg of RCP-70 prints the same lines, because they come from the
+compiled outputs alone. A local run with `--base` prints them too.
+
+DEC-346: `check` computes the permission diff from the RBAC objects of
+both compiled outputs, in the lines of `kubectl auth can-i --list` that
+RCP-11 diffs, without asking a cluster. A subject gets the rules of each
+Role or ClusterRole a binding gives it, and a ClusterRole with an
+`aggregationRule` also those of the ClusterRoles it selects. The rules of
+ClusterRoles that aggregate into `view`, `edit` and `admin` go to the
+subject `users bound to <role>`, as to the test users of RCP-11. A
+binding to a role the output does not render, such as `cluster-admin` or
+a role of a prerequisite, is one line with the role's name, so a new
+binding to it shows without the rules behind it. Asking `kubectl auth
+can-i` would need a third kind cluster per leg with the base applied. It
+would add the rules the cluster itself grants, such as those of the
+built-in roles and of discovery, which are the same for the old and the
+new recipe.
 
 - RCP-22: `check` MUST be released with its own version tag
   `check-vX.Y.Z`, and the `to-recipe` skill MUST run a pinned version
@@ -10307,8 +10594,8 @@ feature's design (OQ-6).
   that differ by a dropped label, an unchanged selector that no longer
   matches, a lost RoleBinding to a group, a Job from two dry runs, and an
   accepted difference of each class, and fail or pass accordingly.
-- AC-3 (RCP-13, RCP-14): cert-manager v1.21.2 passes `check cert-manager
-  --level migrates` in CI. Met so far up to `deploys`.
+- AC-3 (RCP-13, RCP-14, RCP-14a): cert-manager v1.21.2 passes
+  `check cert-manager --level migrates` in CI on each Kubernetes minor.
 - AC-5 (RCP-17 to RCP-19): `check lint` fails on fixtures with an
   `external` entry, a `jinja2` entry, each resolver RCP-17 forbids, an
   unpinned or foreign dependency, a key under another application's component, and a
@@ -10319,7 +10606,11 @@ feature's design (OQ-6).
   and passes on cert-manager.
 - AC-6 (RCP-20, RCP-21): actionlint passes. A fixture pair of an old and a
   new recipe with an added image, an added ClusterRole verb and an added
-  hostPath volume makes `check` list all three.
+  hostPath volume makes `check` list all three. A webhook, a privileged
+  container and a host namespace that the new recipe adds are listed
+  too, and an unchanged pair lists nothing. In CI, on a pull request that
+  changes no recipe, the report of every recipe says `base: same images,
+  permissions, webhooks and host access`.
 - AC-4 (RCP-15): a fresh clone of a consumer project fetches cert-manager
   by commit SHA and compiles it with the two commands above, and once
   cert-manager is published, by digest through the registry's consumer
@@ -10455,6 +10746,18 @@ feature's design (OQ-6).
   `applications.authentik.secret_key`, `bootstrap_password` or
   `bootstrap_token` stops the compile with `Interpolation key` and that
   key.
+- AC-419 (RCP-13, RCP-13a, RCP-50 to RCP-50b): `check/tests/test_check.py`
+  (`Select`) selects a changed recipe with the recipes that include or
+  require it, also through an included recipe, and not the recipes it
+  includes. A change to a recipe's `tests/smoke` selects that recipe
+  alone, one to its `tests/target.yml` its includers too. `check/`,
+  `.github/actions/tools/`, `.github/workflows/ci.yml` and a directory
+  that is no recipe select every recipe. `docs/` and the root's files
+  select none.
+- AC-420 (RCP-65a, RCP-422): on a pull request that changes one recipe
+  that no other recipe includes or requires, `ci` runs `lint` once and
+  `check` once per minor for that recipe and passes. A second push to a
+  pull request cancels the run of the first head.
 
 ## Open questions
 
@@ -10500,12 +10803,12 @@ feature's design (OQ-6).
 | `SECURITY.md` | Reporting a vulnerability (RCP-69) |
 | `CONTRIBUTING.md` | Requests, recipe and `check` changes, review and merge (RCP-417) |
 | `<name>/` | One recipe (RCP-1) |
-| `check/check.py` | CLI, sources, kind clusters, report; pins the Kapitan `next` image |
+| `check/check.py` | CLI, sources, kind clusters, the steps of Migration (RCP-14), report; pins the Kapitan `next` image |
 | `check/lint.py` | `check lint` (RCP-1 to RCP-7, RCP-66, RCP-17 to RCP-19, RCP-23, RCP-32, RCP-33, RCP-35, RCP-36, RCP-38, RCP-40, RCP-43, RCP-44, RCP-58, RCP-308) |
-| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243) |
-| `check/tests/` | AC-1, AC-2, AC-5, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26 without a cluster |
+| `check/compare.py` | Normalization, pairing, classes, selectors, can-i (RCP-9 to RCP-12, RCP-243); changes against the base (RCP-21) |
+| `check/tests/` | AC-1, AC-2, AC-5, AC-6, AC-9, AC-10, AC-13, AC-19, AC-21, AC-24, AC-26, AC-414 without a cluster |
 | `check/pyproject.toml`, `check/uv.lock` | Kapitan 0.36.3, omegaconf 2.4.0.dev4, PyYAML; pip-audit in the group `audit` (RCP-68); the entry point `kadet-convert` ([converter.md](converter.md)) |
-| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-28, RCP-68, RCP-70, RCP-271, RCP-406 |
+| `.github/workflows/ci.yml` | RCP-13, RCP-20, RCP-21, RCP-28, RCP-68, RCP-70, RCP-271, RCP-406 |
 | `.github/workflows/request-review.yml` | requests `neat-bot` (RCP-57) |
 | `.github/ISSUE_TEMPLATE/recipe-request.yml` | Recipe requests, listed on kadet-hub.org/wanted/ (CAT-41 in kadet-hub/registry) |
 | Rulesets `tag creation`, `release tags` | RCP-31, applied with `gh api` |
@@ -10513,6 +10816,7 @@ feature's design (OQ-6).
 | `renovate.json` | RCP-16, RCP-29, RCP-30 |
 | `check/lint.py`, `check/check.py`, `.github/workflows/ci.yml` | Included recipes and prerequisites (RCP-47 to RCP-56) |
 | `<name>/recipe.yaml`, `check/lint.py`, `check/check.py` | Required parameters and backends (RCP-260 to RCP-263) |
+| `check/check.py` (`check select`), `.github/workflows/ci.yml` (`select`, `ci`, `concurrency`) | The recipes a pull request runs and the gate on them (RCP-13a, RCP-50 to RCP-50b, RCP-65a, RCP-422) |
 
 | Value | Setting |
 |---|---|
@@ -10521,7 +10825,8 @@ feature's design (OQ-6).
 | Tag | `<name>-vX.Y.Z`, created by the admin role only |
 | Registry entry | kadet-hub/registry `recipes/<name>.yaml` |
 | Inventory backend | omegaconf, Kapitan 0.36.3 |
-| First recipe | cert-manager, chart v1.21.2, level `deploys`, target `migrates` |
+| First recipe | cert-manager, chart v1.21.2, level `migrates` |
+| Migration (RCP-14) | helm 4.3.1 of `.github/actions/tools`, 10 s from the Services to the ReplicaSets (`SERVICE_SWITCH_WAIT`), leftovers kept: CustomResourceDefinition, Namespace, PersistentVolumeClaim (`KEPT_KINDS`) |
 | First recipe from kadet-hub/examples | valkey, chart `valkey` 0.12.0 of valkey-io/valkey-helm, level `deploys` |
 | First compose recipe | miniflux, `contrib/docker-compose/basic.yml` of miniflux 2.3.4, readiness probe `miniflux -healthcheck auto` (DEC-200, RCP-280), migrations without a lock (DEC-201), level `deploys` |
 | First designed recipe | mysql, `container-registry.oracle.com/mysql/community-server` 9.7.4, level `deploys` |
@@ -10538,7 +10843,7 @@ feature's design (OQ-6).
 | postgresql option `earthdistance` | `recipes.postgresql.earthdistance`, `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in the same list, with `cube` (RCP-102) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
-| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.0.2, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.1.0, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
 | keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.14.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
@@ -10568,7 +10873,7 @@ feature's design (OQ-6).
 | langfuse | chart `langfuse` 2.2.3 of langfuse/langfuse-k8s (DEC-240), Langfuse 4.75.0 from GHCR (DEC-241), includes postgresql with TLS and valkey (DEC-242), options `clickhouse` with ClickHouse 26.8.36.3 (DEC-243) and `s3` with the subchart SeaweedFS on 4.52 (DEC-244, DEC-245), keys and first account required, sign-up off (DEC-247), `kubernetes` generator 1.14.0, level `deploys` (RCP-320 to RCP-325) |
 | stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
 | jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
-| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.0.2, level `deploys` (RCP-340 to RCP-349) |
+| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.1.0, level `deploys` (RCP-340 to RCP-349) |
 | zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
 | actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
 | qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
