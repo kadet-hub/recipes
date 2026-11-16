@@ -3,7 +3,7 @@
 Stalwart Mail Server for one mail domain: SMTP, submission and IMAP over
 TLS, DKIM signing, the domain's DNS records, a first mailbox and an admin
 from required parameters, designed in kadet-hub on Stalwart's image and
-rendered by the kadet-hub `kubernetes` generator 1.14.0.
+rendered by the kadet-hub `kubernetes` generator 1.16.0.
 
 Source: `docker.io/stalwartlabs/stalwart:v1.0.3@sha256:73c684a84c24f5b4206ec266a8deb8986fe44a9f623997e07f084388d943c8bd`
 
@@ -209,7 +209,7 @@ fails for every sender.
 
 - `components.stalwart.service.type: LoadBalancer` with
   `externalTrafficPolicy: Local` keeps the client IP. The `kubernetes`
-  generator 1.14.0 renders no `externalTrafficPolicy`, so the field has to
+  generator 1.16.0 renders no `externalTrafficPolicy`, so the field has to
   come from outside the recipe until a generator renders it.
 - An L4 proxy in front of the cluster that speaks the PROXY protocol keeps it
   as well. Stalwart reads the PROXY header from the networks in

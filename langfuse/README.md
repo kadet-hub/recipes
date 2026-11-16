@@ -1,7 +1,7 @@
 # langfuse
 
 Langfuse 4.75.0, LLM observability with traces and evaluations, rendered by
-the kadet-hub `kubernetes` generator 1.14.0 from Langfuse's Helm chart
+the kadet-hub `kubernetes` generator 1.16.0 from Langfuse's Helm chart
 2.2.3. PostgreSQL and Valkey are included recipes, ClickHouse and SeaweedFS
 as the S3 store are options.
 

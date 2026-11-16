@@ -3,7 +3,7 @@
 homepage, a dashboard of links, service widgets and bookmarks, with its
 dashboard written in the inventory and optional service discovery in the
 cluster, designed in kadet-hub on homepage's image and rendered by the
-kadet-hub `kubernetes` generator 1.14.0.
+kadet-hub `kubernetes` generator 1.16.0.
 
 Source: `ghcr.io/gethomepage/homepage:v2.7.0@sha256:19c5c09184458a41b7b5915e71463a39f36cd33540f41bdbed008791b8182d5f`
 

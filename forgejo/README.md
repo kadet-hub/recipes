@@ -2,7 +2,7 @@
 
 Forgejo 15.0.11, a self-hosted Git forge with a web UI and an API, as one
 replica with its admin account, rendered by the kadet-hub `kubernetes`
-generator 1.14.0 from Forgejo's Helm chart 17.3.2. The included recipe
+generator 1.16.0 from Forgejo's Helm chart 17.3.2. The included recipe
 `postgresql` is the database.
 
 Source: `oci://code.forgejo.org/forgejo-helm/forgejo:17.3.2@sha256:73accaef0604d6e701a7b141e71a8b9a007c1475807240403d8bca0aeda24b74`

@@ -3,7 +3,7 @@
 gotify 3.1.1, a server that takes messages from applications through a
 REST API and delivers them to its web UI and Android app, with its SQLite
 database on a claim, designed in kadet-hub on gotify's image and rendered
-by the kadet-hub `kubernetes` generator 1.14.0.
+by the kadet-hub `kubernetes` generator 1.16.0.
 
 Source: `docker.io/gotify/server:3.1.1@sha256:44fc5bbd1c0618878e33073d38c2c13126b48f245c3fe12236b1da48eb203b86`
 

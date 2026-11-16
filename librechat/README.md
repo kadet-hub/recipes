@@ -2,7 +2,7 @@
 
 LibreChat v0.8.8, a chat UI for many model providers, on the MongoDB of
 the included recipe `mongodb`, with registration closed and without
-search, rendered by the kadet-hub `kubernetes` generator 1.14.0 from
+search, rendered by the kadet-hub `kubernetes` generator 1.16.0 from
 LibreChat's Helm chart `librechat` 3.0.0.
 
 Source: `oci://ghcr.io/librechat-ai/librechat-chart/librechat:3.0.0@sha256:5d50ecaf2685295fb5d28da016a964b03610e7897d6e366c0b573086fb23775a`

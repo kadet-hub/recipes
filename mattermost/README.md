@@ -2,7 +2,7 @@
 
 Mattermost Team Edition 12.0.2, a team chat server with channels, direct
 messages and file sharing, with its files on a claim, rendered by the
-kadet-hub `kubernetes` generator 1.14.0 from Mattermost's Helm chart
+kadet-hub `kubernetes` generator 1.16.0 from Mattermost's Helm chart
 `mattermost-team-edition` 6.6.111. The database is the included recipe
 `postgresql`.
 

@@ -2,7 +2,7 @@
 
 NetBox v4.7.4, the source of truth for network infrastructure and IP
 addresses, with its RQ worker, rendered by the kadet-hub `kubernetes`
-generator 1.14.0 from NetBox's Helm chart 8.3.99. The included recipe
+generator 1.16.0 from NetBox's Helm chart 8.3.99. The included recipe
 `postgresql` is the database, `valkey` holds tasks and cache.
 
 Source: `oci://ghcr.io/netbox-community/netbox-chart/netbox:8.3.99@sha256:dbc14803e984f924d5d3b4db6955e02ebd94debf95d02af0507707aa53651be8`
