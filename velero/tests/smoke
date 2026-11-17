@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Velero backs a namespace up into an S3 bucket through the AWS plugin, with
+# the keys of the Secret velero, and restores it from there once the
+# namespace is gone. SeaweedFS, the S3 store of langfuse's option s3, serves
+# the bucket.
+set -euo pipefail
+s3=velero-smoke-s3
+app=velero-smoke
+run=smoke-$(date +%s)
+seaweedfs=docker.io/chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
+kubectl create namespace "$s3" >/dev/null
+trap 'kubectl delete namespace "$s3" "$app" --ignore-not-found --wait=false >/dev/null' EXIT
+
+# The identity has the keys of tests/target.yml.
+kubectl -n "$s3" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Secret
+metadata:
+  name: seaweedfs
+stringData:
+  s3.json: '{"identities":[{"name":"velero","credentials":[{"accessKey":"velero","secretKey":"aaaaaaaaaaaaaaaa"}],"actions":["Admin","Read","Write","List","Tagging"]}]}'
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seaweedfs
+  labels:
+    app: seaweedfs
+spec:
+  containers:
+    - name: seaweedfs
+      image: $seaweedfs
+      command:
+        - /usr/bin/weed
+        - mini
+        - -dir=/data
+        - -s3.config=/etc/s3/s3.json
+      readinessProbe:
+        httpGet:
+          path: /status
+          port: 8333
+      volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: config
+          mountPath: /etc/s3
+  volumes:
+    - name: data
+      emptyDir: {}
+    - name: config
+      secret:
+        secretName: seaweedfs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+    - name: s3
+      port: 8333
+YAML
+kubectl -n "$s3" wait pod/seaweedfs --for=condition=Ready --timeout=300s >/dev/null
+created=$(kubectl -n "$s3" exec seaweedfs -- sh -c 'echo "s3.bucket.create -name velero" | weed shell')
+[[ $created == *"created bucket velero"* ]] || { echo "SeaweedFS did not create the bucket: $created" >&2; exit 1; }
+endpoint=http://$(kubectl -n "$s3" get service seaweedfs -o jsonpath='{.spec.clusterIP}'):8333
+
+kubectl -n velero apply -f - >/dev/null <<YAML
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: default
+spec:
+  provider: aws
+  default: true
+  objectStorage:
+    bucket: velero
+  config:
+    region: us-east-1
+    s3ForcePathStyle: "true"
+    s3Url: $endpoint
+YAML
+kubectl -n velero wait backupstoragelocation/default --for=jsonpath='{.status.phase}'=Available --timeout=180s >/dev/null
+
+kubectl create namespace "$app" >/dev/null
+kubectl -n "$app" create configmap smoke --from-literal=run="$run" >/dev/null
+kubectl -n velero apply -f - >/dev/null <<YAML
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: $run
+spec:
+  includedNamespaces:
+    - $app
+  snapshotVolumes: false
+YAML
+kubectl -n velero wait "backup/$run" --for=jsonpath='{.status.phase}'=Completed --timeout=300s >/dev/null
+stored=$(kubectl -n "$s3" exec seaweedfs -- wget -q -O - "http://localhost:8888/buckets/velero/backups/$run/?pretty=y")
+[[ $stored == *"$run.tar.gz"* ]] || { echo "the backup $run is not in the bucket" >&2; exit 1; }
+
+kubectl delete namespace "$app" --timeout=120s >/dev/null
+kubectl -n velero apply -f - >/dev/null <<YAML
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: $run
+spec:
+  backupName: $run
+YAML
+kubectl -n velero wait "restore/$run" --for=jsonpath='{.status.phase}'=Completed --timeout=300s >/dev/null
+[[ $(kubectl -n "$app" get configmap smoke -o jsonpath='{.data.run}') == "$run" ]] ||
+  { echo "the restore did not bring back the ConfigMap of $run" >&2; exit 1; }
+echo "location on SeaweedFS available, backup $run stored in the bucket, namespace $app restored from it after its deletion"
