@@ -55,9 +55,10 @@ requires, is written into `PAPERLESS_REDIS` as it is, so it must not
 contain characters a URL reserves, such as `@`, `/`, `:` or `?`. Set both
 as refs with the backend of your choice.
 
-With the option `ai`, also set these. Their values must not contain `=`
-or line breaks. paperless-ai reads its settings file line by line and
-drops what follows a second `=` in a line.
+With the option `ai`, also set these. The token also goes into the seed
+file of [the option `ai`](#the-option-ai), which paperless-ai reads with
+dotenv 17.4.2. dotenv ends a value without quotes at `#` or a line break.
+A token that paperless-ngx generates is 40 hexadecimal characters.
 
 - `applications.paperless-ngx.ai.user`, the paperless-ngx user that
   paperless-ai acts as, and `applications.paperless-ngx.ai.token`, that
@@ -68,8 +69,8 @@ drops what follows a second `=` in a line.
   `applications.paperless-ngx.ai.api_key`, as a ref, with any value for an
   endpoint without keys;
 - `applications.paperless-ngx.ai.jwt_secret`, as a ref, which signs the
-  logins of paperless-ai's web interface. Unset, paperless-ai uses a fixed
-  string.
+  logins of paperless-ai's web interface. paperless-ai warns when it is
+  shorter than 32 characters.
 
 Without one of them the compile stops with
 `Interpolation key '<key>' not found`.
@@ -86,6 +87,7 @@ Without one of them the compile stops with
 | resources | `components.paperless-ngx.resources` |
 | the Cluster and its database | `applications.postgresql`, which `postgresql`'s README lists |
 | paperless-ai version | `components.paperless-ngx-ai.image`, tag and digest |
+| paperless-ai's settings, the variables under Configuration in its [README](https://github.com/clusterzx/paperless-ai/blob/v4.1.0/README.md), such as `SCAN_INTERVAL` or `TAGS` | `components.paperless-ngx-ai.env.<variable>`, a secret with `secretKeyRef` |
 | size of paperless-ai's claim `data`, `1Gi` | `components.paperless-ngx-ai.volume_claims.data.spec.resources.requests.storage` |
 
 The Service `paperless-ngx` is a ClusterIP Service on port 8000. The
@@ -104,41 +106,56 @@ readable by others, such as with mode 644.
 
 ## The option `ai`
 
-[paperless-ai](https://github.com/clusterzx/paperless-ai) 3.0.9, MIT,
+[paperless-ai](https://github.com/clusterzx/paperless-ai) 4.1.0, MIT,
 analyzes paperless-ngx's documents with an LLM and sets their title, tags
 and correspondent. The option renders the StatefulSet `paperless-ngx-ai`
 with the claim `data`, the Service `paperless-ngx-ai` on port 3000 and the
-Secret `paperless-ngx-ai`, mounted as paperless-ai's settings file
-`/app/data/.env`. paperless-ai reads its settings only from that file,
-which its web setup writes otherwise. The file sets the API of the Service
-`paperless-ngx`, the provider `custom` for an OpenAI-compatible endpoint
-and the values under Required parameters.
+Secret `paperless-ngx-ai`. The container's variables set the API of the
+Service `paperless-ngx`, the provider `custom` for an OpenAI-compatible
+endpoint and the values under Required parameters. The token, the
+endpoint's key and `JWT_SECRET` come from keys of the Secret.
 
-The file is read-only, so the settings page and the web setup cannot
-save. Change a setting in the target instead, by replacing
-`components.paperless-ngx-ai.secrets.settings.string_data.env.value`, the
-whole file, with further variables such as `SCAN_INTERVAL` or `TAGS`. The
-web setup creates the login user only after it has written the file, so
-the web interface has no user. The automatic processing of new documents
-runs without one.
+paperless-ai keeps its settings in `/app/data/config.json` on the claim.
+The variables win over that file on every start, and the settings page
+shows them locked. Change such a setting in the target, as the table under
+Settings shows. The settings page saves the others to `config.json`.
 
-paperless-ai checks the token and the endpoint at start, with one chat
-completion, and retries every 5 seconds up to 60 times. After 60 failed
-tries it stays unconfigured until the pod restarts, so restart it when
-paperless-ngx came up later. Once configured, it analyzes the documents at
-start and every 30 minutes. The readiness probe is the image's
-`HEALTHCHECK`, `/health`, which checks only paperless-ai's own database.
+The Secret's key `env` is a seed, mounted read-only as `/app/data/.env`,
+with the API URL and the token. paperless-ai reads it only while
+`config.json` does not exist, on the first start. It copies both values
+into `config.json` and marks the setup complete, so the automatic
+processing of new documents runs without the web setup.
 
-`/setup` answers without a login. A `POST` to it points paperless-ai's
-API client at the URL it names until the pod restarts, so let only the
-clients that need it reach port 3000.
+The seed creates no login account. Until one exists, the web setup
+answers without a login, and the first visitor of the web interface
+creates the account. An account reads the text of every document the
+token reaches and changes the settings that no variable sets. Let only
+the clients that need it reach port 3000, and create the account right
+after the first start.
 
-The amd64 image is 4.3 GiB compressed, as it carries PyTorch, and the
-arm64 image 0.6 GiB. Unpacked, the amd64 image takes 8.2 GiB, and while
-it is pulled a node needs about 12 GiB free for it. On start paperless-ai
-downloads two models from Hugging Face, so the pod needs access to it. The
+paperless-ai scans paperless-ngx for new documents 3 seconds after start
+and then every 30 minutes. A scan that fails, such as one before
+paperless-ngx answers, waits for the next. The readiness probe is the
+image's `HEALTHCHECK`, a request to `/health` with Node.js, which checks
+only paperless-ai's own database.
+
+With the default settings, paperless-ai downloads the embedding model
+`Xenova/multilingual-e5-small` for its document chat from Hugging Face
+into `/app/data/models`, once. Without access to Hugging Face the tagging
+still runs, and the chat searches by keywords only. The recipe sets no
+resources for paperless-ai. A memory limit in
+`components.paperless-ngx-ai.resources` has to leave room for the first
+indexing, which embeds the passages of every document. With paperless-ai
+4.0.0, 764 documents and 6913 passages, a limit of `1Gi` ended in an OOM
+kill. 4.1.0 embeds with the same code, and its need is not measured.
+
+OCR, off by default, downloads its PaddleOCR models on first use. The
 image sets no user, so it runs as root, without capabilities and privilege
 escalation, as paperless-ai's own compose file runs it.
+
+A claim from paperless-ai 3.0.9 can stay. On its first start 4.1.0 reads
+the seed and imports the old `documents.db`, so documents analyzed before
+are not analyzed again.
 
 ## Mapping
 
@@ -182,11 +199,14 @@ database. The script's reply names the title `tagged by paperless-ai`.
 `tests/smoke` copies a PDF into the claim `consume` and finds the document
 by its text through `/api/documents/` on the Service's port 8000 as
 `admin`, which needs the consumer, the task queue in Valkey, the database
-and the claim `media`. It then restarts `paperless-ngx-ai`, because
-paperless-ai may have given up on the API before paperless-ngx answered,
-reaches `/health` through its Service and finds the document under the
-title `tagged by paperless-ai`. That needs paperless-ai to read the
-document with the token, call the endpoint and write the title back.
+and the claim `media`. It checks that paperless-ai's first start marked
+the setup complete in `config.json` and stored a provider other than
+`custom` there. It then restarts `paperless-ngx-ai`, because paperless-ai's
+scan at start may have run before paperless-ngx answered, reaches
+`/health` through its Service and finds the document under the title
+`tagged by paperless-ai`. That needs paperless-ai to read the document
+with the token, call the endpoint and write the title back, with the
+variables winning over `config.json`.
 
-Not tested: a real LLM and what it answers, paperless-ai's web interface
-and the export directory.
+Not tested: a real LLM and what it answers, paperless-ai's web interface,
+the upgrade from a claim of paperless-ai 3.0.9 and the export directory.

@@ -42,9 +42,15 @@ trap 'rm -f "$pdf"; kill $(jobs -p)' EXIT
 count() { [[ $(curl -fsS -u admin:smoke-password "http://127.0.0.1:18000/api/documents/?$1") =~ '"count":'[1-9] ]]; }
 for _ in $(seq 60); do count content__icontains=kadet-hub 2>/dev/null && break; sleep 3; done
 count content__icontains=kadet-hub || fail "smoke.pdf not found through the API" paperless-ngx-0
-# paperless-ai gives up on the API after 60 tries at start, which can pass
-# before paperless-ngx answers, and analyzes the documents at start: start
-# it again now that the token and the document exist.
+# The first start copied the seed into config.json and marked the setup
+# complete. config.json keeps the default provider, so the title below needs
+# the variables to win over it (RCP-423).
+kubectl exec paperless-ngx-ai-0 -- node -e 'const c = require("/app/data/config.json");
+process.exit(c.setupCompleted && c.ai.provider !== "custom" ? 0 : 1)' ||
+  fail "config.json is not the migrated seed" paperless-ngx-ai-0
+# paperless-ai scans at start, which can pass before paperless-ngx answers,
+# and then every 30 minutes: start it again now that the token and the
+# document exist.
 kubectl delete pod paperless-ngx-ai-0 --wait >/dev/null
 kubectl wait pod/paperless-ngx-ai-0 --for=create --timeout=60s >/dev/null
 kubectl wait pod/paperless-ngx-ai-0 --for=condition=Ready --timeout=300s >/dev/null
