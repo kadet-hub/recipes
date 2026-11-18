@@ -1,0 +1,27 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.gitlab.host
+    description: Host name in the URLs GitLab generates, its GITLAB_HOST.
+    secret: false
+  - path: applications.gitlab.db_key_base
+    description: Encrypts CI variables and import credentials in the database, GITLAB_SECRETS_DB_KEY_BASE.
+    secret: true
+  - path: applications.gitlab.secret_key_base
+    description: Signs sessions and password reset links, GITLAB_SECRETS_SECRET_KEY_BASE.
+    secret: true
+  - path: applications.gitlab.otp_key_base
+    description: Encrypts the two-factor secrets in the database, GITLAB_SECRETS_OTP_KEY_BASE.
+    secret: true
+  - path: applications.gitlab.active_record_encryption_primary_key
+    description: Key of the non-deterministic encrypted columns, GITLAB_SECRETS_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY.
+    secret: true
+  - path: applications.gitlab.active_record_encryption_deterministic_key
+    description: Key of the deterministic encrypted columns, GITLAB_SECRETS_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY.
+    secret: true
+  - path: applications.gitlab.active_record_encryption_key_derivation_salt
+    description: Salt of the encrypted columns' keys, GITLAB_SECRETS_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, which GitLab reads from the Secret valkey-auth.
+    secret: true

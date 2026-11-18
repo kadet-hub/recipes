@@ -3,7 +3,8 @@
 # recipe before it: the Cluster is ready and the user app reaches its
 # database app through the read-write Service with the operator's Secret.
 # The options pgvector and earthdistance: the extensions vector, cube and
-# earthdistance exist in app, and app uses them.
+# earthdistance exist in app, and app uses them. The option createdb: app may
+# create databases.
 set -euo pipefail
 kubectl wait cluster/postgresql-cluster --for=condition=Ready --timeout=600s >/dev/null
 secret() { kubectl get secret postgresql-cluster-app -o jsonpath="{.data.$1}" | base64 -d; }
@@ -20,4 +21,5 @@ version=$(sql "select extversion from pg_extension where extname = 'vector'")
 [[ $(sql "select count(*) from pg_extension where extname in ('cube', 'earthdistance')") == 2 ]]
 # One degree of longitude on the equator, about 111 km.
 [[ $(sql "select earth_distance(ll_to_earth(0, 0), ll_to_earth(0, 1)) between 111000 and 112000") == t ]]
-echo "select 1 as app in app through postgresql-cluster-rw, vector $version and earthdistance usable by app"
+[[ $(sql "select rolcreatedb from pg_roles where rolname = current_user") == t ]]
+echo "select 1 as app in app through postgresql-cluster-rw, vector $version and earthdistance usable by app, app may create databases"

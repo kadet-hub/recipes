@@ -2,6 +2,7 @@ classes:
   - recipes.postgresql
   - recipes.postgresql.pgvector
   - recipes.postgresql.earthdistance
+  - recipes.postgresql.createdb
 parameters:
   namespace: postgresql
   kapitan:
