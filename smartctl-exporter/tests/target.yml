@@ -1,0 +1,7 @@
+classes:
+  - recipes.smartctl-exporter
+parameters:
+  namespace: smartctl-exporter
+  kapitan:
+    vars:
+      target: smartctl-exporter
