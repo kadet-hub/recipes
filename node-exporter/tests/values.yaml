@@ -1,0 +1,3 @@
+# The chart's defaults: no ServiceMonitor, PodMonitor, NetworkPolicy,
+# VerticalPodAutoscaler, kube-rbac-proxy or extra manifests.
+{}
