@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# RCP-440: from a pod of the Meilisearch image and through the Services, the
+# setup of the first admin, a login, Meilisearch through Open Archiver's
+# index overview, Tika's version, the scheduler's jobs in Valkey, and the
+# login again after the pod open-archiver-0 was replaced.
+set -euo pipefail
+url=http://open-archiver:3000
+image=$(kubectl get statefulset open-archiver-meilisearch -o jsonpath='{.spec.template.spec.containers[0].image}')
+email=admin@smoke.example.com
+password=smoke-admin-password
+
+# The Meilisearch image brings curl, so the test pod needs no other image.
+kubectl run open-archiver-smoke --image="$image" --restart=Never --command -- sleep 900 >/dev/null
+trap 'kubectl delete pod open-archiver-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/open-archiver-smoke --for=condition=Ready --timeout=120s >/dev/null
+run() { kubectl exec open-archiver-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs statefulset/open-archiver --tail=40 >&2; exit 1; }
+# The app installs its packages and migrates the database at every start,
+# so its port answers a while after the pod runs.
+reachable() {
+  for _ in $(seq 90); do
+    run curl -fsS -m 10 "$url/api/v1/auth/status" >/dev/null 2>&1 && return
+    sleep 5
+  done
+  fail "/api/v1/auth/status does not answer through the Service open-archiver"
+}
+login() {
+  run curl -fsS -H 'Content-Type: application/json' \
+    --data "$(jq -nc --arg e "$email" --arg p "$1" '{email: $e, password: $p}')" "$url/api/v1/auth/login"
+}
+
+reachable
+[[ $(run curl -fsS "$url/api/v1/auth/status" | jq -r .needsSetup) == true ]] || fail "a new database does not ask for setup"
+setup=$(jq -nc --arg e "$email" --arg p "$password" '{email: $e, password: $p, first_name: "Smoke", last_name: "Test"}')
+run curl -fsS -H 'Content-Type: application/json' --data "$setup" "$url/api/v1/auth/setup" |
+  jq -e .accessToken >/dev/null || fail "the setup of the first admin failed"
+[[ $(run curl -fsS "$url/api/v1/auth/status" | jq -r .needsSetup) == false ]] || fail "the admin is not in PostgreSQL"
+token=$(login "$password" | jq -er .accessToken) || fail "the admin cannot log in"
+overview=$(run curl -fsS -H "Authorization: Bearer $token" "$url/api/v1/index-admin/overview") ||
+  fail "the index overview did not answer"
+jq -e '.health == "available"' <<<"$overview" >/dev/null ||
+  fail "Open Archiver does not reach Meilisearch with the master key: $overview"
+run curl -fsS http://open-archiver-tika:9998/version >/dev/null || fail "Tika does not answer through the Service open-archiver-tika"
+# The scheduler registers the sync and the index reconcile in Valkey at its start.
+valkey_password=$(kubectl get secret valkey-auth -o jsonpath='{.data.default-password}' | base64 -d)
+repeats=$(kubectl exec deployment/valkey -c valkey -- valkey-cli --no-auth-warning --user default \
+  --pass "$valkey_password" zcard bull:ingestion:repeat)
+[[ $repeats == 1 ]] || fail "the scheduler registered $repeats sync jobs in Valkey, not 1"
+
+# The admin outlasts the pod, and its password still works.
+kubectl delete pod open-archiver-0 --wait >/dev/null
+kubectl wait pod/open-archiver-0 --for=condition=Ready --timeout=600s >/dev/null
+reachable
+login "$password" | jq -e .accessToken >/dev/null || fail "the admin cannot log in after the restart"
+# check reports the last line.
+echo "open-archiver set up its admin in PostgreSQL, reached Meilisearch, Tika and Valkey through their Services, and logged the admin in again after a restart."

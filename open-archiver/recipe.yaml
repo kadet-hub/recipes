@@ -1,0 +1,15 @@
+backends:
+  - omegaconf
+required:
+  - path: applications.open-archiver.jwt_secret
+    description: JWT_SECRET, which signs the access tokens of the web UI and the API.
+    secret: true
+  - path: applications.open-archiver.encryption_key
+    description: ENCRYPTION_KEY, 64 hexadecimal digits, which encrypts the credentials of the ingestion sources in the database.
+    secret: true
+  - path: applications.open-archiver.meili_master_key
+    description: MEILI_MASTER_KEY, the master key of Meilisearch, which Open Archiver sends.
+    secret: true
+  - path: applications.valkey.password
+    description: Password of the included recipe valkey, which Open Archiver sends as REDIS_PASSWORD.
+    secret: true

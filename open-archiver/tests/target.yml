@@ -1,0 +1,17 @@
+classes:
+  - recipes.open-archiver
+parameters:
+  namespace: open-archiver
+  kapitan:
+    vars:
+      target: open-archiver
+  applications:
+    open-archiver:
+      jwt_secret: smoke-jwt-secret
+      encryption_key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      meili_master_key: smoke-master-key-0123456789
+    valkey:
+      password: smoke-password
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1

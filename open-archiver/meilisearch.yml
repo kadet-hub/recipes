@@ -1,0 +1,29 @@
+parameters:
+  components:
+    open-archiver-meilisearch:
+      application: open-archiver
+      type: statefulset
+      # renovate: upstream
+      image: docker.io/getmeili/meilisearch:v1.38.2@sha256:448a5b1b3e9303fabf39b84a2672f184295f665b1cb8eaffb11c738273430e5e
+      ports:
+        http:
+          service_port: 7700
+      service:
+        type: ClusterIP
+      env:
+        MEILI_MASTER_KEY:
+          secretKeyRef:
+            name: open-archiver
+            key: MEILI_MASTER_KEY
+        MEILI_SCHEDULE_SNAPSHOT: "86400"
+      volume_mounts:
+        meilidata:
+          mount_path: /meili_data
+      volume_claims:
+        meilidata:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
