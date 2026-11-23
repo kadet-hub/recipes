@@ -5,7 +5,7 @@ designed in kadet-hub on the Docker Official Image and rendered by the
 kadet-hub `kubernetes` generator 1.14.0. The database is the included
 recipe `mariadb`.
 
-Source: `docker.io/library/wordpress:7.1.4-php8.5-apache@sha256:41666f6d61dd038f87ceacd6323685bd9818a3a9b3d80d98af3ce9797c403dce`
+Source: `docker.io/library/wordpress:7.1.4-php8.5-apache@sha256:346b6d0ed10345daba924f3fa540b79c58f4e319e14287b0a3bdb92ccb233b8b`
 
 Level: `deploys`
 
