@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# kube-state-metrics answers through its Service with the state of objects it
+# does not render: kube_pod_info for the CoreDNS pods and
+# kube_deployment_status_replicas_available for the Deployment coredns in
+# kube-system, so the ClusterRole lets it list and watch the cluster. Its
+# telemetry port reports kube_state_metrics_build_info with the version of the
+# Deployment's image. The pod passes Pod Security restricted (RCP-442).
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+deploy=kube-state-metrics
+image=$(kubectl -n "$ns" get deployment "$deploy" -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image##*:v}
+tag=${tag%%@*}
+for _ in $(seq 30); do
+  out=$(kubectl get --raw "/api/v1/namespaces/$ns/services/$deploy:http/proxy/metrics" || true)
+  grep -q '^kube_pod_info{.*namespace="kube-system".*pod="coredns-' <<<"$out" && break
+  sleep 2
+done
+grep -q '^kube_pod_info{.*namespace="kube-system".*pod="coredns-' <<<"$out" || { echo "no kube_pod_info for coredns through the Service" >&2; exit 1; }
+grep -Eq '^kube_deployment_status_replicas_available\{.*namespace="kube-system",deployment="coredns".*\} [1-9]' <<<"$out" || { echo "no available replicas of coredns through the Service" >&2; exit 1; }
+pod=$(kubectl -n "$ns" get pods -l name="$deploy" -o jsonpath='{.items[0].metadata.name}')
+out=$(kubectl get --raw "/api/v1/namespaces/$ns/pods/$pod:8081/proxy/metrics")
+grep -q "^kube_state_metrics_build_info{.*version=\"v$tag\"" <<<"$out" || { echo "no kube_state_metrics_build_info for v$tag on port 8081 of $pod" >&2; exit 1; }
+# PodSecurity admission warns on a dry run of the label when a running pod violates the level.
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$ns" \
+  pod-security.kubernetes.io/enforce=restricted 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+echo "kube-state-metrics v$tag through the Service with kube_pod_info and available replicas of coredns, build info on port 8081. The pod passes Pod Security restricted."

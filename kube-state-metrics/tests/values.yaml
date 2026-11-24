@@ -1,0 +1,4 @@
+# The chart's defaults: no ServiceMonitor, ScrapeConfig, NetworkPolicy,
+# PodDisruptionBudget, VerticalPodAutoscaler, kube-rbac-proxy, custom
+# resource state, autosharding or extra manifests.
+{}

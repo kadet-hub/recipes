@@ -1,0 +1,7 @@
+classes:
+  - recipes.kube-state-metrics
+parameters:
+  namespace: kube-state-metrics
+  kapitan:
+    vars:
+      target: kube-state-metrics

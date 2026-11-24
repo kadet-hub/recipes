@@ -9680,6 +9680,118 @@ Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
 plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
 itself.
 
+## kube-state-metrics
+
+kube-state-metrics watches objects of the Kubernetes API, such as Pods,
+Deployments and Nodes, and serves their state as metrics on port 8080, for
+example `kube_pod_container_status_restarts_total` per container. Its own
+metrics are on the telemetry port 8081. `kube-state-metrics` deploys it
+from the chart `kube-state-metrics` 9.1.0 of
+prometheus-community/helm-charts, Apache-2.0, which runs kube-state-metrics
+2.20.0 as `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0`.
+Chart 9.1.0 of 2026-11-22 was the newest on 2026-11-24, and 2.20.0 of
+2026-08-18 the newest release of kubernetes/kube-state-metrics. The
+`Source` line takes the OCI form, as for `blackbox-exporter`. The archive
+that `helm pull` takes from
+`oci://ghcr.io/prometheus-community/charts/kube-state-metrics` has the
+SHA-256 of the release asset in the HTTP repository.
+
+kube-state-metrics 2.20.0 is built with client-go 0.36, and the running pod
+reports `client_go_version="v0.36.3"`. The compatibility matrix in its
+README lists client-go 1.36 for 2.20.0. The matrix on `main` lists 1.37
+for the unreleased `main` only, so no release covers Kubernetes 1.37 yet.
+client-go's README says that older client-go versions work with many
+cluster versions, because Kubernetes is backwards compatible with clients.
+The recipe stays on the newest release, and the proof deploys it on 1.37.0
+as on the two older minors.
+
+`tests/values.yaml` keeps the chart's defaults. The chart then renders a
+Deployment with one replica, its Service on port 8080, a ServiceAccount, a
+ClusterRole and its ClusterRoleBinding, all named `kube-state-metrics` with
+the release name `kube-state-metrics`, which is also the component's name.
+The chart adds the telemetry port to the Service only with
+`selfMonitor.enabled`, so the recipe declares 8081 as a container port
+without a `service_port`. The pod runs as UID 65534 with every capability
+dropped, a read-only root file system and the seccomp profile
+`RuntimeDefault`, the chart's defaults, which pass Pod Security
+`restricted`. The ClusterRole grants `list` and `watch` on the 28 kinds
+that `--resources` names, Secrets among them. The chart's ServiceMonitor,
+ScrapeConfig, NetworkPolicy, PodDisruptionBudget, VerticalPodAutoscaler,
+kube-rbac-proxy, custom resource state, kubeconfig Secret, autosharding and
+extra manifests are off by default and not part of the recipe.
+
+DEC-367: The ClusterRole of `kube-state-metrics` is the entry
+`generators.kubernetes.rbac.kube-state-metrics` with the chart's rules as a
+list, and the container's arguments are the mapping of RCP-43 with the keys
+`port` and `resources`. A target that runs fewer collectors changes
+`args.resources`, adds arguments such as `args.metric-allowlist` and
+replaces the rules. A class included after the recipe sets `rules` to `~`,
+and the target sets the new list. The README shows this for a target that
+keeps only `kube_pod_container_status_restarts_total` with a ClusterRole
+that lists and watches pods. The omegaconf backend extends a class's list
+with the target's, so without that class the target's rule for pods is
+merged into the 28 and the ClusterRole keeps all of them.
+
+| Alternative | Why it was not taken |
+|---|---|
+| The component's `cluster_role` | The generator names that ClusterRole and its binding `<namespace>-kube-state-metrics`, the chart `kube-state-metrics`, so a replaced Helm release would get new names. |
+| An option class `recipes.kube-state-metrics.pods` with the arguments and the rule for pods | The chart takes any subset of collectors, and an option covers one subset. The README's class and target do the same in the consumer's inventory. |
+| The rules as a mapping that a target changes by key, as `args` | The generator passes `rules` through unchanged, so the ClusterRole would carry a mapping where its schema requires a list. |
+
+- RCP-441: `kube-state-metrics` MUST run the image
+  `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0` as the
+  Deployment `kube-state-metrics` with one replica, UID 65534, every
+  capability dropped, a read-only root file system and the seccomp profile
+  `RuntimeDefault`, with the Service of the same name on port 8080 and the
+  ServiceAccount, ClusterRole and ClusterRoleBinding of the same name.
+
+  - Test: `check kube-state-metrics --level renders` (RCP-12); RCP-442
+  - Since: #205
+
+- RCP-442: The `tests/smoke` of `kube-state-metrics` MUST require, through
+  the Service, `kube_pod_info` for a pod `coredns-*` and a non-zero
+  `kube_deployment_status_replicas_available` for the Deployment `coredns`
+  in `kube-system`. It MUST require `kube_state_metrics_build_info` with
+  the version of the Deployment's image on port 8081 of the pod, and no
+  Pod Security warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: restricted` on its namespace.
+
+  kubeadm sets up CoreDNS in every kind cluster, and the recipe renders
+  neither its pods nor its Deployment, so the two metrics show that the
+  ClusterRole lets kube-state-metrics list and watch the cluster. On kind
+  1.37.0, with the rule for pods removed from the running ClusterRole and
+  the pod restarted, `kube_pod_info` was missing and the test failed. With
+  `seccompProfile` removed from the running Deployment, the dry run warned
+  about it and the test failed.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #205
+
+- RCP-443: A target MUST be able to replace the `--resources` argument of
+  `kube-state-metrics` by `args.resources`, add arguments by new keys of
+  `args`, and replace the ClusterRole's rules with a class that sets
+  `generators.kubernetes.rbac.kube-state-metrics.rules` to `~` (DEC-367).
+  The README MUST show this for pods only.
+
+  The README's target compiled to the arguments `--port=8080`,
+  `--resources=pods` and
+  `--metric-allowlist=kube_pod_container_status_restarts_total` and a
+  ClusterRole with the one rule for pods, as the chart renders them with
+  `collectors: [pods]` and that `metricAllowlist`. Applied over the recipe
+  on kind 1.37.0, the pod served only
+  `kube_pod_container_status_restarts_total`, could list pods but not
+  Deployments, Nodes or Secrets, logged no `forbidden` and passed the dry
+  run of RCP-442.
+
+  - Test: manual: compile and deploy of the README's target
+  - Since: #205
+
+- AC-441 (RCP-441, RCP-442): `check kube-state-metrics --level deploys`
+  passes in CI on each Kubernetes minor.
+
+Not proven: the opt-in collectors, custom resource state, autosharding, the
+replacement of a Helm release, and the target of RCP-443 in CI.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10891,3 +11003,4 @@ feature's design (OQ-6).
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
 | linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
 | gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
+| kube-state-metrics | chart `kube-state-metrics` 9.1.0 of prometheus-community/helm-charts with its defaults, kube-state-metrics 2.20.0 as a Deployment under Pod Security `restricted`, the chart's ClusterRole as `generators.kubernetes.rbac.kube-state-metrics`, collectors and rules replaceable by a target (DEC-367), `kubernetes` generator 1.14.0, level `deploys` (RCP-441 to RCP-443) |
