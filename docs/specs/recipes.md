@@ -444,7 +444,7 @@ belong in the recipe.
 
   - Test: manual: the recipe's page on kadet-hub.org has the section
     under the anchor, registry `test_recipe_fixed_anchor`
-  - Since: this change
+  - Since: #204
 - RCP-4: YAML in a recipe MUST use block style. Flow style is allowed only
   for a mapping or list that fits on one line of at most 80 characters,
   such as `{fieldPath: metadata.namespace}`.
