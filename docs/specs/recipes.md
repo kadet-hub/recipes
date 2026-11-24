@@ -429,6 +429,22 @@ belong in the recipe.
   - Test: `check lint`; `check/tests/test_lint.py`
   - Since: #9
 
+- RCP-423: A README section heading that an upstream answer links MUST
+  end in a fixed anchor, `## Left out {#bitnami-mongodb}`, and the anchor
+  MUST NOT change once a comment links it.
+
+  A comment on an upstream issue links the section that answers it
+  (kadet-hub/outreach OUT-9), and the link has to outlive a reworded
+  heading. The registry gives the section on the recipe's page that
+  anchor and shows the heading without it (CAT-37j there). GitHub's own
+  anchor for the README heading takes the text with it, so the link goes
+  to the recipe's page. `check lint` reads the sections "Include" and
+  "Required parameters" by name, which carry no anchor. The first is
+  `rocketchat`'s "Left out", linked from RocketChat/helm-charts#190.
+
+  - Test: manual: the recipe's page on kadet-hub.org has the section
+    under the anchor, registry `test_recipe_fixed_anchor`
+  - Since: this change
 - RCP-4: YAML in a recipe MUST use block style. Flow style is allowed only
   for a mapping or list that fits on one line of at most 80 characters,
   such as `{fieldPath: metadata.namespace}`.
