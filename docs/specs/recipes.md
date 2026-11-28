@@ -1,7 +1,7 @@
 # Recipes
 
 ```text
-Status: Draft. check 0.24.2 implements renders and deploys, for charts
+Status: Draft. check 0.24.3 implements renders and deploys, for charts
         from OCI and HTTP repositories, for release manifests (RCP-59) and
         for compose sources and designed recipes (RCP-38, RCP-44, RCP-58),
         included recipes and prerequisites (RCP-47 to RCP-50, RCP-54,
@@ -2028,7 +2028,7 @@ instance and the Pooler `app-db-pooler-rw` in the namespace `databases`,
 and installed the operator from its chart through a `helm` compile entry,
 which RCP-17 rules out here. The operator becomes the recipe `cnpg`, and
 the Cluster comes from CloudNativePG's own `cluster` chart (DEC-10),
-rendered by the `cloudnative-pg` generator 1.1.0, whose `spec` key passes
+rendered by the `cloudnative-pg` generator 1.1.2, whose `spec` key passes
 the fields it has no flat key for. With the release name `postgresql` the
 chart names the Cluster `postgresql-cluster`. The operator then writes
 the Secret `<cluster>-app` with the keys `username`, `password`, `host` and
@@ -2226,7 +2226,7 @@ database and the files describe the same state. The Barman Cloud Plugin
 archives WAL continuously, so the Cluster can be restored to a time inside
 the maintenance window.
 
-The `cloudnative-pg` generator 1.1.0 renders the database backup. A target
+The `cloudnative-pg` generator 1.1.2 renders the database backup. A target
 adds `object_stores`, `scheduled_backups` and
 `clusters.postgresql.backup.object_store` to `generators.cloudnative-pg`.
 The plugin and the Secret with the object store credentials are the
@@ -2551,8 +2551,9 @@ experimental (`docs/guides/operator/installation.adoc` of keycloak/keycloak
 26.8.1). The Quarkus Helm extension generates the chart from the same
 manifests as the Kustomize base, and the chart names the Keycloak Team as
 maintainer (`operator/README.md`). quay.io lists it from 26.8.0 on. The
-`keycloak` generator 1.1.0, built for operator 26.8.1, renders Keycloak's
-resources. Keycloak therefore moves from kadet-hub/examples as two recipes
+`keycloak` generator 1.1.2, built for operator 26.8.2 with the CRDs of
+26.8.1, renders Keycloak's resources. Keycloak therefore moves from
+kadet-hub/examples as two recipes
 (DEC-14):
 
 | Recipe | Source | Role |
@@ -2653,7 +2654,7 @@ The target sets `applications.keycloak.host` and
 
 The option `route`, which a target includes as `recipes.keycloak.route`,
 renders the HTTPRoute `keycloak` for the host, with one rule to
-`<name>-service` on port 8080 (DEC-17). The `kubernetes` generator 1.14.0
+`<name>-service` on port 8080 (DEC-17). The `kubernetes` generator 1.16.0
 renders it, which the option pins at the source `postgresql` pins
 (RCP-48). As for Nextcloud, TLS, the certificate and the listener belong to
 the Gateway, and the listener must admit routes from the target's
@@ -2764,8 +2765,9 @@ resources in `examples/kafka/`, which show features such as a plain
 listener without authentication. Strimzi 1.3.0 of 2026-10-12 is the newest
 release. It supports Kubernetes 1.32 and later and Kafka 4.2.0 to 4.3.1,
 with 4.3.1 as the default (`kafka-versions.yaml`). The `strimzi` generator
-1.1.0, built for Strimzi 1.3.0, renders Kafka, KafkaNodePool, KafkaTopic and
-KafkaUser resources. Kafka therefore moves from kadet-hub/examples as two
+1.1.2, built for Strimzi 1.3.1 with the CRDs of 1.3.0, renders Kafka,
+KafkaNodePool, KafkaTopic and KafkaUser resources. Kafka therefore moves
+from kadet-hub/examples as two
 recipes (DEC-14):
 
 | Recipe | Source | Role |
@@ -2888,8 +2890,9 @@ it back over mutual TLS through the bootstrap Service.
 
 The RabbitMQ Cluster Operator runs RabbitMQ from a RabbitmqCluster
 resource. It ships as a release manifest and no chart (Release manifests).
-The `rabbitmq` generator 1.1.0, built for the operator 2.23.1, renders its
-resources. RabbitMQ therefore moves from kadet-hub/examples as two recipes
+The `rabbitmq` generator 1.1.2, built for the operator 2.23.2 with the
+RabbitmqCluster schema of 2.23.1, renders its resources. RabbitMQ
+therefore moves from kadet-hub/examples as two recipes
 (DEC-14, DEC-15):
 
 | Recipe | Source | Role |
@@ -2903,7 +2906,7 @@ and that one `cert-manager` (Prerequisites).
 ### The operator
 
 The recipe renders the manifest's objects with the `kubernetes` generator
-1.14.0, and its two Certificates and the Issuer with the `certmanager`
+1.16.0, and its two Certificates and the Issuer with the `certmanager`
 generator 1.1.0. That generator sets `privateKey.rotationPolicy: Always`,
 which the manifest leaves to cert-manager (RCP-12). The recipe therefore
 needs cert-manager 1.18 or later with the feature gate
@@ -9138,7 +9141,7 @@ unchanged.
 
 The chart reads its credentials with `envFrom` from the Secret that
 `global.librechat.existingSecretName` names, with `optional: false`. The
-`kubernetes` generator 1.14.0 renders an `envFrom` entry with the name
+`kubernetes` generator 1.16.0 renders an `envFrom` entry with the name
 only, so the comparison would show `optional` as a difference.
 `tests/values.yaml` sets `existingSecretName: ""` and reads `CREDS_KEY`,
 `CREDS_IV`, `JWT_SECRET` and `JWT_REFRESH_SECRET` one by one through
@@ -10834,60 +10837,60 @@ feature's design (OQ-6).
 | Kubernetes minors (RCP-70) | `kubernetes-versions.json` of kadet-hub/renovate-config at `843255e` (`kubernetes-versions-2026-11-02`): 1.37.0, 1.36.4, 1.35.8, kind v0.33.0 |
 | Consumer path | `inventory/classes/recipes/<name>/` |
 | First chart from an HTTP repository | external-dns-powerdns, chart `external-dns` 1.23.0 of kubernetes-sigs/external-dns, external-dns 0.23.0, includes powerdns, level `deploys` |
-| powerdns | `docker.io/powerdns/pdns-auth-51` 5.1.5, SQLite on the claim `data`, zone `applications.powerdns.zone` with the SOA primary `ns1.<zone>.` set by the init container `zone` (RCP-194, RCP-195), `kubernetes` generator 1.14.0, level `deploys` |
+| powerdns | `docker.io/powerdns/pdns-auth-51` 5.1.5, SQLite on the claim `data`, zone `applications.powerdns.zone` with the SOA primary `ns1.<zone>.` set by the init container `zone` (RCP-194, RCP-195), `kubernetes` generator 1.16.0, level `deploys` |
 | First parent | nextcloud, chart `nextcloud` 9.4.1, Nextcloud 35.0.2, includes postgresql and valkey, requires `gateway-api`, level `deploys` |
 | nextcloud option `mail` | `recipes.nextcloud.mail`, the chart's `nextcloud.mail` from `applications.nextcloud.mail` (RCP-421, DEC-347) |
-| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.0, `kubernetes` generator 1.14.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
-| cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
+| postgresql | chart `cluster` 0.9.0 of cloudnative-pg/charts, `cloudnative-pg` generator 1.1.2, `kubernetes` generator 1.16.0, PostgreSQL 18.6, requires `cnpg`, level `deploys` |
+| cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.16.0, level `deploys` |
 | postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
 | postgresql option `earthdistance` | `recipes.postgresql.earthdistance`, `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in the same list, with `cube` (RCP-102) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
-| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.1.0, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
-| keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.14.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
+| keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.2, `certmanager` generator 1.1.0, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
+| keycloak option `route` | `recipes.keycloak.route`, `kubernetes` generator 1.16.0, HTTPRoute `keycloak` to `<name>-service` port 8080, `applications.keycloak.gateway.name`, `.namespace` and `.section` (unset by default), `spec.http.httpEnabled: true`, `spec.proxy.headers: xforwarded` |
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
-| kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
-| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults and the pod's seccomp profile `RuntimeDefault` (DEC-205), blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71, RCP-285, RCP-286) |
-| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.14.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
-| searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.14.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
-| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-77, RCP-78) |
-| pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.14.0, level `deploys` (RCP-80 to RCP-82) |
-| n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-85, RCP-86) |
-| jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.14.0, level `deploys` (RCP-76) |
-| gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.14.0, level `deploys` (RCP-90, RCP-91) |
-| forgejo | chart `forgejo` 17.3.2 of forgejo-helm/forgejo-helm, Forgejo 15.0.11 LTS, the chart's `appVersion` (DEC-140), includes postgresql (DEC-141), cache, sessions and queue on the chart's defaults (DEC-142), `SECRET_KEY` required (DEC-143), `kubernetes` generator 1.14.0, level `deploys` (RCP-220, RCP-221) |
-| immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-103, RCP-104) |
-| authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.14.0, level `deploys` (RCP-95, RCP-96) |
-| vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.14.0, level `deploys` (RCP-110 to RCP-112) |
-| netbox | chart `netbox` 8.3.99 of netbox-community/netbox-chart, NetBox v4.7.4 with its RQ worker, includes postgresql and valkey, pepper ID 1 (DEC-86), `kubernetes` generator 1.14.0, level `deploys` (RCP-140 to RCP-142) |
-| ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.14.0, level `deploys` (RCP-130, RCP-131) |
-| uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.14.0, level `deploys` (RCP-120 to RCP-122) |
-| navidrome | `contrib/docker-compose/docker-compose.yml` of Navidrome v0.64.2 at `1011457`, `read_only` with an `emptyDir` at `/tmp` (DEC-215), SQLite on the claim `data`, claim `music` read-only at `/music` (DEC-216), UID 1000 under `restricted` (DEC-217), admin account from the web UI (DEC-218), `kubernetes` generator 1.14.0, level `deploys` (RCP-295 to RCP-298) |
-| open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.14.0, level `deploys` (RCP-132 to RCP-134) |
-| mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.14.0, level `deploys` (RCP-160 to RCP-163) |
-| wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.14.0, level `deploys` (RCP-180 to RCP-184) |
-| ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.14.0, level `deploys` (RCP-290 to RCP-294) |
-| umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.14.0, level `deploys` (RCP-190 to RCP-193) |
-| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), preStop hook until Home Assistant catches SIGTERM (DEC-333), claim `config` 1Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-210 to RCP-213, RCP-407) |
-| memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.14.0, level `deploys` (RCP-230 to RCP-232) |
-| langfuse | chart `langfuse` 2.2.3 of langfuse/langfuse-k8s (DEC-240), Langfuse 4.75.0 from GHCR (DEC-241), includes postgresql with TLS and valkey (DEC-242), options `clickhouse` with ClickHouse 26.8.36.3 (DEC-243) and `s3` with the subchart SeaweedFS on 4.52 (DEC-244, DEC-245), keys and first account required, sign-up off (DEC-247), `kubernetes` generator 1.14.0, level `deploys` (RCP-320 to RCP-325) |
-| stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.14.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
-| jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.14.0, level `deploys` (RCP-386 to RCP-390) |
-| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.14.0, `certmanager` generator 1.1.0, level `deploys` (RCP-340 to RCP-349) |
-| zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.14.0, level `deploys` (RCP-393 to RCP-395) |
-| actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.14.0, level `deploys` (RCP-300 to RCP-302) |
-| qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.14.0, level `deploys` (RCP-310 to RCP-313) |
-| ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.14.0, level `deploys` (RCP-380 to RCP-384) |
-| mattermost | chart `mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm from its HTTP repository, unsupported upstream (DEC-290), Team Edition 12.0.2 (DEC-291), includes postgresql with `PGPASSWORD` (DEC-292), UID 2000 under `restricted` (DEC-293), open sign-up off (DEC-294), first admin from the Job `mattermost-admin` (DEC-295), `kubernetes` generator 1.14.0, level `deploys` (RCP-370 to RCP-374) |
-| matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-360 to RCP-366) |
+| kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.2, requires `strimzi`, level `deploys` |
+| blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults and the pod's seccomp profile `RuntimeDefault` (DEC-205), blackbox_exporter 0.29.1, `kubernetes` generator 1.16.0, level `deploys` (RCP-71, RCP-285, RCP-286) |
+| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.16.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
+| searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.16.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
+| semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.16.0, level `deploys` (RCP-77, RCP-78) |
+| pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.16.0, level `deploys` (RCP-80 to RCP-82) |
+| n8n | chart `n8n` 1.18.0 of n8n-io/n8n-hosting with `docker.io/n8nio/n8n` by `image.repository`, n8n 2.45.5 in queue mode, includes postgresql and valkey, `kubernetes` generator 1.16.0, level `deploys` (RCP-85, RCP-86) |
+| jellyfin | chart `jellyfin` 3.7.0 of jellyfin/jellyfin-helm from its HTTP repository with its defaults, Jellyfin 12.4, `kubernetes` generator 1.16.0, level `deploys` (RCP-76) |
+| gitea | chart `gitea` 12.7.0 of gitea/helm-gitea, Gitea 28.3.0 by `image.tag`, includes postgresql and valkey, `kubernetes` generator 1.16.0, level `deploys` (RCP-90, RCP-91) |
+| forgejo | chart `forgejo` 17.3.2 of forgejo-helm/forgejo-helm, Forgejo 15.0.11 LTS, the chart's `appVersion` (DEC-140), includes postgresql (DEC-141), cache, sessions and queue on the chart's defaults (DEC-142), `SECRET_KEY` required (DEC-143), `kubernetes` generator 1.16.0, level `deploys` (RCP-220, RCP-221) |
+| immich | chart `immich` 0.13.4 of immich-app/immich-charts, Immich v3.3.5 by `image.tag`, includes postgresql with `pgvector` and `earthdistance` and valkey, library claim `immich-library` 10Gi, `kubernetes` generator 1.16.0, level `deploys` (RCP-103, RCP-104) |
+| authentik | chart `authentik` 2026.8.5 of goauthentik/helm, authentik 2026.8.5 without Redis, includes postgresql, worker RBAC of the subchart `authentik-remote-cluster` (DEC-42), `kubernetes` generator 1.16.0, level `deploys` (RCP-95, RCP-96) |
+| vaultwarden | compose example in `README.md` of Vaultwarden 1.37.5 at `6ed6921`, signups off (DEC-55), `ADMIN_TOKEN` required (DEC-56), SQLite on the claim `vw-data` (DEC-57), `kubernetes` generator 1.16.0, level `deploys` (RCP-110 to RCP-112) |
+| netbox | chart `netbox` 8.3.99 of netbox-community/netbox-chart, NetBox v4.7.4 with its RQ worker, includes postgresql and valkey, pepper ID 1 (DEC-86), `kubernetes` generator 1.16.0, level `deploys` (RCP-140 to RCP-142) |
+| ollama | chart `ollama` 1.79.0 of otwld/ollama-helm from its HTTP repository, the subchart of `open-webui` 17.5.0 (DEC-75), Ollama 0.33.2 on the CPU (DEC-76), models in an `emptyDir`, `kubernetes` generator 1.16.0, level `deploys` (RCP-130, RCP-131) |
+| uptime-kuma | `compose.yaml` of Uptime Kuma 2.5.9 at `df601c5`, SQLite by `UPTIME_KUMA_DB_TYPE` on the claim `data` (DEC-65), admin account from the web setup (DEC-66), `kubernetes` generator 1.16.0, level `deploys` (RCP-120 to RCP-122) |
+| navidrome | `contrib/docker-compose/docker-compose.yml` of Navidrome v0.64.2 at `1011457`, `read_only` with an `emptyDir` at `/tmp` (DEC-215), SQLite on the claim `data`, claim `music` read-only at `/music` (DEC-216), UID 1000 under `restricted` (DEC-217), admin account from the web UI (DEC-218), `kubernetes` generator 1.16.0, level `deploys` (RCP-295 to RCP-298) |
+| open-webui | chart `open-webui` 17.5.0 of open-webui/helm-charts, Open WebUI 0.12.5 on SQLite, no Pipelines (DEC-77), includes valkey (DEC-78), options `ollama` with the recipe `ollama` and `openai` (DEC-79), `WEBUI_SECRET_KEY` required (DEC-80), `kubernetes` generator 1.16.0, level `deploys` (RCP-132 to RCP-134) |
+| mariadb | `docker.io/library/mariadb` 12.3.3, the 12.3 LTS line (DEC-95), readiness from `healthcheck.sh` without liveness (DEC-96), the server's zero configuration TLS (DEC-97), claim `data` 8Gi below `mariadb`, `kubernetes` generator 1.16.0, level `deploys` (RCP-160 to RCP-163) |
+| wordpress | `docker.io/library/wordpress` 7.1.4 on PHP 8.5 with Apache (DEC-110, DEC-111), includes mariadb without TLS (DEC-112), claim `data` 8Gi at `wp-content`, keys and salts required, `www-data` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-113), readiness on `/wp-login.php` (DEC-114), no installation rendered (DEC-115), `kubernetes` generator 1.16.0, level `deploys` (RCP-180 to RCP-184) |
+| ghost | `docker.io/library/ghost` 6.75.0, variant `alpine` (DEC-210), includes mysql without TLS (DEC-211), init container `wait-for-database`, claim `content` 8Gi at `/var/lib/ghost/content`, `node` under `restricted`, readiness on `/` with `X-Forwarded-Proto: https` (DEC-212), no owner rendered (DEC-213), no mail (DEC-214), `url` required, `kubernetes` generator 1.16.0, level `deploys` (RCP-290 to RCP-294) |
+| umami | `docker-compose.yml` of Umami v3.4.1 at `559e3c6`, includes postgresql, `init: true` not rendered (DEC-120), init container `wait-for-database` (DEC-121), UID 1001 under `restricted` (DEC-122), `APP_SECRET` and, by DEC-123, `TWO_FACTOR_ENCRYPTION_KEY` required, default admin from the first migration (DEC-124), no TLS to PostgreSQL (DEC-125), `kubernetes` generator 1.16.0, level `deploys` (RCP-190 to RCP-193) |
+| home-assistant | `ghcr.io/home-assistant/home-assistant` 2026.11.0, designed on the image (DEC-130), root under `baseline` on the pod network, outside upstream's supported setup (DEC-131), option `host-network` with `hostNetwork` and `ClusterFirstWithHostNet` (DEC-132), owner from the onboarding (DEC-133), preStop hook until Home Assistant catches SIGTERM (DEC-333), claim `config` 1Gi, `kubernetes` generator 1.16.0, level `deploys` (RCP-210 to RCP-213, RCP-407) |
+| memcached | `docker.io/library/memcached` 1.6.45 on Debian 13 (DEC-150), Bitnami's default architecture without its NetworkPolicy, PodDisruptionBudget and ServiceAccount (DEC-151), TCP readiness without liveness (DEC-152), no authentication and no TLS (DEC-153), UID 11211 under `restricted` with a read-only root filesystem, `kubernetes` generator 1.16.0, level `deploys` (RCP-230 to RCP-232) |
+| langfuse | chart `langfuse` 2.2.3 of langfuse/langfuse-k8s (DEC-240), Langfuse 4.75.0 from GHCR (DEC-241), includes postgresql with TLS and valkey (DEC-242), options `clickhouse` with ClickHouse 26.8.36.3 (DEC-243) and `s3` with the subchart SeaweedFS on 4.52 (DEC-244, DEC-245), keys and first account required, sign-up off (DEC-247), `kubernetes` generator 1.16.0, level `deploys` (RCP-320 to RCP-325) |
+| stirling-pdf | chart `stirling-pdf-chart` 4.0.0 of Stirling-Tools/Stirling-PDF-chart from its HTTP repository (DEC-160), Stirling-PDF 3.2.0 (DEC-161) from Docker Hub (DEC-162), claim `stirling-pdf-stirling-pdf-chart` 8Gi at `/configs` (DEC-163), UID 1001 under `restricted` (DEC-164), first admin from `applications.stirling-pdf.admin` through the Secret `stirling-pdf-admin` (DEC-165), `kubernetes` generator 1.16.0, level `deploys` (RCP-240 to RCP-242, RCP-244) |
+| jitsi-meet | `docker-compose.yml` of docker-jitsi-meet stable-11248-3 at `fca3e3a`, web, prosody, jicofo and jvb, `env.example` as `.env` (DEC-306), claims only where a service writes (DEC-307), secure domain with guests (DEC-310), first moderator from `applications.jitsi-meet.moderator_password` by a postStart hook (DEC-311), media port 10000/UDP not exposed (DEC-312), `kubernetes` generator 1.16.0, level `deploys` (RCP-386 to RCP-390) |
+| stalwart | `docker.io/stalwartlabs/stalwart` v1.0.3 (DEC-260, DEC-261), configured by the Job `stalwart-apply` with `docker.io/stalwartlabs/cli` 1.0.14 (DEC-262), RocksDB on the claim `data` 10Gi, `stalwart-tls` reloaded by the sidecar `reload-tls` (DEC-263), `stalwart-dkim` (DEC-264), zone in `stalwart-dns` with the DKIM key derived by the init container `dns` (DEC-265), options `dkim`, `certificate`, `relay` and `powerdns`, requires `cert-manager`, `kubernetes` generator 1.16.0, `certmanager` generator 1.1.0, level `deploys` (RCP-340 to RCP-349) |
+| zulip | chart `zulip` 2.3.0 of zulip/docker-zulip, Zulip 12.3-0, includes postgresql, rabbitmq, memcached and valkey (DEC-314), first organization and owner from parameters by a post-setup script with Zulip's strength check (DEC-315), `SECRETS_secret_key` required (DEC-316), plain HTTP behind a proxy the target sets up (DEC-317), `kubernetes` generator 1.16.0, level `deploys` (RCP-393 to RCP-395) |
+| actual | `packages/sync-server/docker-compose.yml` of Actual 26.11.0 at `1766241`, data on the claim `actual-data` at `/data`, password from the web UI (DEC-220), `kubernetes` generator 1.16.0, level `deploys` (RCP-300 to RCP-302) |
+| qdrant | chart `qdrant` 1.20.0 of qdrant/qdrant-helm from its HTTP repository, Qdrant 1.20.0 (DEC-230), one node (DEC-231), the unprivileged image under `restricted` (DEC-232), API key required from `applications.qdrant.api_key` (DEC-233), claim template `qdrant-storage` 10Gi, `kubernetes` generator 1.16.0, level `deploys` (RCP-310 to RCP-313) |
+| ejabberd | compose example "Customized Example" in `CONTAINER.md` of ejabberd 26.09 at `5ef8f25` (DEC-300), image `26.09.1`, `./conf/ejabberd.yml` not rendered (DEC-301), `restricted` with `NET_BIND_SERVICE` (DEC-302), admin password required, registration from loopback only (DEC-303), preStop `ejabberdctl stop` (DEC-304), `ERLANG_COOKIE` required (DEC-305), Mnesia on the claim `database`, `kubernetes` generator 1.16.0, level `deploys` (RCP-380 to RCP-384) |
+| mattermost | chart `mattermost-team-edition` 6.6.111 of mattermost/mattermost-helm from its HTTP repository, unsupported upstream (DEC-290), Team Edition 12.0.2 (DEC-291), includes postgresql with `PGPASSWORD` (DEC-292), UID 2000 under `restricted` (DEC-293), open sign-up off (DEC-294), first admin from the Job `mattermost-admin` (DEC-295), `kubernetes` generator 1.16.0, level `deploys` (RCP-370 to RCP-374) |
+| matrix-synapse | `ghcr.io/element-hq/synapse` 1.164.2, designed on the image because `matrix-stack` of element-hq/ess-helm needs `podManagementPolicy` and `topologySpreadConstraints` (DEC-280), configuration from the ConfigMap `matrix-synapse` (DEC-281), signing key on the claim `data` (DEC-282), first admin from the Job `matrix-synapse-admin` (DEC-283), federation off with the option `federation` (DEC-284), UID 991 under `restricted` (DEC-285), option `element-web` with Element Web 1.12.33 (DEC-286), option `oidc` (DEC-287), includes postgresql, `kubernetes` generator 1.16.0, level `deploys` (RCP-360 to RCP-366) |
 | mongodb option `replica-set` | `recipes.mongodb.replica-set`, replica set `rs0` of one member `localhost:27017` (DEC-321), key file generated by the init container `key` (DEC-322), initiated by a postStart hook (DEC-323) (RCP-400, RCP-401) |
 | mongodb option `users` | `recipes.mongodb.users`, users from `applications.mongodb.users` with `readWrite` on the database of their name (DEC-330), created by the postStart hook of the container `users` (DEC-331) on every start of the pod (DEC-332) (RCP-404) |
-| rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) and `users`, as its user `rocketchat` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.14.0, level `deploys` (RCP-402, RCP-403, RCP-405) |
-| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.14.0, level `deploys` (RCP-250 to RCP-254) |
-| homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.14.0, level `deploys` (RCP-305 to RCP-309) |
-| litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.14.0, level `deploys` (RCP-315 to RCP-318) |
-| mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.14.0, level `deploys` (RCP-330 to RCP-334) |
-| librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.14.0, level `deploys` (RCP-335 to RCP-339) |
-| ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
-| linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
-| gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
+| rocketchat | chart `rocketchat` 7.1.0 of RocketChat/helm-charts from its HTTP repository (DEC-324), Rocket.Chat 8.9.1 from Docker Hub (DEC-325), includes mongodb with `replica-set` on MongoDB 9.0 (DEC-326) and `users`, as its user `rocketchat` (DEC-327), one process without NATS (DEC-328), first admin from parameters and registration closed (DEC-329), `kubernetes` generator 1.16.0, level `deploys` (RCP-402, RCP-403, RCP-405) |
+| memos | compose example in `content/docs/deploy/docker-compose.mdx` of usememos/dotcom at `b5fd0a3` (DEC-170), Memos 26.11.0 on SQLite on the claim `data`, `MEMOS_INSTANCE_URL` required (DEC-171), UID 10001 under `restricted` (DEC-172), admin account from the first sign-up and registration closed by declarative configuration (DEC-173), `kubernetes` generator 1.16.0, level `deploys` (RCP-250 to RCP-254) |
+| homepage | `ghcr.io/gethomepage/homepage` v2.7.0 (DEC-225), UID 1000 under `restricted`, dashboard from `applications.homepage` in a versioned ConfigMap (DEC-226), `HOMEPAGE_ALLOWED_HOSTS` required (DEC-227), option `kubernetes` with the read-only ClusterRole of homepage's documentation (DEC-228, RCP-308), no login (DEC-229), `kubernetes` generator 1.16.0, level `deploys` (RCP-305 to RCP-309) |
+| litellm | chart `litellm-helm` 1.108.0 of BerriAI/litellm, LiteLLM 1.108.0 (DEC-235), no database, option `postgresql` with the recipe `postgresql` for virtual keys (DEC-236), `model_list` from `applications.litellm.model_list` as `config.yaml` (DEC-237), master key required (DEC-239), proven with `mock_response` (DEC-238), `kubernetes` generator 1.16.0, level `deploys` (RCP-315 to RCP-318) |
+| mlflow | chart `mlflow` 3.18.0 of mlflow/mlflow (DEC-250), MLflow 3.18.0 with the image `-full`, includes postgresql as backend and registry store (DEC-251), artifacts on the claim `mlflow-mlflow` 10Gi served by the server (DEC-252), basic auth with the admin from `applications.mlflow.admin_password` and its users on the claim (DEC-253), `--allowed-hosts` with the Service's names (DEC-254), `kubernetes` generator 1.16.0, level `deploys` (RCP-330 to RCP-334) |
+| librechat | chart `librechat` 3.0.0 of LibreChat-AI/LibreChat (DEC-255), LibreChat v0.8.8, includes mongodb (DEC-256), no Meilisearch, RAG API or Redis (DEC-257), registration closed and the first user from `npm run create-user` (DEC-258), UID 1000 under `restricted` (DEC-259), `kubernetes` generator 1.16.0, level `deploys` (RCP-335 to RCP-339) |
+| ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.16.0, level `deploys` (RCP-410 to RCP-412) |
+| linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.16.0, level `deploys` (RCP-413 to RCP-416) |
+| gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.16.0, level `deploys` (RCP-418 to RCP-420) |

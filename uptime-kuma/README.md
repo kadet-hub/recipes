@@ -1,7 +1,7 @@
 # uptime-kuma
 
 Uptime Kuma, a self-hosted monitoring tool with status pages, with its data
-in SQLite on a claim, rendered by the kadet-hub `kubernetes` generator 1.14.0
+in SQLite on a claim, rendered by the kadet-hub `kubernetes` generator 1.16.0
 from the Docker Compose file of Uptime Kuma 2.5.9.
 
 <!-- renovate: tag=2.5.9 -->

@@ -1,7 +1,7 @@
 # miniflux
 
 Miniflux, a minimalist feed reader, and its PostgreSQL database, rendered by
-the kadet-hub `kubernetes` generator 1.14.0 from the Docker Compose file of
+the kadet-hub `kubernetes` generator 1.16.0 from the Docker Compose file of
 Miniflux 2.3.4.
 
 <!-- renovate: tag=2.3.4 -->

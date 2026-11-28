@@ -2,7 +2,7 @@
 
 Open WebUI 0.12.5, a web interface and API for chatting with language
 models, on SQLite with Valkey for its websockets, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from Open WebUI's Helm chart 17.5.0. Ollama
+`kubernetes` generator 1.16.0 from Open WebUI's Helm chart 17.5.0. Ollama
 and OpenAI-compatible endpoints are options.
 
 Source: `oci://ghcr.io/open-webui/helm-charts/open-webui:17.5.0@sha256:93635790db231b584041cd11c3fa0d80e3238d906ab8bf4dcb2bc055ad733527`

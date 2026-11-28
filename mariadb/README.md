@@ -2,7 +2,7 @@
 
 MariaDB Server as a single instance with one database and its user,
 designed in kadet-hub on the MariaDB Foundation's image and rendered by the
-kadet-hub `kubernetes` generator 1.14.0.
+kadet-hub `kubernetes` generator 1.16.0.
 
 Source: `docker.io/library/mariadb:12.3.3@sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9`
 

@@ -3,7 +3,7 @@
 Synapse 1.164.2, the Matrix homeserver, with federation and open
 registration off and its first admin registered by a Job, with Element
 Web and OpenID Connect as options, rendered by the kadet-hub `kubernetes`
-generator 1.14.0 from Synapse's image. The database is the included recipe
+generator 1.16.0 from Synapse's image. The database is the included recipe
 `postgresql`.
 
 Source: `ghcr.io/element-hq/synapse:v1.164.2@sha256:f0df87cff259872637b4b5e5174b9977e5e3046dd421505407803b5e45c5f842`

@@ -2,7 +2,7 @@
 
 Memos 26.11.0, a self-hosted note-taking app with a timeline of Markdown
 notes, with its data in SQLite on a claim, rendered by the kadet-hub
-`kubernetes` generator 1.14.0 from the Docker Compose example in the Memos
+`kubernetes` generator 1.16.0 from the Docker Compose example in the Memos
 documentation.
 
 <!-- renovate: branch=main -->
