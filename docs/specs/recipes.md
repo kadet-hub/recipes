@@ -1272,6 +1272,10 @@ What the table does not map is a gap, and so is each of these:
   Revised in #115: an `emptyDir` at `/tmp` of a read-only service that
   writes there, for navidrome (DEC-215). Revised in #141: `-h 127.0.0.1`
   for a `pg_isready` health check, for miniflux (DEC-334).
+  Revised in #198: `gitlab` keeps nginx's port 80 as its
+  Service port and renders no SSH port (DEC-356), and probes
+  `/users/sign_in` in place of its `healthcheck` (DEC-358), exceptions
+  for one recipe.
 
   - Test: manual: review against the compose file
   - Since: #8; included recipe, directory bind mount, `HEALTHCHECK`: #63;
@@ -1279,7 +1283,7 @@ What the table does not map is a gap, and so is each of these:
     `cap_add`: #68; `init`, wait for the database: #91; file the image
     carries: #118; `.env`, configuration directory, `aliases`,
     `read_only`, `tmpfs`: #117; `/tmp` of a read-only service: #115;
-    `pg_isready` over TCP: #141
+    `pg_isready` over TCP: #141; gitlab's ports and probes: #198
 
 - RCP-38: A compose recipe MUST be at level `deploys`. `check lint` MUST
   fail on an RBAC object in the compiled recipe, on a workload whose
@@ -2374,6 +2378,38 @@ lists the two statements in the same order.
   Kubernetes minor, and its smoke test reports `earthdistance`. On a
   cluster kept with `--keep`, `tests/smoke` fails after
   `DROP EXTENSION earthdistance` as superuser.
+
+### The option `createdb`
+
+GitLab's setup on an empty database runs Rails' `db:create` before it
+loads the schema (`gitlab:setup` in `lib/tasks/gitlab/setup.rake` of
+GitLab 19.5.5). PostgreSQL checks the role attribute `CREATEDB` before it
+looks for the database, so for `app` the command failed on kind with
+`permission denied to create database`, although the database existed,
+and the image's start stopped. With the attribute, Rails reported
+`Database 'app' already exists` and went on. GitLab's installation from
+source creates its database user with `CREATEDB`.
+
+The option `createdb`, included as `recipes.postgresql.createdb`, adds
+`ALTER ROLE <owner> CREATEDB` to the Cluster's `postInitApplicationSQL`, as
+DEC-46 does for `vector`, with the owner from
+`applications.postgresql.owner`. On a Cluster that exists already it does
+nothing, and a superuser runs the statement by hand. `tests/target.yml`
+includes it after `earthdistance`, and `tests/values.yaml` lists the
+statement third.
+
+- RCP-432: With the option `createdb`, `postgresql` MUST render its Cluster
+  with `ALTER ROLE <owner> CREATEDB` in
+  `bootstrap.initdb.postInitApplicationSQL`, and without it MUST NOT. Its
+  `tests/smoke` MUST, as the owner, require `rolcreatedb` in `pg_roles`.
+
+  - Test: `check postgresql`; CI `check` job, report line `smoke`;
+    manual: a compile of `tests/target.yml` without the option
+  - Since: #198
+
+- AC-426 (RCP-432): `check postgresql --level deploys` passes in CI on each
+  Kubernetes minor, and its smoke test reports that `app` may create
+  databases.
 
 ## Immich
 
@@ -9680,6 +9716,265 @@ Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
 plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
 itself.
 
+## GitLab
+
+GitLab is a Git server with issues, merge requests and CI. GitLab Inc.
+ships GitLab CE as the Omnibus image `gitlab/gitlab-ce`, which runs it
+with its own PostgreSQL and Redis in one container, and as the chart
+`gitlab` of `https://charts.gitlab.io/`. sameersbn/docker-gitlab, MIT,
+builds GitLab CE from source into the image `docker.io/sameersbn/gitlab`.
+It runs nginx, Puma, Sidekiq, Workhorse, Gitaly, gitlab-shell, sshd and
+cron under supervisord in one container, with PostgreSQL and Redis
+outside it. Its tag `19.5.5`, commit
+`d03fbcedffc0c3eb76e5a13120ad772e6c110383` of 2026-11-12, was the newest
+with an image on 2026-11-18. The tag `19.5.6` of that morning had no image
+on Docker Hub yet. The image tag `19.5.5` is one manifest for linux/amd64,
+`sha256:65b58defc2d1bf864b32532a28a848f88e6459ab7dcee43ba046c19ff1e9db04`,
+1.87 GiB compressed and 7.08 GB unpacked, without `HEALTHCHECK` and
+`USER`. Its label `org.label-schema.vcs-ref` is `19.5.5`. Docker Hub
+listed 980 tags of `sameersbn/gitlab` on 2026-11-18, fewer than the 1000
+past which Renovate gets no release timestamps, so the image needs no
+package rule yet.
+
+DEC-355: `gitlab` takes `docker-compose.yml` at the root of
+sameersbn/docker-gitlab at the tag `19.5.5`, SHA-256
+`bbffbaf5513e923529fbb157dd0186b7e2874503e7048d8535c9effa8eacf31a`, which
+runs `sameersbn/gitlab:19.5.5`. That is a third party's packaging of
+GitLab, and the reason DEC-11 gives against a third party's chart applies
+to it: the recipe carries sameersbn's choices, such as one container for
+every GitLab process, and follows releases that GitLab does not make. The
+recipe is for installations that run this image already. It keeps the
+image's data directory `/home/git/data`, its variables and its keys, so
+such an installation moves to a cluster with its data directory and its
+database as they are. A designed recipe on GitLab's Omnibus image was
+considered. It would follow GitLab's own releases, but the image keeps its
+data in `/etc/gitlab`, `/var/opt/gitlab` and `/var/log/gitlab` and takes
+its settings as Ruby in `GITLAB_OMNIBUS_CONFIG`, so the data of this image
+reaches it only through a backup and restore. GitLab's chart was
+considered too. Chart 10.5.7 for GitLab 19.5.6 lists 14 dependencies,
+among them cert-manager, Prometheus, GitLab Runner, an NGINX ingress
+controller, Traefik, HAProxy and Envoy Gateway, and every enabled one
+would be a recipe of its own (DEC-12). The recipe takes the name
+`gitlab`, so a recipe on GitLab's own image or chart would need another.
+
+The service `gitlab` becomes the StatefulSet `gitlab` with the claim
+template `data` at `/home/git/data`, the compose file's named volume
+`gitlab-data`, so its claim is `data-gitlab-0`. The services `postgresql`
+and `redis` become the included recipes `postgresql`, with its option
+`createdb` (DEC-360), and `valkey` (DEC-20). GitLab reads the database's
+host, name, user and password from the Secret `<cluster>-app` of
+`postgresql`, where the compose file sets `postgresql`,
+`gitlabhq_production`, `gitlab` and `password`. GitLab 19.5.5 needs
+PostgreSQL 17 or later (`MINIMUM_POSTGRES_VERSION` in
+`lib/gitlab/database.rb`), and the image has tested up to 17.11
+(`POSTGRESQL_SERVER_TESTED_VERSION_MAXIMUM` in its `Dockerfile`).
+`postgresql` runs 18.6, for which the image logs a warning and starts.
+GitLab's `db/structure.sql` creates the extensions `btree_gist` and
+`pg_trgm`, which the compose file's `DB_EXTENSION` names. PostgreSQL trusts
+both, so the database's owner creates them. The compose file's
+`PG_PARAM_MAX_LOCKS_PER_TRANSACTION=128` is a setting of its PostgreSQL
+image, which `postgresql` does not take (DEC-12). PostgreSQL's default is
+64, and a target sets 128 in the Cluster's `postgresql.parameters`.
+
+`gitlab` sets each variable of the service's `environment` with its value,
+as `linkding` does with `.env.sample`, except where a Secret or the
+cluster gives another. The compose file's example values stay, such as
+`TZ=Asia/Kolkata`, `GITLAB_BACKUP_SCHEDULE=daily` and the SMTP and IMAP
+servers of Gmail. `SMTP_PASS`, `IMAP_PASS`, the OAuth providers' secrets
+and `GITLAB_ROOT_PASSWORD` are credentials that the image reads only with
+SMTP, IMAP and OAuth on, or that the compose file leaves empty, so the
+recipe leaves them out, as DEC-306 leaves out a credential that no service
+uses. The image starts as root, configures the container and drops to the
+user `git` for GitLab, while nginx, sshd and cron stay root, so the
+target's namespace needs the Pod Security level `baseline`.
+
+`gitlab` requires the six `GITLAB_SECRETS_*` of the compose file as
+parameters. The image stops without `GITLAB_SECRETS_DB_KEY_BASE`,
+`GITLAB_SECRETS_SECRET_KEY_BASE` and `GITLAB_SECRETS_OTP_KEY_BASE`
+(`gitlab_configure_secrets` in `assets/runtime/functions`). It writes all
+six into `config/secrets.yml` at every start, which is not on the claim.
+Without the three `GITLAB_SECRETS_ACTIVE_RECORD_ENCRYPTION_*`, GitLab
+generates new keys at each start, and its README warns that the data
+encrypted with the old ones becomes unreadable.
+
+DEC-356: `gitlab` renders nginx's port 80 as the port `http` and the
+Service `gitlab` on port 80, and no port for SSH. The compose file
+publishes port 80 as 10080 and sshd's port 22 as 10022, and sets
+`GITLAB_PORT` and `GITLAB_SSH_PORT` to those host ports for the URLs that
+GitLab generates. The recipe sets both variables empty, so the image
+derives 80, or 443 with `GITLAB_HTTPS`, and 22 (`env-defaults`), the
+ports of a route or Ingress in front of the Service. Git over SSH needs a
+TCP route or a LoadBalancer for port 22, which only the target can choose,
+and Git over HTTP covers clone and push. sshd still runs in the pod, and
+the Service does not reach it. The Service port 10080 was considered. It
+is the compose file's host port, which says nothing in a cluster. An
+option `ssh` was considered too. It would add the port that a target sets
+as `components.gitlab.ports.ssh` as well.
+
+DEC-357: GitLab authenticates to Valkey with the password of `valkey`,
+which it reads from `REDIS_PASSWORD` through a template of `resque.yml`
+that the ConfigMap `gitlab` mounts over the image's. The image has no
+setting for a Redis password. Its template
+`assets/runtime/config/gitlabhq/resque.yml`, SHA-256
+`685f143b6435c93d6e80970b425635db3d7489d569b9c39e7c0863064fafd357`, holds
+`redis://{{REDIS_HOST}}:{{REDIS_PORT}}/{{REDIS_DB_NUMBER}}`, and its start
+waits for `redis-cli ping` without a password, which `redis-cli` 7.0.15 of
+the image ends with status 0 also on `NOAUTH`, so that wait needs no
+password. Every Redis client of
+GitLab 19.5.5 takes its URL from `config/resque.yml` unless
+`config/redis.yml` or `config/redis.<store>.yml` exist, which the image
+does not write, and evaluates the file with ERB (`read_yaml` in
+`lib/gitlab/redis/wrapper.rb`). ActionCable connects through the same
+class (`config/initializers/action_cable.rb`). The recipe's template
+writes the password into the URL with
+`<%= ERB::Util.url_encode(ENV["REDIS_PASSWORD"]) %>`, and `REDIS_PASSWORD`
+comes from the Secret `valkey-auth`. The password therefore stays out of
+the ConfigMap and may contain any character. At every start the image
+copies the template to `config/resque.yml` and fills in the placeholders
+(`install_template` and `update_template` in `assets/runtime/functions`).
+Valkey without a password, as the compose file runs Redis, was
+considered. `valkey` requires one, and a parent does not change an
+included recipe (DEC-12). A Secret with the whole `resque.yml` and the
+password interpolated was considered too. The URL would carry the
+password unencoded, so it would have to consist of letters and digits, as
+for `open-webui` (DEC-78). The image's own directory for templates,
+`/home/git/data/config`, was considered as well. It is on the claim, which
+a moved installation brings along. Without the template, on kind,
+`/users/sign_in` answered 500 with `NOAUTH Authentication required`, and
+the pod did not become ready.
+
+DEC-358: `gitlab` gets `/users/sign_in` on port `http` as its readiness
+probe, with the compose file's interval of 5 minutes, timeout of 10
+seconds and 3 retries, and as its startup probe every 10 seconds with up
+to 360 failures, an hour. The compose file's `healthcheck` runs
+`/usr/local/sbin/healthcheck`, which the image writes at start: `curl` on
+`/-/liveness` of `127.0.0.1`, over HTTPS when `GITLAB_HTTPS` is `true` and
+`SSL_SELF_SIGNED` is `false` (`generate_healthcheck_script` in
+`assets/runtime/functions`). Behind a load balancer that terminates TLS,
+the image's README sets `GITLAB_HTTPS` to `true` with no certificate in
+the container, and nginx then listens on port 80 only, so that check fails
+on a working GitLab. In the pod of the proof, `curl` on
+`https://127.0.0.1/-/liveness` failed with `Connection refused`. As a probe
+it would keep the pod out of the Service behind such a route or Ingress.
+`/users/sign_in` answers 200 without a login once nginx, Workhorse, Puma
+and the database answer, with either setting. `/-/liveness` and
+`/-/readiness` answer only GitLab's monitoring IP whitelist,
+`127.0.0.0/8` by default, which the kubelet is not in.
+
+The first start sets up the database with `gitlab:setup`. On kind with
+the image pulled, `/users/sign_in` first answered 200 four minutes and 11
+seconds after the container started. Without the startup probe the
+readiness probe would run every 5 minutes from the container's start, and
+the pod would become ready up to 5 minutes after GitLab. The kubelet runs
+the readiness probe as soon as the startup probe has passed: nginx logged
+both requests in the same second, and the pod was ready then. The image
+runs `gitlab:setup` only on a database without tables, so a container
+ended while it runs leaves a database that the next start does not set up.
+The hour leaves room for slower nodes and for the migrations of an
+upgrade on a large database. There is no liveness probe, as for a compose
+`healthcheck`.
+
+DEC-359: `gitlab` leaves `GITLAB_ROOT_PASSWORD` unset and requires no
+parameter for it. The compose file sets it empty, and GitLab then gives
+`root` a random password that it does not print
+(`db/fixtures/production/003_admin.rb`). GitLab reads the variable only in
+`gitlab:setup`, which the image runs on a database without tables, so for
+an installation that brings its database it does nothing. A target sets it
+before the first start, or sets root's password in the pod with the rake
+task `gitlab:password:reset`. A required parameter, as `linkding` and
+`gotify` have for their first user (DEC-341, DEC-344), was considered. It
+would be a credential that every moved installation sets without effect.
+
+DEC-360: `gitlab` includes `postgresql` with its option `createdb`, so
+the owner `app` may create databases (PostgreSQL with pgvector). The
+image's `gitlab:setup` runs Rails' `db:create`, which stopped the first
+start on kind without the attribute, although the database existed. The
+superuser of `postgresql`'s Secret `<cluster>-superuser` was considered.
+GitLab would own its tables as superuser. A target-level
+`postInitApplicationSQL` was considered too. Every new installation would
+have to know it, while the option is one class line in the recipe.
+
+- RCP-427: The `Source` line of `gitlab` MUST name `docker-compose.yml` of
+  sameersbn/docker-gitlab at the commit of the tag `<version>`, with the
+  file's SHA-256, and `gitlab` MUST run `docker.io/sameersbn/gitlab` with
+  that tag, pinned to the digest of its linux/amd64 image.
+
+  Renovate moves tag and commit of the `Source` line and the image in one
+  pull request (RCP-16), and the SHA-256 by hand.
+
+  - Test: `check lint`; CI `check` job, report line `compose`
+  - Since: #198
+
+- RCP-428: `gitlab` MUST run the StatefulSet `gitlab` with one claim
+  template, `data`, at `/home/git/data`, the container port 80 named
+  `http`, the Service `gitlab` of type `ClusterIP` on port 80 and no port
+  22 (DEC-356), and the probes of DEC-358.
+
+  A target that moves an installation prepares the claim `data-gitlab-0`
+  and routes to the Service by these names.
+
+  - Test: `check lint`; RCP-431
+  - Since: #198
+
+- RCP-429: `gitlab` MUST include `postgresql` with its option `createdb`
+  (DEC-360). It MUST set each variable of the compose service
+  `gitlab`'s `environment` with its value, except `SMTP_PASS`, `IMAP_PASS`,
+  `GITLAB_ROOT_PASSWORD` and the OAuth providers' secrets. `DB_HOST`,
+  `DB_NAME`, `DB_USER` and `DB_PASS` MUST come from the Secret
+  `<cluster>-app` of `postgresql`, `REDIS_HOST` MUST be `valkey`,
+  `GITLAB_HOST` MUST be `applications.gitlab.host`, and `GITLAB_PORT` and
+  `GITLAB_SSH_PORT` MUST be empty.
+
+  - Test: manual: review against the compose file; RCP-431
+  - Since: #198
+
+- RCP-430: `gitlab` MUST set the six `GITLAB_SECRETS_*` from the Secret
+  `gitlab`, whose values are `applications.gitlab.db_key_base`,
+  `.secret_key_base`, `.otp_key_base`,
+  `.active_record_encryption_primary_key`,
+  `.active_record_encryption_deterministic_key` and
+  `.active_record_encryption_key_derivation_salt`, and MUST leave these
+  parameters and `applications.gitlab.host` unset. It MUST set
+  `REDIS_PASSWORD` from the Secret `valkey-auth` and mount the template of
+  DEC-357 over the image's `resque.yml`.
+
+  The compile stops with `Interpolation key ... not found` until the target
+  sets each parameter, the six keys as refs (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); RCP-431
+  - Since: #198
+
+- RCP-431: The `tests/smoke` of `gitlab` MUST require no Pod Security
+  warning from a server-side dry run of the label
+  `pod-security.kubernetes.io/enforce: baseline` on its namespace. From a
+  pod of the gitlab image and through the cluster IP of the Service
+  `gitlab` on port 80, it MUST get `/users/sign_in`, get 401 from
+  `/api/v4/user` without a session, log in as `root` through the sign-in
+  form and get `root` from `/api/v4/user` in that session. It
+  MUST create the project `root/smoke` with a push over HTTP and clone it.
+  Once the pod `gitlab-0` was deleted and its successor is ready, it MUST
+  clone `root/smoke` again.
+
+  GitLab keeps its sessions in Valkey, so the login needs the password of
+  DEC-357. `tests/target.yml` sets a Valkey password with `:`, `@` and `/`,
+  which the URL carries only encoded. The push needs Workhorse, Gitaly and
+  the database. After the restart the repository comes from
+  `/home/git/data/repositories` on the claim `data`.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #198
+
+- AC-425 (RCP-427 to RCP-431): `check gitlab --level deploys` passes in CI
+  on each Kubernetes minor, and its smoke test clones `root/smoke` after
+  the restart. `tests/target.yml` without one of the parameters of
+  `recipe.yaml` stops the compile with `Interpolation key` and that key.
+
+Not proven: Git over SSH, mail through SMTP and IMAP, OAuth and LDAP, the
+backups and their schedule, an upgrade from an older image, a route or
+Ingress in front of the Service with `GITLAB_HTTPS`, the container
+registry, Pages, CI with a runner, and a move of an existing
+installation's data.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10841,6 +11136,7 @@ feature's design (OQ-6).
 | cnpg | chart `cloudnative-pg` 0.29.1, CloudNativePG 1.30.1, `kubernetes` generator 1.14.0, level `deploys` |
 | postgresql option `pgvector` | `recipes.postgresql.pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` in `bootstrap.initdb.postInitApplicationSQL`, pgvector 0.8.7 of the pinned image (RCP-100, RCP-101) |
 | postgresql option `earthdistance` | `recipes.postgresql.earthdistance`, `CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE` in the same list, with `cube` (RCP-102) |
+| postgresql option `createdb` | `recipes.postgresql.createdb`, `ALTER ROLE <owner> CREATEDB` in the same list, for GitLab's `db:create` (RCP-432) |
 | `gateway-api` | cloud-provider-kind 0.12.0, Gateway API 1.6.1 standard CRDs, Gateway `gateway/gateway`, listener `http` |
 | keycloak-operator | chart `keycloak-operator-helm` 26.8.1 of keycloak/keycloak, Keycloak Operator 26.8.1, cluster-wide, CRDs of keycloak/keycloak-k8s-resources 26.8.1, level `deploys` |
 | keycloak | `quay.io/keycloak/keycloak` 26.8.1, `keycloak` generator 1.1.0, `certmanager` generator 1.1.0, includes postgresql, requires `keycloak-operator`, `cert-manager` and `gateway-api`, level `deploys` |
@@ -10891,3 +11187,4 @@ feature's design (OQ-6).
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
 | linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
 | gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
+| gitlab | `docker-compose.yml` of sameersbn/docker-gitlab 19.5.5 at `d03fbce`, a third party's packaging (DEC-355), `docker.io/sameersbn/gitlab` 19.5.5 for linux/amd64, root under `baseline`, includes postgresql and valkey, claim `data` at `/home/git/data`, Service `gitlab` on port 80 without SSH (DEC-356), Valkey's password through a template of `resque.yml` (DEC-357), probes on `/users/sign_in` with an hour's startup probe (DEC-358), the six `GITLAB_SECRETS_*` required, `GITLAB_ROOT_PASSWORD` optional (DEC-359), `kubernetes` generator 1.14.0, level `deploys` (RCP-427 to RCP-431) |

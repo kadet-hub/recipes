@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# What docker-compose.yml sets up (RCP-39, RCP-431): the pods under Pod
+# Security baseline, then from a pod of the gitlab image through the cluster
+# IP of the Service gitlab on port 80 the sign-in page, a login as root whose
+# session GitLab keeps in Valkey, a push over HTTP that creates a project
+# with its repository on the claim data, and a clone of it, again after
+# gitlab-0 restarted.
+set -euo pipefail
+# The root password of tests/target.yml.
+password=Smoke-Gl19-x7Kq2vPz
+image=$(kubectl get statefulset gitlab -o jsonpath='{.spec.template.spec.containers[?(@.name=="gitlab")].image}')
+# The Service's cluster IP needs no name lookup, so no request can leave the
+# cluster through a search domain of the node.
+ip=$(kubectl get service gitlab -o jsonpath='{.spec.clusterIP}')
+url=http://$ip
+
+# PodSecurity admission warns on a dry run of the label when a running pod
+# violates the level, so this runs before the test pod starts.
+namespace=$(kubectl config view --minify -o jsonpath='{..namespace}')
+warnings=$(kubectl label --dry-run=server --overwrite namespace "$namespace" \
+  pod-security.kubernetes.io/enforce=baseline 2>&1 >/dev/null)
+[[ -z $warnings ]] || { echo "$warnings" >&2; exit 1; }
+
+# The image brings curl and git, so the test needs no other image.
+kubectl run gitlab-smoke --image="$image" --restart=Never --command -- sleep 1800 >/dev/null
+trap 'kubectl delete pod gitlab-smoke --wait=false >/dev/null' EXIT
+kubectl wait pod/gitlab-smoke --for=condition=Ready --timeout=300s >/dev/null
+run() { kubectl exec gitlab-smoke -- "$@"; }
+fail() { echo "$1" >&2; kubectl logs gitlab-0 --tail=40 >&2 || true; exit 1; }
+# A request's status, with the cookies in /tmp/jar and the body in /tmp/out
+# of the test pod.
+call() { run curl -sS -b /tmp/jar -c /tmp/jar -o /tmp/out -w '%{http_code}' "$@"; }
+
+# The Service gets the ready pod as its endpoint a moment after the pod is
+# ready. Without a session GitLab answers the sign-in page with 200. The last
+# status or curl error goes into the failure.
+reachable() {
+  local out
+  for _ in $(seq 30); do
+    out=$(run curl -sS -o /dev/null -w '%{http_code}' "$url/users/sign_in" 2>&1) && [[ $out == 200 ]] && return
+    sleep 2
+  done
+  fail "/users/sign_in through the Service gitlab: ${out:-no answer}"
+}
+# The README of the project root/smoke, cloned over HTTP as root.
+readme() {
+  run sh -c 'rm -rf /tmp/clone && git clone -q "$1" /tmp/clone && cat /tmp/clone/README.md' \
+    sh "http://root:$password@$ip/root/smoke.git"
+}
+
+reachable
+status=$(call "$url/api/v4/user")
+[[ $status == 401 ]] || fail "/api/v4/user without a session answered $status, not 401"
+status=$(call "$url/users/sign_in")
+[[ $status == 200 ]] || fail "the sign-in page answered $status, not 200"
+page=$(run cat /tmp/out)
+[[ $page =~ name=\"authenticity_token\"\ value=\"([^\"]+)\" ]] || fail "the sign-in page has no form"
+status=$(call --data-urlencode "authenticity_token=${BASH_REMATCH[1]}" \
+  --data-urlencode user[login]=root --data-urlencode "user[password]=$password" "$url/users/sign_in")
+[[ $status == 302 ]] || fail "the login as root answered $status, not 302"
+status=$(call "$url/api/v4/user")
+[[ $status == 200 ]] || fail "/api/v4/user in root's session answered $status, not 200"
+[[ $(run cat /tmp/out) =~ \"username\":\"root\" ]] || fail "/api/v4/user in root's session is not root"
+
+# A push to a project that does not exist creates it. GitLab's messages on
+# stderr go into the failure only.
+out=$(run sh -c 'cd "$(mktemp -d)" && git init -q -b main && echo "kadet-hub smoke test" >README.md &&
+  git add README.md && git -c user.name=smoke -c user.email=smoke@example.test commit -qm smoke &&
+  git push -q "$1" main 2>&1' sh "http://root:$password@$ip/root/smoke.git") ||
+  fail "the push to root/smoke failed: $out"
+out=$(readme) || fail "the clone of root/smoke failed"
+[[ $out == "kadet-hub smoke test" ]] || fail "the clone of root/smoke has the README $out"
+
+kubectl delete pod gitlab-0 --wait >/dev/null
+kubectl wait pod/gitlab-0 --for=create --timeout=60s >/dev/null
+kubectl wait pod/gitlab-0 --for=condition=Ready --timeout=900s >/dev/null
+reachable
+# The repository and the project come from the claim data and the database.
+out=$(readme) || fail "after gitlab-0 restarted, the clone of root/smoke failed"
+[[ $out == "kadet-hub smoke test" ]] || fail "after gitlab-0 restarted, the clone of root/smoke has the README $out"
+# check reports the last line.
+echo "GitLab served its sign-in page through the Service gitlab, let root log in with a session in Valkey, created root/smoke from a push over HTTP and cloned it, again after gitlab-0 restarted. The pods pass Pod Security baseline."

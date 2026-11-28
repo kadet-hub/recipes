@@ -1,0 +1,27 @@
+classes:
+  - recipes.gitlab
+parameters:
+  namespace: gitlab
+  kapitan:
+    vars:
+      target: gitlab
+  applications:
+    gitlab:
+      host: gitlab.example.test
+      db_key_base: smoke-db-key-base-0123456789abcdef0123456789abcdef0123456789
+      secret_key_base: smoke-secret-key-base-0123456789abcdef0123456789abcdef012345
+      otp_key_base: smoke-otp-key-base-0123456789abcdef0123456789abcdef0123456789
+      active_record_encryption_primary_key: smoke-primary-key-0123456789abcdef
+      active_record_encryption_deterministic_key: smoke-deterministic-key-0123456789
+      active_record_encryption_key_derivation_salt: smoke-key-derivation-salt-0123456
+    valkey:
+      # Characters a URL reserves, which the template of resque.yml encodes.
+      password: smoke:p@ss/word
+    # One instance is enough for the proof.
+    postgresql:
+      instances: 1
+  components:
+    gitlab:
+      env:
+        # The login of tests/smoke as the user root, set at the first start.
+        GITLAB_ROOT_PASSWORD: Smoke-Gl19-x7Kq2vPz

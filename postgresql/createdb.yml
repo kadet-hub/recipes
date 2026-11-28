@@ -1,0 +1,9 @@
+parameters:
+  generators:
+    cloudnative-pg:
+      clusters:
+        postgresql:
+          bootstrap:
+            initdb:
+              postInitApplicationSQL:
+                - ALTER ROLE ${applications.postgresql.owner} CREATEDB

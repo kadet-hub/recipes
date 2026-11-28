@@ -54,6 +54,7 @@ classes:
   - recipes.postgresql
   - recipes.postgresql.pgvector         # the extension vector in the database
   - recipes.postgresql.earthdistance    # the extensions cube and earthdistance
+  - recipes.postgresql.createdb         # the owner may create databases
 parameters:
   namespace: <namespace>
   kapitan:
@@ -100,6 +101,14 @@ image. The owner may create `cube` but not `earthdistance`. On a Cluster
 that exists already the option does nothing, as `pgvector` does not. With
 both options the statements run in the order the target includes them.
 
+## The option `createdb`
+
+`recipes.postgresql.createdb` adds `ALTER ROLE <owner> CREATEDB` to the
+same list, so the owner may create databases. GitLab's setup runs Rails'
+`db:create`, which fails without the attribute, also when the database
+exists. On a Cluster that exists already the option does nothing, as
+`pgvector` does not, and a superuser runs the statement by hand.
+
 ## Left out
 
 `Job/postgresql-cluster-ping-test`, the chart's Helm test.
@@ -110,9 +119,9 @@ both options the statements run in the order the target includes them.
 `tests/target.yml`, on kind for each Kubernetes minor CI tests, with `cnpg`
 installed first. `tests/values.yaml` sets the database and owner that
 CloudNativePG gives an empty `initdb`, so the chart renders them like the
-recipe. `tests/target.yml` includes the options `pgvector` and
-`earthdistance`, whose statements `tests/values.yaml` sets as
-`cluster.initdb.postInitApplicationSQL`.
+recipe. `tests/target.yml` includes the options `pgvector`,
+`earthdistance` and `createdb`, whose statements `tests/values.yaml` sets
+as `cluster.initdb.postInitApplicationSQL`.
 `tests/smoke` checks what the chart's ping test and the
 kadet-hub/examples recipe checked: the Cluster is ready, and the owner
 reaches its database through `postgresql-cluster-rw` with the credentials of
@@ -120,3 +129,4 @@ reaches its database through `postgresql-cluster-rw` with the credentials of
 from `pg_extension` and computes a distance between two vectors, and it
 requires `cube` and `earthdistance` in `pg_extension` and computes the
 length of one degree of longitude on the equator with `earth_distance`.
+It also requires the attribute `CREATEDB` of the owner in `pg_roles`.

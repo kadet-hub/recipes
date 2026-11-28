@@ -7,7 +7,8 @@ cluster:
   initdb:
     database: app
     owner: app
-    # The options pgvector and earthdistance.
+    # The options pgvector, earthdistance and createdb.
     postInitApplicationSQL:
       - CREATE EXTENSION IF NOT EXISTS vector
       - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE
+      - ALTER ROLE app CREATEDB
