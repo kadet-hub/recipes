@@ -9680,6 +9680,134 @@ Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
 plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
 itself.
 
+## Open Archiver
+
+Open Archiver archives email from IMAP mailboxes, Google Workspace,
+Microsoft 365 and import files such as PST, EML and mbox, and makes it
+searchable. It keeps mail and attachments as files, their metadata in
+PostgreSQL, its job queue in Valkey and its full-text index in
+Meilisearch, and can extract text from attachments with Apache Tika.
+LogicLabs-OU/OpenArchiver, AGPL-3.0, publishes no chart. It carries
+`docker-compose.yml` with five services at the root of the repository and
+builds the image `docker.io/logiclabshq/open-archiver`. `open-archiver`
+takes the file at commit `1903f17ef46296d41265ea4769086e32b13d9af9`, the
+tag of release v0.6.2 of 2026-10-24, the newest on 2026-11-20, SHA-256
+`1e50d761d447294d901df562be5cc2786397cdd366826e674c3f731370e34f01`. The
+file runs `logiclabshq/open-archiver:latest`, which on 2026-11-20 was the
+same index as `v0.6.2`. The repository listed no security advisory on
+2026-11-20.
+
+| Service | Recipe |
+|---|---|
+| `open-archiver` | StatefulSet `open-archiver` with the claim `archiver-data`, Service `open-archiver` on port 3000, Secret `open-archiver` |
+| `meilisearch`, `getmeili/meilisearch:v1.38` with the volume `meilidata` | StatefulSet `open-archiver-meilisearch` with the claim `meilidata`, Service on port 7700 |
+| `tika`, `apache/tika:4.1.0-full` | Deployment `open-archiver-tika`, Service on port 9998 |
+| `postgres`, `postgres:17-alpine` with the volume `pgdata` | the included recipe `postgresql` (DEC-20) |
+| `valkey`, `valkey/valkey:8-alpine` with `--requirepass` | the included recipe `valkey` (DEC-20) |
+
+No service has a `healthcheck`, and none of the three images has a
+`HEALTHCHECK`, so the recipe renders no probe. `open-archiver` depends on
+the other services without a condition, so nothing waits for them. Its
+entrypoint runs `pnpm install --frozen-lockfile --prod` and the Drizzle
+migrations, and exits when PostgreSQL does not answer. The kubelet then
+restarts it until the Cluster is ready, as the `depends_on` row of Compose
+sources expects.
+
+DEC-364: `open-archiver` takes `docker-compose.yml`, not the repository's
+second compose file `open-archiver.yml` (Open Archiver). That file runs
+four services, without Tika, on Meilisearch 1.15, and takes its values
+from the variables `SERVICE_URL_3000`, `SERVICE_PASSWORD_*` and
+`SERVICE_BASE64_*`, which the deployment platform Coolify fills.
+`docker compose config` leaves them empty, so the file runs nowhere else
+as it is. `docker-compose.yml` is the file the installation guide uses.
+
+DEC-365: The `env_file` `.env` of the service `open-archiver` becomes the
+values of `.env.example` at the same commit, SHA-256
+`5b59546933968cff45158b1266b04ef235ade48f3f82ebc4942680c3089ec272`, which
+the installation guide copies to `.env` (Open Archiver, RCP-37). The
+service names in `MEILI_HOST`, `TIKA_URL` and `REDIS_HOST` become
+`open-archiver-meilisearch`, `open-archiver-tika` and `valkey`.
+`DATABASE_URL` comes from the key `uri` of the Secret `<cluster>-app`, and
+`REDIS_PASSWORD` from the key `default-password` of the Secret
+`valkey-auth`. `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD` are
+not rendered. They configure the compose service `postgres`, and the
+backend reads only `DATABASE_URL` (`packages/backend/src/database/index.ts`
+and `migrate.ts` at v0.6.2). `JWT_SECRET`, `ENCRYPTION_KEY` and
+`MEILI_MASTER_KEY` are credentials and become required parameters.
+`.env.example` leaves `ENCRYPTION_KEY` empty, and the backend stops at its
+start without it (`services/CryptoService.ts`). Variables that
+`.env.example` leaves empty and that would hold a credential once set,
+`STORAGE_ENCRYPTION_KEY`, `STORAGE_S3_SECRET_ACCESS_KEY` and
+`OA_LICENSE_KEY`, stay empty strings. A target that sets one references a
+Secret of its own, as the README says. Rendering them as required
+parameters was considered. Every target would then have to set an
+encryption key and S3 credentials that the compose file does not use.
+
+DEC-366: `open-archiver` and `open-archiver-meilisearch` run as root under
+no `security_profile`, and `open-archiver-tika` as its image's user 35002
+(Open Archiver). The compose file sets no `user`, and the images of Open
+Archiver and Meilisearch set none either. Open Archiver's production
+image carries no `node_modules`: its entrypoint installs the 661 packages
+into the root-owned `/app` and into each workspace package at every
+start. A start therefore needs `registry.npmjs.org`, and `cdn.sheetjs.com`,
+from which `pnpm-lock.yaml` takes `xlsx` as a tarball without an integrity
+hash. The README names both. A non-root user with an `emptyDir` on each
+of the five `node_modules` directories was considered. It departs from
+the compose file, and a release with another workspace package would fail
+at start.
+
+- RCP-438: `open-archiver` MUST run the images of the services of its
+  `Source` line as the StatefulSets `open-archiver` and
+  `open-archiver-meilisearch`, with the claims `archiver-data` at
+  `/var/data/open-archiver` and `meilidata` at `/meili_data`, and the
+  Deployment `open-archiver-tika`, each with a Service of its name on
+  ports 3000, 7700 and 9998, and MUST include `postgresql` and `valkey`
+  (DEC-364 to DEC-366).
+
+  - Test: `check lint` (RCP-23); RCP-440
+  - Since: #202
+
+- RCP-439: `open-archiver` MUST set `JWT_SECRET`, `ENCRYPTION_KEY` and
+  `MEILI_MASTER_KEY` from the Secret `open-archiver`, whose values are
+  `applications.open-archiver.jwt_secret`, `.encryption_key` and
+  `.meili_master_key`, MUST leave these parameters unset, and MUST set
+  `MEILI_MASTER_KEY` of `open-archiver-meilisearch` from the same Secret
+  (DEC-365).
+
+  The compile stops with `Interpolation key ... not found` until the
+  target sets them, as refs (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); RCP-440
+  - Since: #202
+
+- RCP-440: The `tests/smoke` of `open-archiver` MUST, from a pod of the
+  Meilisearch image and through the Service `open-archiver` on port 3000,
+  get `needsSetup` true from `/api/v1/auth/status`, set up the first admin
+  through `/api/v1/auth/setup`, get `needsSetup` false, log the admin in
+  and get `health` `available` from `/api/v1/index-admin/overview`. It
+  MUST get `/version` from the Service `open-archiver-tika` on port 9998
+  and find one repeatable sync job of the scheduler in Valkey. Once the pod
+  `open-archiver-0` was deleted and its successor is ready, it MUST log
+  the admin in again.
+
+  The admin comes from PostgreSQL, the index overview needs Meilisearch
+  with the master key, and the scheduler registers its jobs in Valkey with
+  the password of `valkey-auth`. The Meilisearch image carries `curl`, so
+  the test needs no other image.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #202
+
+- AC-438 (RCP-438 to RCP-440): `check open-archiver --level deploys`
+  passes in CI on each Kubernetes minor, and its smoke test logs the admin
+  in after the restart. `tests/target.yml` without
+  `applications.open-archiver.encryption_key` stops the compile with
+  `Interpolation key` and that key.
+
+Not proven: an ingestion source and the mail it archives, the search
+itself, Tika's text extraction, S3 storage, the SMTP journaling of the
+enterprise edition and the web UI in a browser.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
