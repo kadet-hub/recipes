@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# The exporter answers through its Service with the version of the DaemonSet's
+# image, and on every node's own address on port 9100, through the API
+# server's node proxy, with that node's name in node_uname_info, so it runs on
+# the host network. node_filesystem_size_bytes shows that it reads the node's
+# file systems below /host/root (RCP-434).
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+ds=node-exporter-prometheus-node-exporter
+image=$(kubectl -n "$ns" get daemonset "$ds" -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image##*:v}
+tag=${tag%%@*}
+for _ in $(seq 30); do
+  out=$(kubectl get --raw "/api/v1/namespaces/$ns/services/$ds:metrics/proxy/metrics" || true)
+  grep -q "^node_exporter_build_info{.*version=\"$tag\"" <<<"$out" && break
+  sleep 2
+done
+grep -q "^node_exporter_build_info{.*version=\"$tag\"" <<<"$out" || { echo "no node_exporter_build_info for $tag through the Service" >&2; exit 1; }
+nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+for node in $nodes; do
+  out=$(kubectl get --raw "/api/v1/nodes/$node:9100/proxy/metrics")
+  grep -q "^node_uname_info{.*nodename=\"$node\"" <<<"$out" || { echo "$node:9100 has no node_uname_info for $node" >&2; exit 1; }
+  grep -q '^node_filesystem_size_bytes{' <<<"$out" || { echo "$node:9100 has no node_filesystem_size_bytes" >&2; exit 1; }
+done
+echo "node_exporter $tag through the Service, and on port 9100 of $nodes with its node name and file systems."

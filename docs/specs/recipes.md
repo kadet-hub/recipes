@@ -9680,6 +9680,82 @@ Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
 plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
 itself.
 
+## Node exporter
+
+The Prometheus node exporter reads the kernel's statistics of the node it
+runs on, such as CPU, memory, file systems, network interfaces, hardware
+sensors and CPU package power, and serves them as metrics on port 9100.
+`node-exporter` deploys it from the chart `prometheus-node-exporter` 5.1.0
+of prometheus-community/helm-charts, Apache-2.0, which runs node_exporter
+1.12.1 as `quay.io/prometheus/node-exporter:v1.12.1`. Chart 5.1.0 of
+2026-11-10 was the newest on 2026-11-18. node_exporter 1.13.0 came out the
+same day without a security fix, and the recipe stays on the chart's
+version. The `Source` line takes the OCI form, as for `blackbox-exporter`.
+The archive that `helm pull` takes from
+`oci://ghcr.io/prometheus-community/charts/prometheus-node-exporter` has
+the SHA-256 of the release asset in the HTTP repository.
+
+`tests/values.yaml` keeps the chart's defaults. The chart then renders a
+DaemonSet, its Service and its ServiceAccount, all named
+`<release>-prometheus-node-exporter`, which with the release name
+`node-exporter` is `node-exporter-prometheus-node-exporter`, the
+component's name. The chart's ServiceMonitor, PodMonitor, NetworkPolicy,
+VerticalPodAutoscaler, kube-rbac-proxy and extra manifests are off by
+default and not part of the recipe.
+
+DEC-361: `node-exporter` is the first recipe that reaches the node. Its pod
+sets `hostNetwork` and `hostPID` and mounts the node's `/proc`, `/sys` and
+`/` read-only as `hostPath` volumes below `/host`, the root with
+`mountPropagation: HostToContainer`, as the chart's defaults do. The
+exporter reports the node, not its pod, so it needs the node's process
+table, network devices and mounts, and Prometheus scrapes each node at its
+own address. The `kubernetes` generator sets none of these by default, and
+the recipe sets them as component keys. Pod Security `baseline` forbids
+host namespaces and `hostPath` volumes, so the namespace needs the level
+`privileged`, which the README says. The exporter keeps the chart's UID
+65534 with every capability dropped and a read-only root file system. The
+`rapl` collector then reports no CPU package power, because the kernel
+makes `energy_uj` readable by root only since CVE-2020-8694. The README
+shows the three keys of `workload_security_context` with which a target
+runs the pod as root.
+
+| Alternative | Why it was not taken |
+|---|---|
+| Root by default | The chart runs as 65534, `check` compares the pod with the chart's, and root reads every file of the mounted host root. |
+| An option class `rapl` that runs the pod as root | Three keys in the target do the same, and an option would be a class the chart has no value for. |
+| `--path.rootfs=/host` with the root alone, as the image's README runs it in Docker | The chart's layout below `/host` is what `check` compares. Both report the same mount points. |
+
+- RCP-433: `node-exporter` MUST run the image
+  `quay.io/prometheus/node-exporter:v1.12.1` as the DaemonSet
+  `node-exporter-prometheus-node-exporter` with `hostNetwork`, `hostPID`,
+  the node's `/proc`, `/sys` and `/` read-only below `/host`, UID 65534,
+  and the Service and ServiceAccount of the same name (DEC-361).
+
+  - Test: `check node-exporter --level renders` (RCP-12); RCP-434
+  - Since: #199
+
+- RCP-434: The `tests/smoke` of `node-exporter` MUST require
+  `node_exporter_build_info` with the version of the DaemonSet's image
+  through the Service. On every node it MUST read port 9100 of the node's
+  address through the API server's node proxy and require
+  `node_uname_info` with the node's name and a series of
+  `node_filesystem_size_bytes`.
+
+  The node proxy reaches the exporter only on the host network, and the
+  node's name comes from the node's UTS namespace, which a pod on the host
+  network shares. With `hostNetwork` removed from the running DaemonSet,
+  the node's port refused the connection and the test failed.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #199
+
+- AC-433 (RCP-433, RCP-434): `check node-exporter --level deploys` passes
+  in CI on each Kubernetes minor.
+
+Not proven: the `rapl`, `hwmon` and other hardware collectors, which kind
+nodes do not expose as a host does, the pod as root, and the replacement
+of a Helm release.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10891,3 +10967,4 @@ feature's design (OQ-6).
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
 | linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
 | gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
+| node-exporter | chart `prometheus-node-exporter` 5.1.0 of prometheus-community/helm-charts with its defaults, node_exporter 1.12.1 as a DaemonSet with `hostNetwork`, `hostPID` and the node's `/proc`, `/sys` and `/` below `/host` under Pod Security `privileged` (DEC-361), `kubernetes` generator 1.14.0, level `deploys` (RCP-433, RCP-434) |

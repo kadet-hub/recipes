@@ -1,0 +1,7 @@
+classes:
+  - recipes.node-exporter
+parameters:
+  namespace: node-exporter
+  kapitan:
+    vars:
+      target: node-exporter
