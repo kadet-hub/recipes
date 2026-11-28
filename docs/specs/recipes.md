@@ -9680,6 +9680,152 @@ Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
 plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
 itself.
 
+## Velero
+
+Velero backs up the resources of a cluster, and the data of its volumes,
+into object storage and restores them from there. The server runs in one
+namespace and reconciles Backup, Schedule, Restore and
+BackupStorageLocation resources there. It reaches a store through a plugin
+that an init container copies into its pod. vmware-tanzu publishes the
+chart `velero` in the HTTP repository
+`https://vmware-tanzu.github.io/helm-charts`, built from
+vmware-tanzu/helm-charts. Velero, its AWS plugin and the chart are
+Apache-2.0. Chart 12.2.5 of 2026-11-12, with `appVersion` 1.18.2, was the
+newest on 2026-11-17. Velero v1.18.4 of 2026-09-28 was the newest stable
+release, next to the prerelease v1.19.0-rc.1, and velero-plugin-for-aws
+v1.14.4 of the same day the newest stable plugin. The plugin's README
+pairs v1.14.x with Velero v1.18.x. `docker.io/velero/velero:v1.18.4` is an
+index for linux/amd64, linux/arm64 and windows/amd64,
+`docker.io/velero/velero-plugin-for-aws:v1.14.4` one for linux/amd64,
+linux/arm64 and linux/arm.
+
+DEC-351: `velero` renders the chart's server with the AWS plugin as the
+init container `velero-plugin-for-aws`, and no BackupStorageLocation,
+VolumeSnapshotLocation, Schedule or Backup. The kadet-hub `velero`
+generator renders those resources, and its README points the install at
+the `helm` or `kubernetes` generator, so a consumer writes them there.
+`tests/values.yaml` sets `configuration.backupStorageLocation` and
+`configuration.volumeSnapshotLocation` to empty lists. The chart's default
+lists render a location and a snapshot location `default` without a
+provider, which the CRDs reject. The AWS plugin serves every S3-compatible
+store through `s3Url`, which is the store the recipe is written for. A
+target drops it with `components.velero.init_containers.velero-plugin-for-aws: ~`
+and adds another plugin under its own key.
+
+The server keeps the chart's permissions: the ClusterRoleBinding
+`velero-server` to `cluster-admin`, the chart's default
+`rbac.clusterAdministrator`, and the Role `velero-server` with every verb
+on every resource of its namespace. Both bindings carry the name
+`velero-server`, and an `rbac` entry names its role and binding after
+itself, so the binding to `cluster-admin` is a second entry with
+`name: velero-server`. The chart's hook `upgrade-crds` runs
+`velero install --crds-only` inside `helm install` and `helm upgrade`.
+`check` leaves it out (RCP-25), and the recipe copies the chart's CRDs
+from its `crds/` directory at the tag `velero-12.2.5` instead. The
+`kubernetes` generator renders `securityContext: {}` on the init container
+as on every container, and the class Explicit default of RCP-12 accepts
+it in `containers` but not in `initContainers`, so `tests/values.yaml`
+gives the chart's init container the same empty `securityContext`.
+
+DEC-352: `velero` takes the store's keys from the required parameters
+`applications.velero.s3.access_key_id` and
+`applications.velero.s3.secret_access_key`. The recipe writes them as the
+AWS profile `default` into the key `cloud` of the Secret `velero`, which
+the server mounts at `/credentials` and reads through
+`AWS_SHARED_CREDENTIALS_FILE`. A location without `credential` uses that
+file. `tests/values.yaml` names the Secret as `credentials.existingSecret`,
+so `check` accepts it as a Referenced Secret (DEC-166). With
+`credentials.secretContents` the chart would render the Secret itself and
+put its hash into the pod annotation `checksum/secret`, a value of the
+test keys that no target's keys would match.
+
+DEC-353: `velero` runs Velero 1.18.4, ahead of the chart's 1.18.2, with the
+chart's CRDs of 1.18.2. `tests/values.yaml` sets `image.tag`, so the chart
+side runs the same image. 1.18.3 fixes the loss of PodVolumeBackup
+metadata on an fs-backup timeout, which left every fs-backup volume of the
+backup unrestorable, and a wildcard namespace that bypassed resource
+filter policies. 1.18.4 fixes a backup queue that stayed stuck. Of the
+CRDs in `config/crd` of vmware-tanzu/velero, only `restores` differs
+between v1.18.2 and v1.18.4: 1.18.3 added `spec.resourcePolicy` to
+Restore. `check` compares the CRDs with the chart's, so the recipe cannot
+carry the newer one. Without it the API server rejects that field, or
+drops it for a client that does not ask for strict field validation, and a
+restore with a resource policy restores without its filters. The README
+says so. The image line moves only by digest (RCP-16), so a later Velero
+release reaches the recipe with a chart release or by hand.
+
+| Alternative | Why it was not taken |
+|---|---|
+| Velero 1.18.2, the chart's `appVersion` | Every fix of 1.18.3 and 1.18.4 would wait for a chart release. Chart releases 12.2.1 to 12.2.5, all after 2026-09-21, kept 1.18.2. |
+| The CRDs of 1.18.4 | `check` compares the CRDs, and `restores` would differ from the chart's, a difference of no class of RCP-12. |
+| The node agent as the option `node-agent` | DEC-354. |
+
+DEC-354: `velero` renders no node agent, so file system backups with
+Kopia, the chart's `deployNodeAgent`, are not available. Velero finds the
+agent's DaemonSet by the fixed name `node-agent` and its pods by the label
+`role=node-agent` (`pkg/nodeagent/node_agent.go` at v1.18.4). The
+`kubernetes` generator names a workload after its component, and RCP-18
+keeps a recipe's components below its own name, so the recipe could only
+render a DaemonSet `velero-node-agent`, which Velero does not find. The
+DaemonSet's other fields, the host paths `/var/lib/kubelet/pods` and
+`/var/lib/kubelet/plugins` with `mountPropagation: HostToContainer` and
+UID 0, are keys of the generator. A component key for the workload's
+name, as `webhook_configuration_name` is one for a webhook configuration,
+is a generator request to kadet-hub/registry. An exception of RCP-18 for
+a workload name the chart renders was considered. It would change
+`check lint`, and so the registry gate, for one recipe. Velero removed
+fs-backup with restic in 1.17, so Kopia through the node agent is the only
+uploader once it is rendered.
+
+- RCP-424: `velero` MUST run the image `docker.io/velero/velero:v1.18.4`
+  as the Deployment `velero` with the ServiceAccount `velero-server`, the
+  init container `velero-plugin-for-aws` with
+  `docker.io/velero/velero-plugin-for-aws:v1.14.4`, the chart's RBAC and
+  the chart's CRDs. It MUST NOT render a BackupStorageLocation,
+  VolumeSnapshotLocation, Schedule or Backup (DEC-351, DEC-353).
+
+  - Test: `check velero --level renders` (RCP-12); RCP-426
+  - Since: #197
+
+- RCP-425: `velero` MUST render the Secret `velero` whose key `cloud` is
+  the AWS profile `default` with `applications.velero.s3.access_key_id`
+  and `applications.velero.s3.secret_access_key`, and MUST leave both
+  parameters unset (DEC-352).
+
+  The compile stops with `Interpolation key ... not found` until the
+  target sets them, as refs (RCP-19, RCP-40).
+
+  - Test: `check lint` (RCP-262); RCP-426
+  - Since: #197
+
+- RCP-426: The `tests/smoke` of `velero` MUST run SeaweedFS with an S3
+  identity of the keys of `tests/target.yml` and create a bucket there. A
+  BackupStorageLocation of provider `aws` on that bucket, without
+  `credential`, MUST become `Available`. A Backup of a namespace with a
+  ConfigMap MUST complete and its archive MUST be in the bucket. Once the
+  namespace is deleted, a Restore of the Backup MUST complete and bring
+  the ConfigMap back with its value.
+
+  SeaweedFS runs the image of langfuse's option `s3` (DEC-245), so CI
+  pulls no further image. The location reaches the store only through the
+  plugin and the Secret `velero`, and the restored value can come only
+  from the archive in the bucket. With a wrong secret key in the Secret
+  `velero`, the location did not become `Available` and the smoke test
+  failed.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #197
+
+- AC-424 (RCP-424 to RCP-426): `check velero --level deploys` passes in CI
+  on each Kubernetes minor. `check lint velero` passes, so the Include
+  snippet without either parameter stops with `Interpolation key` and that
+  key (RCP-262).
+
+Not proven: the node agent and file system backups (DEC-354), volume
+snapshots, a store other than SeaweedFS, AWS among them, Schedules, the
+metrics on port 8085, the repository maintenance Jobs and the replacement
+of a Helm release.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10891,3 +11037,4 @@ feature's design (OQ-6).
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
 | linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
 | gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
+| velero | chart `velero` 12.2.5 of vmware-tanzu/helm-charts, Velero 1.18.4 ahead of the chart's 1.18.2 with the chart's CRDs (DEC-353), the AWS plugin 1.14.4, no locations, schedules or backups (DEC-351), S3 keys required through the Secret `velero` (DEC-352), no node agent (DEC-354), `kubernetes` generator 1.14.0, level `deploys` (RCP-424 to RCP-426) |

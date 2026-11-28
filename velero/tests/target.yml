@@ -1,0 +1,13 @@
+classes:
+  - recipes.velero
+parameters:
+  namespace: velero
+  kapitan:
+    vars:
+      target: velero
+  applications:
+    velero:
+      s3:
+        # The keys tests/smoke gives SeaweedFS.
+        access_key_id: velero
+        secret_access_key: aaaaaaaaaaaaaaaa

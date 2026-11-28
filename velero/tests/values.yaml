@@ -1,0 +1,20 @@
+# Velero with the AWS plugin for an S3 store, no locations (the target or
+# the velero generator writes them) and credentials from the Secret velero
+# that the recipe renders.
+image:
+  # The chart's default v1.18.2 lacks the fixes of 1.18.3 and 1.18.4.
+  tag: v1.18.4
+initContainers:
+  - name: velero-plugin-for-aws
+    image: docker.io/velero/velero-plugin-for-aws:v1.14.4
+    imagePullPolicy: IfNotPresent
+    # The generator renders an empty securityContext on every container.
+    securityContext: {}
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+configuration:
+  backupStorageLocation: []
+  volumeSnapshotLocation: []
+credentials:
+  existingSecret: velero

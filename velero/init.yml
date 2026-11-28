@@ -1,0 +1,45 @@
+classes:
+  - .server
+parameters:
+  kapitan:
+    dependencies:
+      - type: oci
+        source: ghcr.io/kadet-hub/kubernetes:1.14.0@sha256:787129e1eaed6b9bc868fe4c4aec58d40de6a89fc3cc08424a4cb5822b855080
+        output_path: lib/kubernetes
+    compile:
+      - input_type: kadet
+        input_paths:
+          - lib/kubernetes
+        output_path: manifests/
+        output_type: yml
+      - input_type: copy
+        input_paths:
+          # The chart's crds/ directory, from
+          # https://github.com/vmware-tanzu/helm-charts/tree/velero-12.2.5/charts/velero/crds
+          # SHA-256 4dd7fbcbe3f0ee2edb925017c95c40d3697e59cdec05802e230f538013ef91da
+          - inventory/classes/recipes/velero/vendor/backuprepositories.yaml
+          # SHA-256 4c31325ec84922e554f593c8d9be401983518eb2c6fd6355d3243d28149b6963
+          - inventory/classes/recipes/velero/vendor/backups.yaml
+          # SHA-256 b8d0af5c037ba192d5f969b4865298e570c97309b48569d01db51a5060e1f288
+          - inventory/classes/recipes/velero/vendor/backupstoragelocations.yaml
+          # SHA-256 adbfef52659f4c047ce12ab4c4f923fcade1d441d0a91deb1948b7286970b3ec
+          - inventory/classes/recipes/velero/vendor/datadownloads.yaml
+          # SHA-256 980fa0760d7c8cd4ad3364b6e39766462e7ba08f3ebc867b6d5c507647d58569
+          - inventory/classes/recipes/velero/vendor/datauploads.yaml
+          # SHA-256 d32a3b7b3a7c6d54b77bcbe509ea3f18b2b5c5ec10beb254537a07193b932572
+          - inventory/classes/recipes/velero/vendor/deletebackuprequests.yaml
+          # SHA-256 dfd374b026b8f78f9ee1aa108b1569513c4a92270db807949ebaf996cee8a0d7
+          - inventory/classes/recipes/velero/vendor/downloadrequests.yaml
+          # SHA-256 9b47df204f05131bc81857c5c176d0feaed9db81f169684b88048fb91a280915
+          - inventory/classes/recipes/velero/vendor/podvolumebackups.yaml
+          # SHA-256 39c511b52a52e5c69238d57768ef9d71342e4e4f908685df37cbe332da827fbb
+          - inventory/classes/recipes/velero/vendor/podvolumerestores.yaml
+          # SHA-256 6bd460ee99d611acf870e83e5a0a9757f55386dc3888f42a19f1b152fe637e73
+          - inventory/classes/recipes/velero/vendor/restores.yaml
+          # SHA-256 6d9bc2fbf88adc47af5de68d927e1f16e4cb2f7dd5e9826221b5cafb52639b35
+          - inventory/classes/recipes/velero/vendor/schedules.yaml
+          # SHA-256 618bc89ed6626a84b88bbfb13d19869dcf7ba033f47d1fd1b9e213296a61e572
+          - inventory/classes/recipes/velero/vendor/serverstatusrequests.yaml
+          # SHA-256 477928903df62814960b458f4800cb91c729153531d1d51cfe916a6b103b6261
+          - inventory/classes/recipes/velero/vendor/volumesnapshotlocations.yaml
+        output_path: manifests/

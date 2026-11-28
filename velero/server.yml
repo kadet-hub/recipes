@@ -1,0 +1,113 @@
+parameters:
+  components:
+    velero:
+      application: velero
+      image: docker.io/velero/velero:v1.18.4@sha256:c89fb5b6d1fd6afd368e0f483e6f5555fd62851a1eada8ac5c72482e674ca17b
+      update_strategy:
+        type: Recreate
+      service_account:
+        create: true
+        name: velero-server
+        automount_service_account_token: true
+      automount_service_account_token: true
+      grace_period: 3600
+      pod_annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8085"
+        prometheus.io/scrape: "true"
+      command:
+        - /velero
+      args:
+        server: server
+        uploader-type: --uploader-type=kopia
+        repo-maintenance-job-configmap: --repo-maintenance-job-configmap=velero-repo-maintenance
+      ports:
+        http-monitoring:
+          container_port: 8085
+          service_port: 8085
+      service:
+        type: ClusterIP
+      healthcheck:
+        liveness:
+          type: http
+          port: http-monitoring
+          path: /metrics
+          initial_delay_seconds: 10
+          period_seconds: 30
+          failure_threshold: 5
+        readiness:
+          type: http
+          port: http-monitoring
+          path: /metrics
+          initial_delay_seconds: 10
+          period_seconds: 30
+          failure_threshold: 5
+      env:
+        VELERO_SCRATCH_DIR: /scratch
+        VELERO_NAMESPACE:
+          fieldRef: {fieldPath: metadata.namespace}
+        POD_NAME:
+          fieldRef: {fieldPath: metadata.name}
+        LD_LIBRARY_PATH: /plugins
+        AWS_SHARED_CREDENTIALS_FILE: /credentials/cloud
+        GOOGLE_APPLICATION_CREDENTIALS: /credentials/cloud
+        AZURE_CREDENTIALS_FILE: /credentials/cloud
+        ALIBABA_CLOUD_CREDENTIALS_FILE: /credentials/cloud
+      # The object store plugin, which copies itself into /plugins.
+      init_containers:
+        velero-plugin-for-aws:
+          image: docker.io/velero/velero-plugin-for-aws:v1.14.4@sha256:c85a7fa803569e3128c33e4f5766f84ab156c8d171c9f1dd2715581d45ce98fa
+          volume_mounts:
+            plugins:
+              mount_path: /target
+      volume_mounts:
+        plugins:
+          mount_path: /plugins
+        cloud-credentials:
+          mount_path: /credentials
+        scratch:
+          mount_path: /scratch
+      volumes:
+        cloud-credentials:
+          secret:
+            secretName: velero
+        plugins:
+          emptyDir: {}
+        scratch:
+          emptyDir: {}
+  generators:
+    kubernetes:
+      secrets:
+        velero:
+          string_data:
+            cloud:
+              value: |
+                [default]
+                aws_access_key_id=${applications.velero.s3.access_key_id}
+                aws_secret_access_key=${applications.velero.s3.secret_access_key}
+      configs:
+        velero-repo-maintenance:
+          data:
+            # templates/repo-maintenance-configmap.yaml of the chart velero
+            # 12.2.5, Apache-2.0 (server.yml.LICENSE).
+            global:
+              value: |
+                {
+                  "keepLatestMaintenanceJobs": 3
+                }
+      rbac:
+        velero-server:
+          namespace: ${namespace}
+          service_accounts:
+            - velero-server
+          rules:
+            - apiGroups: ["*"]
+              resources: ["*"]
+              verbs: ["*"]
+        # The chart's ClusterRoleBinding of the same name as the Role's binding.
+        velero-server-cluster-admin:
+          name: velero-server
+          cluster_role: cluster-admin
+          cluster_wide: true
+          service_accounts:
+            - ${namespace}/velero-server
