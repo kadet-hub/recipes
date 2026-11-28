@@ -37,7 +37,7 @@ VERSION = "0.24.2"
 # kapicorp/kapitan master plus open pull requests, built by kadet-hub/kapitan
 # (RCP-24). Renovate moves the digest of the tag next (RCP-29).
 # renovate: datasource=docker depName=ghcr.io/kadet-hub/kapitan
-KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:0fcb4b9cdad25e3984e25fa5dc01c8f2bdad204ab6c00a70f14d7fb423bb250b"
+KAPITAN_NEXT = "ghcr.io/kadet-hub/kapitan:next@sha256:b1d25dc4260a02992a41393dd08e77da3e3d52f36614f3cd26dea31117f7e551"
 # The workflow that builds and attests the next image (RCP-29a).
 NEXT_IDENTITY = "https://github.com/kadet-hub/kapitan/.github/workflows/next.yml@refs/heads/next"
 INDEX = "ghcr.io/kadet-hub/index"
