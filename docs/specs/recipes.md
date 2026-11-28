@@ -263,7 +263,9 @@ source (DEC-10), and that file sets `network_mode`, `cap_drop` and
 `security_opt`, on which Compose sources stop. paperless-ai reads its
 settings only from the file `/app/data/.env`, which its web setup writes.
 The option renders that file from a Secret, so the target sets every
-setting, and the web setup and the settings page cannot save.
+setting, and the web setup and the settings page cannot save. Revised in
+#196: paperless-ai 4.x reads that file only on its first start, and
+the option sets the settings as variables (DEC-350).
 
 DEC-23: A relative bind mount of a directory that the pinned repository
 does not contain becomes a ConfigMap when the documentation has the user
@@ -3009,50 +3011,107 @@ interface.
 
 paperless-ai, MIT, analyzes the documents of a paperless-ngx instance with
 an LLM and sets their title, tags and correspondent through the
-paperless-ngx API. Its newest release is 3.0.9 of 2025-11-04, which the
+paperless-ngx API. Its newest release is 4.1.0 of 2026-11-17, which the
 option runs as
-`docker.io/clusterzx/paperless-ai:3.0.9@sha256:2b65888163fd59716f1c8285b31c5bd0b30c9c3c192c42b516688e3887d4ba60`.
-Its amd64 image is 4.3 GiB compressed, as it carries PyTorch next to
-Node.js, and 8.2 GiB unpacked. containerd keeps a compressed layer until
-it has unpacked it, so the pull needs about 12 GiB on the node at once.
-The arm64 image is 0.6 GiB. On start its search service downloads two
-models from Hugging Face.
+`docker.io/clusterzx/paperless-ai:4.1.0@sha256:ccc6cb3ef433ccf3bcf8ed5d27cb0d0e0802d3f567a80c2fae90ae7e7b6d32cd`.
+4.0.0 rewrote paperless-ai as one Node.js process. The amd64 image of 4.1.0
+is 118 MiB compressed, the arm64 image 111 MiB. With the default settings
+its document chat downloads the embedding model
+`Xenova/multilingual-e5-small` from Hugging Face into `/app/data/models`
+the first time it indexes (`src/server/rag/service.ts` of
+clusterzx/paperless-ai 4.1.0). Where the download fails, paperless-ai
+logs it, still tags the document and searches by keywords only, as a run
+of the proof without access to Hugging Face showed. The option sets no
+resources. In a run outside this repository, paperless-ai 4.0.0 was
+OOMKilled at a memory limit of `1Gi` while its first start embedded 6913
+passages of 764 documents. 4.1.0 embeds with the same
+`src/server/rag/localEmbedder.ts` and `embedWorker.ts`, 16 passages per
+call in a worker thread with up to 4 threads, and its memory is not
+measured. OCR is off by default and downloads PaddleOCR models on first
+use.
 
 The option, which a target includes as `recipes.paperless-ngx.ai`, renders
 the StatefulSet `paperless-ngx-ai` with the claim `data` at `/app/data`, its
-Service on port 3000 and the Secret `paperless-ngx-ai`, mounted as
-`/app/data/.env` (DEC-22). The file points paperless-ai at
-`http://paperless-ngx:8000/api` with the provider `custom`, which takes any
-OpenAI-compatible endpoint, Ollama's among them. The target sets the rest:
-the paperless-ngx user and its API token, the endpoint, the model, its API
-key, and `JWT_SECRET`, which signs the logins of paperless-ai's web
-interface and is a fixed string when unset (`routes/auth.js` of
-clusterzx/paperless-ai 3.0.9).
+Service on port 3000 and the Secret `paperless-ngx-ai` (DEC-350). The
+container's variables point paperless-ai at `http://paperless-ngx:8000/api`
+with the provider `custom`, which takes any OpenAI-compatible endpoint,
+Ollama's among them. The target sets the rest: the paperless-ngx user and
+its API token, the endpoint, the model, its API key, and `JWT_SECRET`,
+which signs the logins of paperless-ai's web interface. paperless-ai 4.1.0
+stores the user's name and finds the user through the token. It warns
+about a `JWT_SECRET` shorter than 32 characters and generates one when it
+is unset (`src/server/config/store.ts`).
 
-paperless-ai checks the file at start: the token against `/api/documents/`
-and one chat completion at the endpoint. It repeats the check every 5
-seconds, up to 60 times, and then stays unconfigured until it restarts.
-Once configured, it analyzes the documents at start and every 30 minutes.
-Its `HEALTHCHECK`, `/health`, becomes the readiness probe and checks only
-paperless-ai's own database. The route that `routes/setup.js` serves has
-the configuration check commented out.
+DEC-350: The option sets paperless-ai's settings as variables of the
+container `paperless-ngx-ai` and mounts `/app/data/.env` read-only as a
+seed with the API URL and the token. paperless-ai 4.x keeps its settings in
+`/app/data/config.json` and reads `.env` only while neither `config.json`
+nor `config.json.bak` exists. It then copies the file's values into
+`config.json` once and marks the setup complete when the URL and the token
+are set (`ConfigStore.load` in `src/server/config/store.ts`). No variable
+marks the setup complete, and the automatic processing runs only once it is
+(`src/server/processing/engine.ts`), so the seed stays. paperless-ai reads
+the variable names of 3.x from its environment on every start. They win
+over `config.json`, and the settings page shows them locked (`ENV_MAPPINGS`
+in `src/server/config/legacy.ts`). A changed target therefore reaches an
+instance whose `config.json` exists. The seed holds only what the setup
+needs. paperless-ai copies the token into `config.json` on the claim, and
+the endpoint's key and `JWT_SECRET` stay in the Secret. The whole settings
+file as a seed, as for 3.0.9, was considered. paperless-ai would read it
+only on the first start. Variables without a seed were considered too. On
+an empty claim paperless-ai then waits for the web setup and processes
+nothing.
 
-`/setup` answers without a login. A `POST` to it points paperless-ai's API
-client at the URL it names until the pod restarts, before writing the file
-fails. The web setup creates the login user only after it has written the
-file, so with the option the web interface has no user. The tagging runs
-without one. The image sets no `USER`. The option drops every capability
-and privilege escalation, as paperless-ai's own compose file does.
+The variables are those of the file that the option rendered for 3.0.9.
+The keys of the Secret are named like the variables, and its key `env` is
+the seed. dotenv 17.4.2, which reads the seed, ends a value without quotes
+at `#` or a line break. A token that paperless-ngx generates is 40
+hexadecimal characters.
+
+A claim from 3.0.9 can stay. 4.1.0 reads the seed on its first start and
+imports the old `documents.db` with the documents analyzed before
+(`importLegacyDatabase` in `src/server/db/database.ts`).
+
+With the setup complete, paperless-ai scans paperless-ngx 3 seconds after
+start and then every 30 minutes, and a failed scan waits for the next. Its
+`HEALTHCHECK` requests `/health` with Node.js, as the image has no curl,
+and becomes the readiness probe with an interval of 30 seconds and a
+timeout of 10. `/health` checks only paperless-ai's own database.
+
+The seed creates no login account, and the web setup answers without a
+login until the first account exists (`preHandler` in
+`src/server/http/app.ts`). The first visitor of the web interface creates
+it. An account reads the text of every document the token reaches through
+`/api/documents/:id` and changes the settings that no variable sets. The
+tagging runs without an account. The image sets no `USER`. The option drops
+every capability and privilege escalation, as paperless-ai's own compose
+file does.
 
 - RCP-72: With the option `ai`, `paperless-ngx` MUST render paperless-ai
-  with `/app/data/.env` from a Secret, whose values come from
-  `applications.paperless-ngx.ai.user`, `.token`, `.url`, `.model`,
-  `.api_key` and `.jwt_secret`, which the target sets. Without the option
-  it MUST render no object of paperless-ai.
+  with its settings from `applications.paperless-ngx.ai.user`, `.token`,
+  `.url`, `.model`, `.api_key` and `.jwt_secret`, which the target sets.
+  Without the option it MUST render no object of paperless-ai.
+
+  Revised in #196: the settings were the file `/app/data/.env`
+  alone, which paperless-ai 4.x reads only on its first start (RCP-423).
 
   - Test: `check paperless-ngx`; manual: compile of `tests/target.yml`
     without the option
-  - Since: #63
+  - Since: #63, #196
+
+- RCP-423: With the option `ai`, `paperless-ngx` MUST set each setting of
+  RCP-72 as a variable of the container `paperless-ngx-ai`, the token, the
+  endpoint's key and `JWT_SECRET` from keys of the Secret
+  `paperless-ngx-ai`. It MUST mount the key `env` of that Secret read-only
+  as `/app/data/.env`, with only `PAPERLESS_API_URL` and
+  `PAPERLESS_API_TOKEN`.
+
+  The variables reach paperless-ai on every start, the seed only on the
+  first (DEC-350).
+
+  - Test: `check paperless-ngx --level deploys`, the check of
+    `config.json` in RCP-73
+  - Since: #196
 
 ### Proof
 
@@ -3071,19 +3130,24 @@ LLM is not tested.
 - RCP-73: The `tests/smoke` of `paperless-ngx` MUST copy a PDF into the
   claim `consume` and find the document by its text through
   `/api/documents/` on the Service port as the superuser. With the option
-  `ai` it MUST restart `paperless-ngx-ai` once the document exists, reach
-  `/health` through its Service, and then find the document under the
-  title of the endpoint's reply through the API.
+  `ai` it MUST find that `/app/data/config.json` marks the setup complete
+  and stores a provider other than `custom`, restart `paperless-ngx-ai`
+  once the document exists, reach `/health` through its Service, and then
+  find the document under the title of the endpoint's reply through the
+  API.
 
   Consuming the file needs the consumer, the task queue in Valkey, the
   database and the claim `media`. The title needs paperless-ai to read the
   document with the token, call the endpoint and write the title back.
-  paperless-ai gives up on the API after its 60 tries and analyzes at
-  start, and on kind its pod can start minutes before paperless-ngx
-  answers, so the restart makes the check independent of that order.
+  paperless-ai scans at start and then every 30 minutes, and on kind its
+  pod can start minutes before paperless-ngx answers, so the restart makes
+  the check independent of that order. `config.json` exists before the
+  restart, so afterwards paperless-ai reads it and not the seed, and the
+  title needs the variables of RCP-423 to win over the file's provider.
+  Revised in #196: the check of `config.json`, for paperless-ai 4.1.0.
 
   - Test: CI `check` job
-  - Since: #63
+  - Since: #63, #196
 
 ## SearXNG
 
@@ -10714,10 +10778,11 @@ feature's design (OQ-6).
   `kubernetes-versions.json`, each report names that minor's node image,
   and `ci` stays the one required check. `check`'s tests pass
   `--node-image` to `kind create cluster` and no `--image` without it.
-- AC-27 (RCP-37, RCP-72, RCP-73): `check paperless-ngx --level deploys`
-  passes in CI, its report lists the objects of `postgresql` and `valkey`
-  as included and `cnpg` as installed, and its smoke test finds the PDF
-  copied into `consume` through the API, and then under the title that
+- AC-27 (RCP-37, RCP-72, RCP-73, RCP-423): `check paperless-ngx --level
+  deploys` passes in CI, its report lists the objects of `postgresql` and
+  `valkey` as included and `cnpg` as installed, and its smoke test finds
+  the PDF copied into `consume` through the API, then the migrated seed in
+  `config.json`, and then the document under the title that
   paperless-ai set from the stub's reply. `tests/target.yml` without the
   option `ai` compiles
   without the objects of `paperless-ngx-ai`.
@@ -10848,7 +10913,7 @@ feature's design (OQ-6).
 | strimzi | chart `strimzi-kafka-operator` 1.3.0 of strimzi/strimzi-kafka-operator, Strimzi 1.3.0, watches every namespace, CRDs of the 1.3.0 release, level `deploys` |
 | kafka | `quay.io/strimzi/kafka` 1.3.0-kafka-4.3.1, Kafka 4.3.1, `strimzi` generator 1.1.0, requires `strimzi`, level `deploys` |
 | blackbox-exporter | chart `prometheus-blackbox-exporter` 11.20.2 of prometheus-community/helm-charts with its defaults and the pod's seccomp profile `RuntimeDefault` (DEC-205), blackbox_exporter 0.29.1, `kubernetes` generator 1.14.0, level `deploys` (RCP-71, RCP-285, RCP-286) |
-| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.14.0, includes postgresql and valkey, option `ai` with paperless-ai 3.0.9, level `deploys` (RCP-72, RCP-73) |
+| paperless-ngx | `docker/compose/docker-compose.postgres.yml` of paperless-ngx 3.4.1, `kubernetes` generator 1.14.0, includes postgresql and valkey, option `ai` with paperless-ai 4.1.0, level `deploys` (RCP-72, RCP-73, RCP-423, DEC-350) |
 | searxng | `container/docker-compose.yml` of searxng/searxng at `cccbc9e`, SearXNG `2026.11.2-cccbc9e15`, `kubernetes` generator 1.14.0, includes valkey, level `deploys` (RCP-74, RCP-75) |
 | semaphore | chart `semaphore` 16.2.2 of semaphoreui/charts, Semaphore 2.19.17 by `image.tag`, includes postgresql, `kubernetes` generator 1.14.0, level `deploys` (RCP-77, RCP-78) |
 | pihole | compose example in `README.md` of docker-pi-hole 2026.10.1 at `ffd0a48`, Pi-hole Core v6.5, Web v6.6.1 and FTL v6.8, `kubernetes` generator 1.14.0, level `deploys` (RCP-80 to RCP-82) |
