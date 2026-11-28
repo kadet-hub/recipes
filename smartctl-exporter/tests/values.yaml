@@ -1,0 +1,4 @@
+# The chart's defaults, no ServiceMonitor or PrometheusRule, without the
+# RoleBinding to the ClusterRole unrestricted-psp (RCP-436).
+rbac:
+  create: false

@@ -1,0 +1,55 @@
+parameters:
+  components:
+    # The chart numbers its DaemonSets, one for each entry of instances.
+    smartctl-exporter-prometheus-smartctl-exporter-0:
+      application: smartctl-exporter
+      type: daemonset
+      labels:
+        idx: i0
+      pod_labels:
+        idx: i0
+      image: quay.io/prometheuscommunity/smartctl-exporter:v0.15.0@sha256:a76e08dbf5db4781fefd1ed81c65ad46ae8d2849dae6b6d3acebcde2fc4e59d6
+      args:
+        smartctl-path: --smartctl.path=/usr/sbin/smartctl
+        powermode-check: --smartctl.powermode-check=standby
+        interval: --smartctl.interval=120s
+        listen-address: --web.listen-address=0.0.0.0:9633
+        telemetry-path: --web.telemetry-path=/metrics
+      ports:
+        http:
+          container_port: 9633
+      service: ~
+      # The chart leaves the token at the API default, true, on the
+      # ServiceAccount and the pod.
+      service_account:
+        create: true
+        name: smartctl-exporter-prometheus-smartctl-exporter
+        automount_service_account_token: true
+      automount_service_account_token: true
+      security_context:
+        privileged: true
+        runAsUser: 0
+      volumes:
+        dev:
+          hostPath:
+            path: /dev
+      volume_mounts:
+        dev:
+          mount_path: /hostdev
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+  generators:
+    kubernetes:
+      # The chart's Service has port 80, which a component's Service would
+      # name after the container port.
+      services:
+        smartctl-exporter-prometheus-smartctl-exporter:
+          selector:
+            name: smartctl-exporter-prometheus-smartctl-exporter-0
+          ports:
+            http:
+              service_port: 80
+              container_port: http
+              # The chart sets no appProtocol.
+              app_protocol: ""

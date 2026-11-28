@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# The exporter answers through its Service with the version of the DaemonSet's
+# image, finds at least one disk of the node, and reports the exit status of
+# smartctl for every disk it found, which needs the privileged container's
+# access to the node's devices (RCP-437).
+set -euo pipefail
+ns=$(kubectl config view --minify -o jsonpath='{..namespace}')
+ds=smartctl-exporter-prometheus-smartctl-exporter-0
+image=$(kubectl -n "$ns" get daemonset "$ds" -o jsonpath='{.spec.template.spec.containers[0].image}')
+tag=${image##*:v}
+tag=${tag%%@*}
+devices=0
+for _ in $(seq 30); do
+  out=$(kubectl get --raw "/api/v1/namespaces/$ns/services/smartctl-exporter-prometheus-smartctl-exporter:http/proxy/metrics" || true)
+  devices=$(sed -n 's/^smartctl_devices \([0-9]*\)$/\1/p' <<<"$out")
+  grep -q "^smartctl_exporter_build_info{.*version=\"$tag\"" <<<"$out" && (( ${devices:-0} > 0 )) && break
+  sleep 2
+done
+grep -q "^smartctl_exporter_build_info{.*version=\"$tag\"" <<<"$out" || { echo "no smartctl_exporter_build_info for $tag through the Service" >&2; exit 1; }
+(( ${devices:-0} > 0 )) || { echo "smartctl_devices is ${devices:-unset}, the exporter found no disk" >&2; exit 1; }
+status=$(grep -c '^smartctl_device_smartctl_exit_status{' <<<"$out" || true)
+(( status == devices )) || { echo "smartctl_device_smartctl_exit_status for $status of $devices disks" >&2; exit 1; }
+echo "smartctl_exporter $tag through the Service, smartctl ran on $devices disks of the node."

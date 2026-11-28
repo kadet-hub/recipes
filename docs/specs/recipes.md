@@ -9680,6 +9680,93 @@ Ingress in front of the Service with `GOTIFY_SERVER_TRUSTEDPROXIES`,
 plugins, OIDC, MySQL or PostgreSQL in place of SQLite, and TLS in gotify
 itself.
 
+## smartctl exporter
+
+The Prometheus smartctl exporter runs `smartctl` of smartmontools on every
+disk of the node it runs on and serves their SMART data, such as health,
+temperature, power-on hours and media errors, as metrics on port 9633.
+`smartctl-exporter` deploys it from the chart
+`prometheus-smartctl-exporter` 0.19.2 of prometheus-community/helm-charts,
+Apache-2.0, which runs smartctl_exporter 0.15.0 as
+`quay.io/prometheuscommunity/smartctl-exporter:v0.15.0`, the newest
+release on 2026-11-18. Chart 0.19.2 of 2026-11-10 was the newest as well.
+The `Source` line takes the OCI form, as for `blackbox-exporter`, and the
+archive has the SHA-256 of the release asset in the HTTP repository.
+
+The chart renders one DaemonSet per entry of its instances, the default
+one and those of `extraInstances`, named `<fullname>-<index>` with the
+label `idx: i<index>`, behind one Service and one ServiceAccount named
+`<release>-prometheus-smartctl-exporter`. With the release name
+`smartctl-exporter` and no further instance, the DaemonSet is
+`smartctl-exporter-prometheus-smartctl-exporter-0`, the component's name,
+and carries `idx: i0` as the chart's does. The Service has port 80 to the
+container port `http`, so it is an entry of `generators.kubernetes.services`,
+as for `jellyfin`. The ServiceMonitor and PrometheusRule are off by default
+and not part of the recipe.
+
+DEC-362: The container of `smartctl-exporter` runs privileged as root and
+mounts the node's `/dev` at `/hostdev` as a `hostPath` volume, as the
+chart's template does without a value to change it. smartctl opens the
+device files of the disks and sends them ATA, SCSI or NVMe commands. That
+needs capabilities such as `CAP_SYS_RAWIO` for ATA pass-through, and for
+each disk its device node, which a privileged container gets from the
+node. The exporter runs `smartctl --scan` and then, per disk, `--info
+--health --attributes --capabilities` (`readjson.go` at v0.15.0), which
+read SMART data and write nothing to the disks.
+`--smartctl.powermode-check=standby` skips a disk in standby instead of
+waking it. Pod Security `baseline` forbids privileged containers
+and `hostPath` volumes, so the namespace needs the level `privileged`.
+`hostNetwork` stays off, the chart's default, and is a component key a
+target sets to scrape each node at its own address.
+
+DEC-363: `tests/values.yaml` sets `rbac.create: false`, so the recipe
+renders no RoleBinding. The chart's default binds its ServiceAccount to the
+ClusterRole `rbac.podSecurityPolicy`, `unrestricted-psp`, which the chart
+does not render. It is the role through which a cluster granted the use of
+a PodSecurityPolicy, and Kubernetes removed PodSecurityPolicy in 1.25. The
+binding grants nothing on a current cluster, and it would grant whatever a
+ClusterRole of that name holds once one exists. Keeping the chart's default
+was considered. The binding would be a `rbac` entry with `cluster_role:
+unrestricted-psp`, a permission the recipe cannot name.
+
+- RCP-435: `smartctl-exporter` MUST run the image
+  `quay.io/prometheuscommunity/smartctl-exporter:v0.15.0` as the DaemonSet
+  `smartctl-exporter-prometheus-smartctl-exporter-0`, privileged as UID 0
+  with the node's `/dev` at `/hostdev`, and the Service and ServiceAccount
+  `smartctl-exporter-prometheus-smartctl-exporter` (DEC-362).
+
+  - Test: `check smartctl-exporter --level renders` (RCP-12); RCP-437
+  - Since: #200
+
+- RCP-436: `tests/values.yaml` of `smartctl-exporter` MUST set
+  `rbac.create: false`, and the recipe MUST render no Role, ClusterRole or
+  binding (DEC-363).
+
+  - Test: `check smartctl-exporter --level renders`, permissions equal for
+    no subject
+  - Since: #200
+
+- RCP-437: The `tests/smoke` of `smartctl-exporter` MUST require
+  `smartctl_exporter_build_info` with the version of the DaemonSet's image
+  through the Service, `smartctl_devices` above 0, and one series of
+  `smartctl_device_smartctl_exit_status` for each disk it counts.
+
+  A kind node is a privileged container that sees the devices of its
+  host, so the exporter finds the host's disks. On a workstation with two
+  NVMe disks it reported both. With `privileged: false` on the running
+  DaemonSet, `smartctl_devices` was 0 and the test failed. CI runners have
+  disks of their own, which the test needs.
+
+  - Test: CI `check` job, report line `smoke`
+  - Since: #200
+
+- AC-435 (RCP-435 to RCP-437): `check smartctl-exporter --level deploys`
+  passes in CI on each Kubernetes minor.
+
+Not proven: SMART values of a failing disk, disks behind a RAID controller,
+which need `--smartctl.device` with a `-d` type, further instances, and
+the replacement of a Helm release.
+
 ## Migration
 
 Replacing a running Helm release cannot be a plain `kubectl apply`:
@@ -10891,3 +10978,4 @@ feature's design (OQ-6).
 | ntfy | `docker.io/binwiederhier/ntfy` v2.37.2, designed on the image (DEC-335), UID 1000 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-336), private instance with `deny-all` and users from `applications.ntfy.auth_users` (DEC-337), `NTFY_BASE_URL` required (DEC-338), message cache, users and attachments on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-410 to RCP-412) |
 | linkding | `docker-compose.yml` of linkding v1.47.0 at `24b5ad6` with `.env.sample` as `.env`, SQLite and the secret key on the claim `data`, UID 33 under `restricted` (DEC-339), background tasks off (DEC-340), first superuser from required parameters (DEC-341), `kubernetes` generator 1.14.0, level `deploys` (RCP-413 to RCP-416) |
 | gotify | `docker.io/gotify/server` 3.1.1, designed on the image (DEC-342), UID 1234 under `restricted` on port 80 by the sysctl `net.ipv4.ip_unprivileged_port_start` (DEC-343), the admin's password from `applications.gotify.admin_password` (DEC-344), SQLite database on the claim `data`, `kubernetes` generator 1.14.0, level `deploys` (RCP-418 to RCP-420) |
+| smartctl-exporter | chart `prometheus-smartctl-exporter` 0.19.2 of prometheus-community/helm-charts without its PodSecurityPolicy binding (DEC-363), smartctl_exporter 0.15.0 as a privileged DaemonSet with the node's `/dev` under Pod Security `privileged` (DEC-362), `kubernetes` generator 1.14.0, level `deploys` (RCP-435 to RCP-437) |
