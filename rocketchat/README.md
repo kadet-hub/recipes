@@ -174,7 +174,7 @@ Any list set in the target is appended to the recipe's list. To replace
 one, set the key to `~` in a class included after the recipe and the new
 list in the target.
 
-## Left out
+## Left out {#bitnami-mongodb}
 
 The chart's Bitnami MongoDB subchart gives way to `mongodb`, as
 `mongodb.enabled: false` with `externalMongodbUrl` in `tests/values.yaml`.
